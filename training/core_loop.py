@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,12 @@ from training.checkpoint import (
     CheckpointLifecycleManager,
     MetricVault,
 )
-from training.cli_args import add_clean_argument, add_timeframes_argument
+from training.cli_args import (
+    add_clean_argument,
+    add_override_frozen_argument,
+    add_timeframes_argument,
+)
+from training.cloud.session_deadline import DEADLINE_STATUS
 from training.cloud_sync import trigger_cloud_sync
 from training.config.secrets import load_secrets
 from training.context_data import (
@@ -34,13 +40,21 @@ from training.context_data import (
     build_val_loader_for,
     resolve_batch_size,
 )
-from training.context_resume import LoaderState, TrainState, resume_from_checkpoint
+from training.context_resume import (
+    LoaderState,
+    TrainState,
+    pin_resumed_emd_form,
+    resume_from_checkpoint,
+)
 from training.export import export_all
 from training.governance import SmartTrainingGovernor, SotaTracker
+from training.governance.quality_score import ScoreScheme
 from training.governance.yolo_governor import run_governed_yolo_training
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
+from training.ignored_targets import check_class_count
+from training.loss_emd import registry_emd_form
 from training.losses import CombinedLoss, ForexDualLoss
 from training.model_card import build_model_readme
 from training.notebook_generator import (
@@ -50,6 +64,19 @@ from training.notebook_generator import (
     generate_usage_notebook,
 )
 from training.parallel import build_parallel_strategy
+from training.registry.class_names import class_names
+from training.registry.forex_risk import risk_per_trade
+from training.registry.preprocessing import image_preprocessing
+from training.registry.task_type import resolve_task_type
+from training.run_settings.capture import (
+    SettingsInputs,
+    epoch_settings,
+    frozen_settings,
+    param_group_layout,
+)
+from training.run_settings.ledger import SettingsLedger
+from training.run_settings.policy import FrozenSettingsChanged, RunSettingsTracker
+from training.run_settings.refusal import ResumeRefusalRecord
 from training.training import (
     DataComponents,
     GovernanceComponents,
@@ -65,13 +92,14 @@ from training.training import (
     create_grad_scaler,
     run_training,
 )
+from training.training.step_progress import is_main_process
 from training.utils.interrupt import (
     _ACTIVE_PROCESSES,
     cleanup_active_processes,
     install_signal_handlers,
 )
 from training.utils.logging import install_force_tty
-from training.utils.paths import bootstrap_sys_path, get_project_root
+from training.utils.paths import bootstrap_sys_path, get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.core_loop")
 
@@ -135,6 +163,7 @@ def build_cli_parser() -> argparse.ArgumentParser:
         parser,
         "Start training fresh from epoch 1, wiping local checkpoints and ignoring hub checkpoints",
     )
+    add_override_frozen_argument(parser)
     parser.add_argument(
         "--phase", type=int, default=1, help="Training Phase (e.g. Pre-training=1, Fine-tuning=2)"
     )
@@ -200,16 +229,24 @@ def load_model_info(project_root: Path, config: dict, model_key: str) -> dict:
     models_dict = unified_models_registry.get("models")
     if not isinstance(models_dict, dict):
         models_dict = unified_models_registry
-    return models_dict.get(model_key, {})
+    model_info = models_dict.get(model_key, {})
+    # Rejects an invalid ``evaluation.risk_per_trade`` / ``stabilizers.emd_form`` /
+    # ``class_names`` / ``preprocessing`` at load time.
+    risk_per_trade(model_info)
+    registry_emd_form(model_info.get("stabilizers"))
+    class_names(model_info)
+    image_preprocessing(model_info)
+    return model_info
 
 
 def build_training_paths(project_root: Path, model_key: str) -> TrainingPaths:
     """Create the model's LemGendaryModels directories and return its artefact paths.
 
     The training suite is code-only; checkpoints, exports and metrics all go to
-    ``LemGendaryModels/<model_key>``.
+    ``LemGendaryModels/<model_key>`` under the one hub root (``get_models_hub_root``), which
+    on Kaggle is the kernel output, not the clone folder.
     """
-    models_hub_dir = (project_root.parent / "LemGendaryModels" / model_key).resolve()
+    models_hub_dir = get_model_hub_dir(model_key, project_root)
     models_hub_checkpoint_dir = models_hub_dir / "checkpoints"
     models_hub_dir.mkdir(parents=True, exist_ok=True)
     models_hub_checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -252,19 +289,23 @@ def clean_previous_run(paths: TrainingPaths, model_key: str) -> None:
                 logger.warning("Clean run could not remove %s: %s", clean_target, unlink_err)
 
 
-def resolve_task_type(model_info: dict) -> str:
-    """The model's task type (first entry of a list), ``restoration`` by default."""
-    raw_task_type = (
-        model_info.get("task_type")
-        or model_info.get("dataset_type")
-        or model_info.get("category")
-        or "restoration"
-    )
-    return raw_task_type[0] if isinstance(raw_task_type, list) else str(raw_task_type)
+def uses_perceptual_loss(model_info: dict[str, Any]) -> bool:
+    """Whether the model trains with the LPIPS loss term (owner decision R2-T5).
+
+    On for every model whose registry ``sota_targets`` include LPIPS (the registry is the
+    single source), and for a ``loss_fn`` that names an LPIPS term (e.g. ``l1_lpips``).
+    """
+    targets = model_info.get("sota_targets") or {}
+    loss_fn_name = str(model_info.get("loss_fn") or "").lower()
+    return "lpips" in targets or "lpips" in loss_fn_name
 
 
 def build_criterion(spec: RunSpec):
-    """Forex models train on ``ForexDualLoss``; everything else on ``CombinedLoss``."""
+    """Forex models train on ``ForexDualLoss``; everything else on ``CombinedLoss``.
+
+    A classifier declaring more classes than ids below ``IGNORE_TARGET`` raises
+    ``IgnoreTargetCollision`` (``training.ignored_targets``).
+    """
     loss_fn_name = str(spec.model_info.get("loss_fn") or "").lower()
     if (
         loss_fn_name == "forex_dual"
@@ -273,8 +314,12 @@ def build_criterion(spec: RunSpec):
     ):
         criterion = ForexDualLoss()
     else:
+        if spec.task_type == "classification":
+            check_class_count(spec.model_info, spec.model_key)
         criterion = CombinedLoss(
-            task_type=spec.task_type, stabilizers=spec.model_info.get("stabilizers")
+            task_type=spec.task_type,
+            stabilizers=spec.model_info.get("stabilizers"),
+            use_perc=uses_perceptual_loss(spec.model_info),
         )
     criterion.to(spec.device)
     return criterion
@@ -328,6 +373,8 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
         model_name=model_key,
         project_root=project_root,
         sota_targets=model_info.get("sota_targets", {}),
+        # The governor's task type, so best.pth and the governor share one score scheme.
+        score_scheme=ScoreScheme(resolve_task_type(model_info), risk_per_trade(model_info)),
     )
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
@@ -380,6 +427,26 @@ def build_model_stack(spec: RunSpec, total_epochs: int) -> tuple[TrainState, Any
     return train, parallel_strategy
 
 
+def track_run_settings(
+    spec: RunSpec, train: TrainState, total_epochs: int, run_folder: Path
+) -> RunSettingsTracker:
+    """The run's configured frozen and epoch settings; changes go to ``run_folder``'s ledger."""
+    inputs = SettingsInputs(
+        config=spec.config,
+        model_info=spec.model_info,
+        args=spec.args,
+        task_type=spec.task_type,
+        total_epochs=total_epochs,
+        model_class=type(train.raw_model).__name__,
+        param_groups=param_group_layout(train.optimizer.param_groups),
+    )
+    return RunSettingsTracker(
+        frozen_settings(inputs),
+        epoch_settings(inputs),
+        ledger=SettingsLedger.in_folder(run_folder),
+    )
+
+
 def build_data(spec: RunSpec, governor: Any, raw_model: Any, batch_size: int):
     """Build the datasets and loaders at the governor's data fraction.
 
@@ -407,6 +474,26 @@ def build_data(spec: RunSpec, governor: Any, raw_model: Any, batch_size: int):
     return data, val_loader, test_loader
 
 
+def resume_recording_refusal(resume: Callable[[], Any], refusal: ResumeRefusalRecord) -> Any:
+    """Run ``resume``; record a frozen-settings refusal for the Kaggle job watcher.
+
+    The main process removes a stale record first and writes the refusal text before the
+    refusal ends the run (``training.run_settings.refusal``).
+
+    Raises:
+        FrozenSettingsChanged: a frozen setting changed without ``--override-frozen``.
+    """
+    writer = is_main_process()
+    if writer:
+        refusal.clear()
+    try:
+        return resume()
+    except FrozenSettingsChanged as refused:
+        if writer:
+            refusal.write(refused)
+        raise
+
+
 def build_training_context(args: argparse.Namespace) -> TrainingContext:
     """Construct deterministic TrainingContext from parsed CLI arguments and workspace configs."""
     spec, setup = resolve_run(args)
@@ -415,21 +502,27 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     train, parallel_strategy = build_model_stack(spec, total_epochs)
     criterion = build_criterion(spec)
     batch_size = resolve_batch_size(spec, train.raw_model)
+    run_settings = track_run_settings(spec, train, total_epochs, setup.paths.export_dir)
 
     # Sentinels and governance.
     train.governor = SmartTrainingGovernor(model_info=spec.model_info, config=spec.config)
     train.governor.curriculum.update_batch_and_accumulation(batch_size)
     train.sota_tracker = SotaTracker()
 
-    data, val_loader, test_loader = build_data(
-        spec, train.governor, train.raw_model, batch_size
-    )
+    data, val_loader, test_loader = build_data(spec, train.governor, train.raw_model, batch_size)
 
+    # Created before the resume so the checkpoint's loss scale can be restored into it.
+    train.scaler = create_grad_scaler(setup.policy)
     resume_state = None
     if not args.clean:
         hub = setup.paths.models_hub
         metrics_csv = hub.metrics_csv if hub is not None else None
-        resume_state = resume_from_checkpoint(spec, train, data, metrics_csv)
+        resume_state = resume_recording_refusal(
+            lambda: resume_from_checkpoint(spec, train, data, metrics_csv, run_settings),
+            ResumeRefusalRecord.in_folder(setup.paths.export_dir),
+        )
+        if resume_state is not None and run_settings.legacy_checkpoint:
+            pin_resumed_emd_form(resume_state.governance.emd_form, criterion)
     total_epochs = grant_resume_budget(args, resume_state, total_epochs)
 
     return TrainingContext(
@@ -439,7 +532,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
             optimizer=train.optimizer,
             scheduler=train.scheduler,
             criterion=criterion,
-            scaler=create_grad_scaler(setup.policy),
+            scaler=train.scaler,
             raw_model=train.raw_model,
             parallel_strategy=parallel_strategy,
         ),
@@ -469,6 +562,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         ),
         state=RunState(
             resume_state=resume_state,
+            run_settings=run_settings,
         ),
     )
 
@@ -497,6 +591,10 @@ def main(raw_args: list[str] | None = None) -> None:
             f"[SUCCESS] Training completed at epoch {summary.final_epoch} "
             f"with status: {summary.status}"
         )
+
+        if summary.status == DEADLINE_STATUS:
+            # Progress is saved and synced; the next session resumes it. No release export.
+            return
 
         # Post-training export
         export_all(

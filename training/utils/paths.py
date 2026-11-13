@@ -3,6 +3,7 @@
 import functools
 import os
 import sys
+import sysconfig
 from pathlib import Path
 
 
@@ -38,25 +39,28 @@ def get_workspace_root() -> Path:
     return get_project_root().parent
 
 
-def get_models_hub_root(project_root: Path | None = None) -> Path:
-    """Return the root directory of the ``LemGendaryModels`` hub repository.
+MODELS_FOLDER = "LemGendaryModels"
+"""Folder of the trained models hub inside the workspace root."""
 
-    Honours ``KAGGLE_WORKING_DIR`` in cloud execution, an explicit isolated ``project_root``
-    when tests pass one that differs from the canonical project root, and otherwise resolves
-    ``get_workspace_root() / "LemGendaryModels"``.
+
+def get_models_hub_root(project_root: Path | None = None) -> Path:
+    """Return the root directory of the ``LemGendaryModels`` hub: the one hub-root resolver.
+
+    The hub is ``get_workspace_root() / "LemGendaryModels"``: ``LEMGENDARY_WORKSPACE_ROOT``
+    when set (the Kaggle notebook sets it to ``/kaggle/working`` while the suite runs from its
+    ``/kaggle/temp`` clone, so checkpoints land in the kernel output), else the project root's
+    parent (the local sibling checkout). An explicit ``project_root`` that differs from the
+    canonical one (an isolated test tree) resolves next to that tree instead.
     """
     if project_root is not None:
         root = Path(project_root).resolve()
         canon_root = get_project_root().resolve()
         if root != canon_root:
-            if (root.parent / "LemGendaryModels").exists():
-                return (root.parent / "LemGendaryModels").resolve()
-            return (root / "LemGendaryModels").resolve()
+            if (root.parent / MODELS_FOLDER).exists():
+                return (root.parent / MODELS_FOLDER).resolve()
+            return (root / MODELS_FOLDER).resolve()
 
-    if os.environ.get("KAGGLE_WORKING_DIR") or "/kaggle/working" in str(Path.cwd()):
-        return Path("/kaggle/working/LemGendaryModels").resolve()
-
-    return (get_workspace_root() / "LemGendaryModels").resolve()
+    return (get_workspace_root() / MODELS_FOLDER).resolve()
 
 
 def get_model_hub_dir(
@@ -87,13 +91,24 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
+def venv_site_packages(venv_dir: Path) -> Path:
+    """``site-packages`` of the virtual environment at ``venv_dir`` on this platform.
+
+    Windows venvs use ``Lib/site-packages``; POSIX venvs ``lib/pythonX.Y/site-packages``.
+    The layout comes from the interpreter's ``venv`` install scheme.
+    """
+    base = str(venv_dir)
+    purelib = sysconfig.get_path("purelib", scheme="venv", vars={"base": base, "platbase": base})
+    return Path(os.path.normpath(purelib))
+
+
 def bootstrap_sys_path() -> None:
     """Ensure project root and sibling dependency fallbacks are on sys.path."""
     proj_root = str(get_project_root())
     if proj_root not in sys.path:
         sys.path.insert(0, proj_root)
 
-    venv_site_pkgs = os.path.normpath(os.path.join(proj_root, ".venv", "Lib", "site-packages"))
+    venv_site_pkgs = str(venv_site_packages(Path(proj_root) / ".venv"))
     if os.path.exists(venv_site_pkgs) and venv_site_pkgs not in sys.path:
         sys.path.insert(1, venv_site_pkgs)
 

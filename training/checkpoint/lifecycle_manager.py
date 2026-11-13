@@ -45,13 +45,19 @@ from training.checkpoint.preflight_generator import (
     generate_preflight_assets,
 )
 from training.export.base import EXPORT_ERRORS
-from training.export.universal_exporter import export_universal_model
+from training.export.universal_exporter import export_summary, export_universal_model
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
+from training.governance.measurement import drop_target_echoes
 from training.governance.metrics import (
     CANONICAL_METRIC_ALIASES,
     LOWER_IS_BETTER_METRICS,
     is_lower_better,
     normalize_metric_name,
+)
+from training.governance.quality_score import (
+    ScoreScheme,
+    csv_row_quality,
+    payload_quality_scheme,
 )
 from training.model_card import build_model_readme
 from training.utils.paths import get_model_hub_dir, get_project_root
@@ -227,8 +233,12 @@ class CheckpointLifecycleManager:
         project_root: Path | None = None,
         sota_targets: dict[str, float] | None = None,
         min_progress_interval_sec: float = 900.0,  # 15 minutes
+        score_scheme: ScoreScheme | None = None,
     ) -> None:
         self.model_name = model_name
+        # Task type and options (Forex risk per trade) of the quality score scheme of
+        # best.pth and metrics.csv rows.
+        self.score_scheme = score_scheme or ScoreScheme()
         self.root = (project_root or get_project_root()).resolve()
         self.sota_targets = sota_targets or {}
         self.min_progress_interval_sec = min_progress_interval_sec
@@ -269,7 +279,9 @@ class CheckpointLifecycleManager:
         if self.paths.best_path.exists():
             try:
                 best_data = safe_load_checkpoint(self.paths.best_path)
-                if isinstance(best_data, dict):
+                if isinstance(best_data, dict) and self.score_scheme.is_comparable(
+                    payload_quality_scheme(best_data)
+                ):
                     saved_q = best_data.get("best_quality_score") or best_data.get("quality_score")
                     if saved_q is not None:
                         q_val = float(saved_q)
@@ -333,30 +345,21 @@ class CheckpointLifecycleManager:
 
         try:
             with open(self.paths.metrics_csv_path, encoding="utf-8", errors="ignore") as f:
-                reader = csv.DictReader(f)
-                for raw_row in reader:
-                    row = filter_metrics_row_for_fid_provenance(
-                        raw_row, self.paths.model_hub_dir
-                    )
-                    self._absorb_quality_row(row)
-                    self._absorb_vault_row(row)
+                rows = [
+                    filter_metrics_row_for_fid_provenance(raw_row, self.paths.model_hub_dir)
+                    for raw_row in csv.DictReader(f)
+                ]
+            for row in drop_target_echoes(rows, self.sota_targets, self.paths.metrics_csv_path):
+                self._absorb_quality_row(dict(row))
+                self._absorb_vault_row(dict(row))
         except OSError as exc:
             logger.debug("Failed parsing metrics.csv history for vault baselines: %s", exc)
 
     def _absorb_quality_row(self, row: dict[str, str]) -> None:
-        """Raise the quality score baseline from one metrics.csv row."""
-        for q_key in ["Quality", "Quality_Score", "quality_score"]:
-            if row.get(q_key):
-                try:
-                    q_val = float(row[q_key])
-                    self.tracking.best_quality_score = max(self.tracking.best_quality_score, q_val)
-                except ValueError as q_err:
-                    logger.debug(
-                        "Skipping non-numeric %s value %r in metrics.csv: %s",
-                        q_key,
-                        row[q_key],
-                        q_err,
-                    )
+        """Raise the quality score baseline from one metrics.csv row (current scale)."""
+        q_val = csv_row_quality(row, self.score_scheme.task_type)
+        if q_val is not None:
+            self.tracking.best_quality_score = max(self.tracking.best_quality_score, q_val)
 
     def _absorb_vault_row(self, row: dict[str, str]) -> None:
         """Update the SOTA target metric baselines from one metrics.csv row."""
@@ -374,6 +377,20 @@ class CheckpointLifecycleManager:
                 if _is_improvement(val, self.tracking.vault_bests.get(target_key), lower_better):
                     self.tracking.vault_bests[target_key] = val
 
+    def progress_due(self, step: int, total_steps: int) -> bool:
+        """Whether a progress checkpoint at ``step`` of ``total_steps`` passes the guardrails.
+
+        The phase fraction must lie in [0.02, 0.98] and ``min_progress_interval_sec`` must
+        have passed since the last save.
+        """
+        if total_steps <= 0:
+            return False
+        progress_fraction = step / float(total_steps)
+        if progress_fraction < 0.02 or progress_fraction > 0.98:
+            return False
+        elapsed = time.time() - self.tracking.last_progress_save_time
+        return elapsed >= self.min_progress_interval_sec
+
     def check_and_save_progress(
         self,
         epoch: int,
@@ -384,31 +401,39 @@ class CheckpointLifecycleManager:
     ) -> bool:
         """Evaluate and conditionally persist progress.pth checkpoint.
 
-        Guardrails:
+        Guardrails (:meth:`progress_due`):
         1. At least min_progress_interval_sec (15 min) elapsed since last progress save.
         2. Progress within current phase is bounded:
            0.02 <= (step / total_steps) <= 0.98.
         Avoids saving during initial warmup (<2%) or immediately before epoch completion (>98%).
+        :meth:`save_progress_now` skips both (the session deadline stop saves wherever it is).
         """
-        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+        if not self.progress_due(step, total_steps):
             return False
+        return self.save_progress_now(epoch, phase, step, total_steps, payload_builder)
+
+    def save_progress_now(
+        self,
+        epoch: int,
+        phase: str,
+        step: int,
+        total_steps: int,
+        payload_builder: Callable[[], dict[str, Any]],
+    ) -> bool:
+        """Persist progress.pth now, without the :meth:`progress_due` guardrails.
+
+        Every rank calls this together: the payload builder gathers the generator state of
+        all ranks (a collective call under DDP); only rank 0 writes the file.
+        """
         if total_steps <= 0:
             return False
 
         progress_fraction = step / float(total_steps)
-
-        # Progress checkpoint bounds enforcement: save across 2% to 98% of phase
-        # Avoids saving during initial warmup (<2%) or immediately before latest.pth (>98%)
-        if progress_fraction < 0.02 or progress_fraction > 0.98:
-            return False
-
         now = time.time()
-        elapsed = now - self.tracking.last_progress_save_time
-        if elapsed < self.min_progress_interval_sec:
-            return False
 
-        # Build payload and write atomically
         payload = payload_builder()
+        if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+            return False
         payload["progress_metadata"] = {
             "epoch": epoch,
             "phase": phase,
@@ -582,10 +607,11 @@ class CheckpointLifecycleManager:
                 dummy_input=source.dummy_input,
                 stage_dist=True,
             )
-            return exported
         except EXPORT_ERRORS as exc:
             logger.error("Universal tri-format export failed for %s: %s", self.model_name, exc)
             return {}
+        print(export_summary(self.model_name, exported), flush=True)
+        return exported
 
     def refresh_readme(self, epoch: int, best_metrics: dict[str, float]) -> None:
         """Update LemGendaryModels/[ModelName]/README.md with current best metrics."""

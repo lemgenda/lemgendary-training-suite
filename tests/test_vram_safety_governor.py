@@ -1,6 +1,7 @@
 """Unit tests for the VRAM safety governor: hardware caps, ratchet guards and CPU fallback."""
 
 import unittest
+from operator import methodcaller
 
 import torch
 
@@ -42,9 +43,10 @@ class TestVRAMSafetyGovernor(unittest.TestCase):
             "optimization": {"res_ladder": [256, 384, 512]},
         }
         gov = SmartTrainingGovernor(model_info)
-        getattr(gov, '_commit_rung')(512, 0.20)
+        # The governor's internal rung hook, called by name as the epoch audit does.
+        methodcaller("_commit_rung", 512, 0.20)(gov)
         with self.assertRaises(RatchetViolation):
-            getattr(gov, '_commit_rung')(384, 0.20)
+            methodcaller("_commit_rung", 384, 0.20)(gov)
         self.assertEqual(gov.current_res, 512)
 
     def test_audit_hardware_vram_cpu_fallback(self):

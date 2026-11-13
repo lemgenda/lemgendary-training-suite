@@ -15,7 +15,15 @@ from typing import Any
 
 import torch
 
+from data.sample_labels import FACE_TARGET_LEN
+from training.ignored_targets import labelled
 from training.training.amp import compute_ssim_gpu
+from training.training.face_detection_metrics import (
+    FACE_DETECTION_METRICS,
+    FacePrediction,
+    record_face_batch,
+)
+from training.training.forex_equity import risk_multiple
 from training.training.val_accumulators import ImageMetricModules, ValAccumulators
 from training.utils.error_types import METRIC_INIT_ERRORS
 from training.utils.lazy_imports import load_fid_metric, load_lpips_metric, load_optional
@@ -28,8 +36,6 @@ METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, Type
 
 LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
 FrechetInceptionDistance = load_optional(load_fid_metric)
-
-_DETECTION_KEYS = ("map50", "map50_95", "map_easy", "map_medium", "map_hard")
 
 
 @dataclass
@@ -263,10 +269,13 @@ def update_classification(acc: ValAccumulators, batch: ValBatch) -> None:
             return
         preds, targets = pair
         if preds.ndim >= 2 and (targets.ndim == 1 or targets.shape[-1] == 1):
-            pred_labels = torch.argmax(preds, dim=-1).squeeze()
-            tgt_labels = targets.squeeze().long()
-            acc.tasks.total_cls_correct += int((pred_labels == tgt_labels).sum().item())
-            acc.tasks.total_cls_samples += tgt_labels.numel()
+            pred_labels = torch.argmax(preds, dim=-1).reshape(-1)
+            tgt_labels = targets.reshape(-1).long()
+            # Unlabeled samples (IGNORE_TARGET) count neither as right nor as wrong.
+            known = labelled(tgt_labels)
+            hits = (pred_labels == tgt_labels) & known
+            acc.tasks.total_cls_correct += int(hits.sum().item())
+            acc.tasks.total_cls_samples += int(known.sum().item())
         elif preds.ndim == 1 and targets.ndim == 1:
             pred_bin = (torch.sigmoid(preds) > 0.5).long()
             acc.tasks.total_cls_correct += int((pred_bin == targets.long()).sum().item())
@@ -308,25 +317,32 @@ def update_segmentation(acc: ValAccumulators, batch: ValBatch) -> None:
         logger.warning("Segmentation mIoU evaluation error: %s", exc)
 
 
-def update_detection(acc: ValAccumulators, batch: ValBatch) -> None:
-    """Object and face detection (RetinaFace, YOLO) confidence match score."""
-    if not any(k in batch.sota_cfg for k in _DETECTION_KEYS):
-        return
+def _face_prediction(batch: ValBatch) -> FacePrediction | None:
+    """The RetinaFace ``(boxes, confidence, landmarks)`` output of a batch with face targets."""
     preds, targets = batch.preds, batch.targets
+    if not (
+        isinstance(preds, (tuple, list))
+        and len(preds) >= 3
+        and all(isinstance(p, torch.Tensor) for p in preds[:3])
+        and isinstance(targets, torch.Tensor)
+        and targets.ndim == 2
+        and targets.shape[-1] == FACE_TARGET_LEN
+    ):
+        return None
+    return FacePrediction(boxes=preds[0], confidence=preds[1], landmarks=preds[2])
+
+
+def update_face_detection(acc: ValAccumulators, batch: ValBatch) -> None:
+    """Single-box face detection (RetinaFace): box IoU, confidence ranking and landmark NME."""
+    if not any(k in batch.sota_cfg for k in FACE_DETECTION_METRICS):
+        return
+    prediction = _face_prediction(batch)
+    if prediction is None:
+        return
     try:
-        if (
-            isinstance(preds, (tuple, list))
-            and len(preds) >= 2
-            and isinstance(targets, torch.Tensor)
-        ):
-            p_conf = preds[1] if isinstance(preds[1], torch.Tensor) else preds[0]
-            t_conf = targets[:, 0:1] if targets.ndim >= 2 else targets
-            conf_diff = torch.abs(torch.sigmoid(p_conf.float()) - t_conf.float()).mean()
-            acc.tasks.detection_ap_scores.append(
-                float(torch.clamp(1.0 - conf_diff, 0.0, 1.0).item())
-            )
+        record_face_batch(acc.faces, prediction, batch.targets)
     except METRIC_ERRORS as exc:
-        logger.warning("Detection score evaluation error: %s", exc)
+        logger.warning("Face detection metric evaluation error: %s", exc)
 
 
 def _sequence_pair(value: Any) -> tuple[Any, Any] | None:
@@ -391,7 +407,11 @@ def _simulate_trades(
     for idx, pred_d in enumerate(dirs_np):
         tp_val = float(mags_np[idx, 0]) if mags_np is not None else 15.0
         sl_val = float(mags_np[idx, 1]) if mags_np is not None else 15.0
-        acc.trades.trade_returns.append(tp_val if int(pred_d) == int(targets_np[idx]) else -sl_val)
+        won = int(pred_d) == int(targets_np[idx])
+        acc.trades.trade_returns.append(tp_val if won else -sl_val)
+        multiple = risk_multiple(tp_val, sl_val, won)
+        if multiple is not None:
+            acc.trades.trade_risk_multiples.append(multiple)
 
 
 def update_forex(acc: ValAccumulators, batch: ValBatch) -> None:
@@ -448,7 +468,7 @@ BATCH_METRICS: tuple[Callable[[ValAccumulators, ValBatch], None], ...] = (
     update_classification,
     update_parameter_mae,
     update_segmentation,
-    update_detection,
+    update_face_detection,
     update_llm_tokens,
     update_forex,
 )

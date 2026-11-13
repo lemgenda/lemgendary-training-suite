@@ -39,12 +39,12 @@ class TestHubDirectories(unittest.TestCase):
             workspace = Path(os.environ[WORKSPACE_ROOT_ENV])
             self.assertFalse((workspace / "LemGendaryModels").exists())
 
-    def test_push_stages_into_its_own_hub(self) -> None:
-        """A manager with its own hub root stages there, not in the workspace hub."""
+    def test_dry_run_push_stages_nothing(self) -> None:
+        """A dry run validates what is there; it never moves files into dist/kaggle (K-MDL-8)."""
         with tempfile.TemporaryDirectory() as hub:
             mgr = KaggleModelSyncManager(username="owner", hub_root=hub)
             mgr.push_model("mirnet_exposure", dry_run=True)
-            self.assertTrue((Path(hub) / "mirnet_exposure" / "dist" / "kaggle").is_dir())
+            self.assertFalse((Path(hub) / "mirnet_exposure" / "dist").exists())
             workspace = Path(os.environ[WORKSPACE_ROOT_ENV])
             self.assertFalse((workspace / "LemGendaryModels").exists())
 

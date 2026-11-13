@@ -16,7 +16,8 @@ import torch
 import yaml
 
 from training.checkpoint.manager import safe_load_checkpoint
-from training.utils.paths import get_project_root
+from training.utils.model_payload import ModelPayloadError, model_payload_of
+from training.utils.paths import get_models_hub_root, get_project_root
 
 logger = logging.getLogger("lemtrain.services.checkpoint_service")
 
@@ -83,7 +84,7 @@ class CheckpointService:
         self.checkpoints_root = self.project_root / "checkpoints"
 
         # Resolve configured external LemGendaryModels hub directory
-        hub_path = (self.project_root / ".." / "LemGendaryModels").resolve()
+        hub_path = get_models_hub_root(self.project_root)
         cfg_path = self.project_root / "config.yaml"
         if cfg_path.exists():
             try:
@@ -158,26 +159,18 @@ class CheckpointService:
         if not metrics and "best_fitness" in loaded:
             metrics = {"fitness": float(loaded.get("best_fitness", 0.0))}
 
-        # Determine parameter count and keys
-        model_state = loaded.get("model_state") or loaded.get("state_dict") or {}
+        # Determine parameter count and keys (release payload, checkpoint or bare state dict)
         param_count = 0
         layer_names: list[str] = []
-
-        if isinstance(model_state, dict) and model_state:
-            for name, tensor in model_state.items():
-                layer_names.append(str(name))
-                if isinstance(tensor, torch.Tensor):
-                    param_count += tensor.numel()
-        elif "model" in loaded and hasattr(loaded["model"], "named_parameters"):
-            try:
-                for name, param in loaded["model"].named_parameters():
-                    layer_names.append(str(name))
-                    if isinstance(param, torch.Tensor):
-                        param_count += param.numel()
-            except (AttributeError, TypeError, RuntimeError) as param_err:
-                logger.warning(
-                    "Could not enumerate parameters of pickled model in %s: %s", path, param_err
-                )
+        try:
+            model_state = model_payload_of(loaded).state_dict
+        except ModelPayloadError as state_err:
+            logger.warning("No model weights found in %s: %s", path, state_err)
+            model_state = {}
+        for name, tensor in model_state.items():
+            layer_names.append(str(name))
+            if isinstance(tensor, torch.Tensor):
+                param_count += tensor.numel()
 
         return {
             "path": str(path),

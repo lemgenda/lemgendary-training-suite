@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from training import ecosystem
@@ -128,3 +129,65 @@ class TestKaggleDatasetRefs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestKaggleAndGitHubReaders(unittest.TestCase):
+    """``kaggle`` section and ``identity.github_url`` readers (mirror env_manager.ecosystem)."""
+
+    def setUp(self) -> None:
+        ecosystem.clear_cache()
+
+    def tearDown(self) -> None:
+        ecosystem.clear_cache()
+
+    def _with_file(self, mutate: Any) -> None:
+        """Load a mutated copy of the fixture and expect EcosystemFileError."""
+        bad = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        mutate(bad)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "ecosystem.json"
+            path.write_text(json.dumps(bad), encoding="utf-8")
+            with (
+                mock.patch.dict(os.environ, {ECOSYSTEM_FILE_ENV: str(path)}),
+                self.assertRaises(EcosystemFileError),
+            ):
+                ecosystem.ecosystem()
+
+    def test_collaborators_and_accelerators(self) -> None:
+        """Collaborators, accelerators and the default come from the fixture."""
+        self.assertEqual(ecosystem.kaggle_collaborators(), ("fixture-editor-a", "fixture-editor-b"))
+        self.assertEqual([a.id for a in ecosystem.kaggle_accelerators()], ["cpu", "gpu-fixture"])
+        self.assertEqual(ecosystem.kaggle_accelerator().machine_shape, "FixtureGpuShape")
+        self.assertIsNone(ecosystem.kaggle_accelerator("cpu").machine_shape)
+        self.assertEqual(ecosystem.kaggle_retired_machine_shapes(), ("FixtureRetiredShape",))
+        with self.assertRaises(EcosystemFileError):
+            ecosystem.kaggle_accelerator("no-such-accelerator")
+
+    def test_github_repo_url(self) -> None:
+        """Clone URLs are ``<github_url>/<folder>.git`` for known project folders only."""
+        self.assertEqual(ecosystem.github_url(), "https://git.fixture.example/fixture-org")
+        self.assertEqual(
+            ecosystem.github_repo_url("lemgendary-training-suite"),
+            "https://git.fixture.example/fixture-org/lemgendary-training-suite.git",
+        )
+        with self.assertRaises(EcosystemFileError):
+            ecosystem.github_repo_url("no-such-project")
+
+    def test_invalid_kaggle_section(self) -> None:
+        """Unknown default, retired shape and a CPU with a shape are rejected."""
+
+        def unknown_default(raw: dict[str, Any]) -> None:
+            raw["kaggle"]["default_accelerator"] = "missing"
+
+        def retired(raw: dict[str, Any]) -> None:
+            raw["kaggle"]["accelerators"][1]["machine_shape"] = "fixtureretiredshape"
+
+        def cpu_with_shape(raw: dict[str, Any]) -> None:
+            raw["kaggle"]["accelerators"][0]["machine_shape"] = "Shape"
+
+        def no_github(raw: dict[str, Any]) -> None:
+            del raw["identity"]["github_url"]
+
+        for mutate in (unknown_default, retired, cpu_with_shape, no_github):
+            with self.subTest(mutate.__name__):
+                self._with_file(mutate)

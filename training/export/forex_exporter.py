@@ -1,6 +1,8 @@
 """Forex model exporter for LemGendary AI Training Suite.
 
-Handles MetaTrader 5 Expert Advisor signal ONNX and PyTorch checkpoints.
+Writes the three release variants of a ForexPredictor (MetaTrader 5 Expert Advisor signal):
+``<Stem>.pt``, ``<Stem>_FP32.onnx`` + ``.onnx.data`` and ``<Stem>.onnx`` (FP16 weights with
+FP32 inputs and outputs, so the EA can feed float arrays to either graph).
 """
 
 from __future__ import annotations
@@ -9,97 +11,58 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import onnx
-import torch
-from onnx import external_data_helper
-from onnxconverter_common import float16
 from torch import nn
 
+from models.forex_predictor import ForexPredictor
+from training.cloud.variations import PT_SUFFIX
 from training.export.base import (
     EXPORT_ERRORS,
     MODEL_IO_ERRORS,
     BaseModelExporter,
     spec_dataset_types,
 )
-from training.export.mt5_signal import export_forex_onnx, export_forex_onnx_from_model
+from training.export.mt5_signal import (
+    DEFAULT_TIMEFRAMES,
+    forex_variant_writer,
+    load_forex_checkpoint,
+)
+from training.export.onnx_variants import write_release_variants
+from training.export.torch_standalone import export_torch_standalone
+from training.export.validation import resolve_model_stem
 from training.registry import ModelSpecification
 
 logger = logging.getLogger("lemtrain.export.forex")
 
 
-def _save_forex_state_dict(model: Any, checkpoint_path: Path | str | None, pt_path: Path) -> bool:
-    """Save the FP32 state dict from the model, else from the checkpoint; False if neither."""
+def _resolve_forex_model(
+    model: Any, checkpoint_path: Path | str | None, active_timeframes: list[int]
+) -> nn.Module | None:
+    """The in-memory model, else one rebuilt from ``checkpoint_path``; None if neither."""
     if isinstance(model, nn.Module):
-        torch.save(model.state_dict(), str(pt_path))
-        logger.info("Saved Forex FP32 PyTorch model state dict to %s", pt_path)
-        return True
+        return model.eval()
     if checkpoint_path and Path(checkpoint_path).exists():
-        ckpt = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
-        state = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
-        torch.save(state, str(pt_path))
-        logger.info("Saved Forex FP32 PyTorch model state dict from checkpoint to %s", pt_path)
-        return True
-    return False
-
-
-def _trace_forex_onnx(
-    model: Any,
-    checkpoint_path: Path | str | None,
-    fp32_onnx_path: Path,
-    active_timeframes: list[int] | None,
-) -> Path | None:
-    """Trace the model (or the checkpoint) to an FP32 ONNX graph; ``None`` if neither."""
-    if isinstance(model, nn.Module):
-        return export_forex_onnx_from_model(
-            model=model,
-            out_path=fp32_onnx_path,
-            active_timeframes=active_timeframes,
-        )
-    if checkpoint_path and Path(checkpoint_path).exists():
-        return export_forex_onnx(
-            checkpoint_path=checkpoint_path,
-            out_path=fp32_onnx_path,
-            active_timeframes=active_timeframes,
-        )
-    logger.warning("No model instance or checkpoint file provided for Forex ONNX tracing.")
+        return load_forex_checkpoint(checkpoint_path, active_timeframes)
+    logger.warning("No model instance or checkpoint file provided for Forex export.")
     return None
 
 
-def _sidecar_and_fp16(
-    fp32_onnx_path: Path, fp16_onnx_path: Path, exported_files: dict[str, Path]
-) -> None:
-    """Move FP32 weights to a ``.onnx.data`` sidecar, then write an integrated FP16 graph."""
-    fp32_data_filename = f"{fp32_onnx_path.name}.data"
-    # Load the full FP32 model into memory before converting to sidecar
-    m_fp32 = onnx.load(str(fp32_onnx_path))
+def _pt_metadata(model_key: str, model: nn.Module) -> dict[str, Any]:
+    """``.pt`` metadata: the model key and, for a ``ForexPredictor``, its ``model_kwargs``.
 
-    # Convert FP32 model to external data sidecar (.onnx.data)
-    external_data_helper.convert_model_to_external_data(
-        m_fp32,
-        all_tensors_to_one_file=True,
-        location=fp32_data_filename,
-        size_threshold=1024,
-        convert_attribute=False,
-    )
-    onnx.save(m_fp32, str(fp32_onnx_path))
-    exported_files["onnx_fp32"] = fp32_onnx_path
-    exported_files["onnx_fp32_data"] = fp32_onnx_path.parent / fp32_data_filename
-    logger.info(
-        "Exported Forex FP32 ONNX graph (%s) with binary data sidecar (%s)",
-        fp32_onnx_path.name,
-        fp32_data_filename,
-    )
+    :func:`training.export.mt5_signal.load_forex_checkpoint` rebuilds the model from them, so a
+    non-default architecture loads without the registry.
+    """
+    metadata: dict[str, Any] = {"model_key": model_key}
+    if isinstance(model, ForexPredictor):
+        metadata["model_kwargs"] = model.model_kwargs()
+    return metadata
 
-    # Load the model with external data to convert weights to float16
-    m_for_fp16 = onnx.load(str(fp32_onnx_path), load_external_data=True)
-    m_fp16 = float16.convert_float_to_float16(m_for_fp16)
-    onnx.save(m_fp16, str(fp16_onnx_path))
-    exported_files["onnx"] = fp16_onnx_path
-    exported_files["onnx_fp16"] = fp16_onnx_path
-    logger.info(
-        "Exported Forex FP16 integrated ONNX model (%s)",
-        fp16_onnx_path.name,
-    )
+
+def _active_timeframes(requested: list[int] | None, spec: ModelSpecification | None) -> list[int]:
+    """``requested``, else the registry kwargs' ``active_timeframes``, else the defaults."""
+    if requested is None and spec:
+        requested = (spec.raw_config or {}).get("kwargs", {}).get("active_timeframes")
+    return list(requested or DEFAULT_TIMEFRAMES)
 
 
 class ForexModelExporter(BaseModelExporter):
@@ -121,39 +84,31 @@ class ForexModelExporter(BaseModelExporter):
         spec: ModelSpecification | None = None,
         **kwargs: Any,
     ) -> dict[str, Path]:
-        """Export a Forex model to ONNX (FP32 sidecar + FP16 integrated) and PyTorch formats."""
+        """Export a Forex model (``model`` or ``checkpoint_path`` kwarg) to the three variants."""
         target_dir = self.resolve_destination(model_key, output_dir)
         resolved_spec = self.resolve_spec(model_key, spec)
+        stem = resolve_model_stem(model_key, resolved_spec)
 
-        checkpoint_path: Path | str | None = kwargs.get("checkpoint_path")
-        active_timeframes: list[int] | None = kwargs.get("active_timeframes")
-        if active_timeframes is None and resolved_spec:
-            active_timeframes = (
-                (resolved_spec.raw_config or {})
-                .get("kwargs", {})
-                .get("active_timeframes", [1, 5, 15, 60, 240, 1440])
-            )
+        timeframes = _active_timeframes(kwargs.get("active_timeframes"), resolved_spec)
 
-        exported_files: dict[str, Path] = {}
-
-        # 1. Standalone FP32 PyTorch state dict (.pt)
-        pt_path = target_dir / f"{model_key}.pt"
+        exported: dict[str, Path] = {}
         try:
-            if _save_forex_state_dict(model, checkpoint_path, pt_path):
-                exported_files["pt"] = pt_path
-        except MODEL_IO_ERRORS as exc:
-            logger.warning("Failed saving Forex .pt state dict: %s", exc)
-
-        # 2. FP32 ONNX Model with Separate Weights Sidecar (.onnx + .onnx.data)
-        # 3. FP16 ONNX Model with Integrated Weights (.onnx)
-        fp32_onnx_path = target_dir / f"{model_key}_FP32.onnx"
-        try:
-            exported_base = _trace_forex_onnx(
-                model, checkpoint_path, fp32_onnx_path, active_timeframes
-            )
-            if exported_base and exported_base.exists():
-                _sidecar_and_fp16(fp32_onnx_path, target_dir / f"{model_key}.onnx", exported_files)
+            forex_model = _resolve_forex_model(model, kwargs.get("checkpoint_path"), timeframes)
         except (*EXPORT_ERRORS, *MODEL_IO_ERRORS) as exc:
-            logger.error("Failed Forex ONNX tri-format export: %s", exc)
+            logger.error("Could not load the Forex model for export: %s", exc)
+            return exported
+        if forex_model is None:
+            return exported
 
-        return exported_files
+        pt_path = target_dir / f"{stem}{PT_SUFFIX}"
+        try:
+            export_torch_standalone(
+                forex_model, pt_path, metadata=_pt_metadata(model_key, forex_model)
+            )
+            exported["pt"] = pt_path
+        except (*EXPORT_ERRORS, *MODEL_IO_ERRORS) as exc:
+            logger.warning("Failed saving Forex .pt model: %s", exc)
+
+        writer = forex_variant_writer(forex_model, timeframes)
+        exported.update(write_release_variants(writer, target_dir, stem))
+        return exported

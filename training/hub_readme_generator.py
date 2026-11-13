@@ -17,6 +17,7 @@ import yaml
 
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.telemetry import TelemetryEngine
+from training.utils.paths import get_models_hub_root
 
 logger = logging.getLogger("lemtrain.docs.hub_readme_generator")
 
@@ -294,7 +295,7 @@ class _Dashboard:
 def generate_hub_readme(project_root: str = workspace_root) -> None:
     """Write LemGendaryModels/README.md summarising training status of every model."""
     yaml_path = os.path.join(project_root, "unified_models_v2.yaml")
-    hub_dir = os.path.join(os.path.dirname(project_root), "LemGendaryModels")
+    hub_dir = str(get_models_hub_root(Path(project_root)))
     readme_path = os.path.join(hub_dir, "README.md")
 
     with open(yaml_path, encoding="utf-8") as f:

@@ -10,10 +10,14 @@ from PIL import Image, ImageFile
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from data.container_targets import ContainerTargetsMixin
 from data.dataset_containers import DatasetContainerMixin
 from data.dataset_sources import DatasetSourcesMixin
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from data.dataset_targets import DatasetTargetsMixin
+from training.data.sample_seed import AugmentationSeed, seeded_sample_rngs
+from training.registry.class_names import class_names
+from training.registry.preprocessing import image_preprocessing, task_type_of
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
@@ -58,7 +62,13 @@ def _load_nima_scores(idx_path, scores):
         logger.debug("Failed loading NIMA index from %s: %s", idx_path, nima_err)
 
 
-class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, DatasetTargetsMixin):
+class MultiTaskDataset(
+    Dataset,
+    DatasetSourcesMixin,
+    DatasetContainerMixin,
+    ContainerTargetsMixin,
+    DatasetTargetsMixin,
+):
     """
     Nuclear-Hardened Universal Dataset (v16.0).
     Implements Fallback Shields, LANCZOS scaling, and stratified distribution analytics.
@@ -78,12 +88,13 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
 
         model_key = model_key or next(iter(unified_models))
         model_info = unified_models[model_key]
-        raw_type = model_info.get("dataset_type", "restoration")
         self.spec = ModelSpec(
             unified_models=unified_models,
             model_key=model_key,
             model_info=model_info,
-            task_type=raw_type[0] if isinstance(raw_type, list) else raw_type,
+            task_type=task_type_of(model_info),
+            class_names=class_names(model_info),
+            preprocessing=image_preprocessing(model_info),
         )
         self.opts = DatasetOptions(
             is_train=is_train,
@@ -105,6 +116,7 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
 
         self.pipes = TransformSet()
         self.build_transforms()
+        self.augment_seed = AugmentationSeed()
 
     @property
     def task_type(self) -> str:
@@ -181,9 +193,11 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
                 transform_list.append(transforms.ColorJitter(brightness=0.05, contrast=0.05))
 
         transform_list.append(transforms.ToTensor())
-        if self.spec.task_type == "quality":
+        # The model's one preprocessing (registry ``preprocessing`` / task type default).
+        preprocessing = self.spec.preprocessing
+        if preprocessing.normalizes:
             transform_list.append(
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                transforms.Normalize(mean=list(preprocessing.mean), std=list(preprocessing.std))
             )
 
         self.pipes.transform = transforms.Compose(transform_list)
@@ -223,6 +237,10 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
             logger.warning("I/O failure on %s; substituting neutral gray: %s", img_path, e)
             return Image.new("RGB", (self.opts.size[1], self.opts.size[0]), (128, 128, 128))
 
+    def set_epoch(self, epoch: int) -> None:
+        """Derive the per-sample augmentation seeds of ``epoch`` (workers included)."""
+        self.augment_seed.set_epoch(epoch)
+
     def __len__(self):
         return len(self.catalog.samples)
 
@@ -231,13 +249,15 @@ class MultiTaskDataset(Dataset, DatasetSourcesMixin, DatasetContainerMixin, Data
             return self.sync_dummy()
 
         ds_name, sample_id = self.catalog.samples[index]
+        # Same augmentation for the same (epoch, index) on any worker, rank or resume.
+        seed = self.augment_seed.sample_seed(index)
+        with seeded_sample_rngs(seed):
+            # Container-backed sample path: sample_id is an integer index.
+            if isinstance(sample_id, int):
+                return self.getitem_container(ds_name, sample_id, seed)
 
-        # Container-backed sample path: sample_id is an integer index.
-        if isinstance(sample_id, int):
-            return self.getitem_container(ds_name, sample_id)
-
-        # Directory-backed path: sample_id is a filename string.
-        return self.task_item(self.load_directory_sample(ds_name, sample_id))
+            # Directory-backed path: sample_id is a filename string.
+            return self.task_item(self.load_directory_sample(ds_name, sample_id, seed))
 
     def update_strategy(self, size=None, fraction=None, stress=None):
         """Dynamic manifold scaling for curriculum learning (v16.2)."""

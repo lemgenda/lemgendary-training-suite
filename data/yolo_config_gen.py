@@ -1,11 +1,18 @@
-"""Generate Ultralytics YOLO dataset YAML configs from the unified model registry."""
+"""Generate Ultralytics YOLO dataset YAML configs from the unified model registry.
+
+A manifold of WebDataset shards trains through the images/labels cache of
+:mod:`data.yolo_shard_cache` (its ``data.yaml``); a loose images/labels folder is served
+in place.
+"""
 
 import logging
 import os
 import shutil
+from pathlib import Path
 
 import yaml
 
+from data.yolo_shard_cache import has_shards, materialise_yolo_cache
 from training.data.manifold import ManifoldResolver
 
 logger = logging.getLogger("lemtrain.data.yolo_config_gen")
@@ -188,10 +195,30 @@ def _remove_legacy_training_dir(suite_root, model_key):
             )
 
 
+YOLO_CACHE_DIR = Path(".cache") / "yolo_datasets"
+"""Shard caches below the suite root, one folder per manifold."""
+
+
+def yolo_cache_dir(suite_root, manifold_name):
+    """Cache folder of ``manifold_name``'s materialised YOLO dataset."""
+    return Path(suite_root) / YOLO_CACHE_DIR / manifold_name
+
+
+def _shard_cache_yaml(manifold_dir, suite_root, model_key):
+    """Materialise (or resume) the shard cache of ``manifold_dir``; its ``data.yaml`` path."""
+    cache = materialise_yolo_cache(manifold_dir, yolo_cache_dir(suite_root, manifold_dir.name))
+    print(
+        f"[YOLO GEN] {model_key} trains from the shard cache {cache.root} "
+        f"({len(cache.names)} classes, images {cache.images})."
+    )
+    return str(cache.data_yaml)
+
+
 def generate_yolo_yaml(config, model_key, unified_models_registry):
     """2026 Dynamic YOLO Config Generator (v2.0).
 
-    Resolves physical dataset paths and class counts from the unified registries.
+    Resolves physical dataset paths and class counts from the unified registries. A
+    sharded manifold is materialised first and its cache's ``data.yaml`` is returned.
     """
     model_info = unified_models_registry.get(model_key, {})
     dataset_names = model_info.get("datasets", [])
@@ -205,6 +232,10 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
 
     resolver = ManifoldResolver(env=config.get("env", "local"), config=config)
     resolved_path = resolver.resolve_manifold(dataset_names[0])
+    suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    if resolved_path is not None and resolved_path.is_dir() and has_shards(resolved_path):
+        return _shard_cache_yaml(resolved_path, suite_root, model_key)
 
     if resolved_path is not None and resolved_path.exists():
         names = _manifold_names(resolved_path, model_key, names)
@@ -212,7 +243,6 @@ def generate_yolo_yaml(config, model_key, unified_models_registry):
     else:
         yolo_cfg = _fallback_cfg(config, dataset_names, abs_data_root, names)
 
-    suite_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cache_dir = os.path.join(suite_root, ".cache", "yolo_configs")
     os.makedirs(cache_dir, exist_ok=True)
     temp_cfg_path = os.path.join(cache_dir, f"yolo_{model_key}_config.yaml")

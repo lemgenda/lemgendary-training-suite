@@ -69,6 +69,7 @@ class LocalJobsMixin:
                 preset=params.get("preset"),
                 env=params.get("env", "local"),
                 clean=params.get("clean", False),
+                override_frozen=params.get("override_frozen", False),
                 auto_sync=params.get("auto_sync", False),
                 parallel=params.get("parallel", "auto"),
                 resolution=params.get("resolution"),

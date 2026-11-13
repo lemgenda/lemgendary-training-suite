@@ -2,8 +2,11 @@
 
 ``lemgendary-env-manager/ecosystem/ecosystem.json`` is the single source of
 truth for the facts every project shares (sidecar ports, project folders, the
-Kaggle owner, the documentation URL). This module is the only place in this
-repository that locates and parses it. Lookup order:
+Kaggle owner, the documentation URL, the GitHub owner URL and the ``kaggle``
+section: model collaborators and accelerators). The readers here mirror those of
+``env_manager.ecosystem`` (this suite does not install the environment manager).
+This module is the only place in this repository that locates and parses it.
+Lookup order:
 
 1. ``LEMGENDARY_ECOSYSTEM_FILE`` (tests point it at a fixture);
 2. ``<workspace_root>/lemgendary-env-manager/ecosystem/ecosystem.json``, where
@@ -54,6 +57,47 @@ class Service:
     health_path: str
 
 
+_ACCELERATOR_KINDS = ("cpu", "gpu", "tpu")
+
+
+@dataclass(frozen=True)
+class KaggleAccelerator:
+    """A Kaggle session type (``machine_shape`` is None exactly for CPU)."""
+
+    id: str
+    label: str
+    kind: str
+    machine_shape: str | None
+
+
+@dataclass(frozen=True)
+class KaggleSettings:
+    """The ``kaggle`` section of the ecosystem file."""
+
+    collaborators: tuple[str, ...]
+    """Kaggle usernames granted the editor role on pushed models."""
+    default_accelerator: str
+    accelerators: tuple[KaggleAccelerator, ...]
+    retired_machine_shapes: tuple[str, ...]
+
+    def accelerator(self, accelerator_id: str) -> KaggleAccelerator:
+        """The accelerator ``accelerator_id``; raise :class:`EcosystemFileError` when unknown."""
+        for acc in self.accelerators:
+            if acc.id == accelerator_id:
+                return acc
+        raise EcosystemFileError(f"Unknown Kaggle accelerator '{accelerator_id}'")
+
+
+@dataclass(frozen=True)
+class GitHubSettings:
+    """Where the workspace projects are hosted."""
+
+    url: str
+    """``identity.github_url`` without a trailing slash."""
+    project_folders: tuple[str, ...]
+    """Folders of the ``projects`` list (each is a repository name)."""
+
+
 @dataclass(frozen=True)
 class Ecosystem:
     """The parts of the ecosystem file this repository uses."""
@@ -62,7 +106,9 @@ class Ecosystem:
     docs_url: str
     kaggle_owner: str
     bind_host: str
+    github: GitHubSettings
     services: tuple[Service, ...]
+    kaggle: KaggleSettings
 
     def service(self, service_id: str) -> Service:
         """Return the service whose id or alias is ``service_id`` (case-insensitive)."""
@@ -101,6 +147,63 @@ def _parse_service(raw: Any, path: Path) -> Service:
     )
 
 
+def _object(raw: Any, path: Path) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise EcosystemFileError(f"Invalid ecosystem file {path}: list entry is not an object")
+    return raw
+
+
+def _strings(raw: dict[str, Any], key: str, path: Path) -> tuple[str, ...]:
+    values = _require(raw, key, list, path)
+    if not all(isinstance(v, str) for v in values):
+        raise EcosystemFileError(f"Invalid ecosystem file {path}: '{key}' must list strings")
+    return tuple(values)
+
+
+def _parse_accelerator(raw: Any, path: Path) -> KaggleAccelerator:
+    entry = _object(raw, path)
+    shape = entry.get("machine_shape")
+    acc = KaggleAccelerator(
+        id=_require(entry, "id", str, path),
+        label=_require(entry, "label", str, path),
+        kind=_require(entry, "kind", str, path),
+        machine_shape=shape if isinstance(shape, str) else None,
+    )
+    if acc.kind not in _ACCELERATOR_KINDS:
+        raise EcosystemFileError(f"Invalid ecosystem file {path}: accelerator {acc.id} kind")
+    if (acc.kind == "cpu") != (acc.machine_shape is None):
+        raise EcosystemFileError(
+            f"Invalid ecosystem file {path}: accelerator {acc.id} machine_shape is null "
+            "exactly for cpu"
+        )
+    return acc
+
+
+def _parse_kaggle(raw: dict[str, Any], path: Path) -> KaggleSettings:
+    settings = KaggleSettings(
+        collaborators=_strings(raw, "collaborators", path),
+        default_accelerator=_require(raw, "default_accelerator", str, path),
+        accelerators=tuple(
+            _parse_accelerator(acc, path) for acc in _require(raw, "accelerators", list, path)
+        ),
+        retired_machine_shapes=_strings(raw, "retired_machine_shapes", path),
+    )
+    ids = [acc.id for acc in settings.accelerators]
+    if len(set(ids)) != len(ids) or settings.default_accelerator not in ids:
+        raise EcosystemFileError(
+            f"Invalid ecosystem file {path}: accelerator ids must be unique and include "
+            f"default_accelerator '{settings.default_accelerator}'"
+        )
+    retired = {shape.lower() for shape in settings.retired_machine_shapes}
+    for acc in settings.accelerators:
+        if acc.machine_shape and acc.machine_shape.lower() in retired:
+            raise EcosystemFileError(
+                f"Invalid ecosystem file {path}: accelerator {acc.id} uses retired "
+                f"{acc.machine_shape}"
+            )
+    return settings
+
+
 @cache
 def _load(path: Path) -> Ecosystem:
     try:
@@ -122,7 +225,15 @@ def _load(path: Path) -> Ecosystem:
         docs_url=_require(identity, "docs_url", str, path).rstrip("/"),
         kaggle_owner=_require(identity, "kaggle_owner", str, path),
         bind_host=_require(identity, "bind_host", str, path),
+        github=GitHubSettings(
+            url=_require(identity, "github_url", str, path).rstrip("/"),
+            project_folders=tuple(
+                _require(_object(proj, path), "folder", str, path)
+                for proj in _require(raw, "projects", list, path)
+            ),
+        ),
         services=tuple(_parse_service(svc, path) for svc in services),
+        kaggle=_parse_kaggle(_require(raw, "kaggle", dict, path), path),
     )
 
 
@@ -175,3 +286,37 @@ def kaggle_dataset_handle(manifold: str) -> str:
 def kaggle_dataset_url(handle: str) -> str:
     """Public Kaggle web URL of the dataset ``handle`` (``<owner>/<slug>``)."""
     return f"https://www.kaggle.com/datasets/{handle}"
+
+
+def kaggle_collaborators() -> tuple[str, ...]:
+    """Kaggle usernames that get the editor role on pushed models (``kaggle.collaborators``)."""
+    return ecosystem().kaggle.collaborators
+
+
+def kaggle_accelerators() -> tuple[KaggleAccelerator, ...]:
+    """Every Kaggle session type, in the order a picker should show them."""
+    return ecosystem().kaggle.accelerators
+
+
+def kaggle_accelerator(accelerator_id: str | None = None) -> KaggleAccelerator:
+    """The accelerator ``accelerator_id``, or the default one when ``None``."""
+    settings = ecosystem().kaggle
+    return settings.accelerator(accelerator_id or settings.default_accelerator)
+
+
+def kaggle_retired_machine_shapes() -> tuple[str, ...]:
+    """Machine shapes Kaggle no longer offers (compare case-insensitively)."""
+    return ecosystem().kaggle.retired_machine_shapes
+
+
+def github_url() -> str:
+    """GitHub owner URL (``identity.github_url``, no trailing slash)."""
+    return ecosystem().github.url
+
+
+def github_repo_url(folder: str) -> str:
+    """Plain (credential-free) git clone URL of the workspace project in ``folder``."""
+    eco = ecosystem()
+    if folder not in eco.github.project_folders:
+        raise EcosystemFileError(f"Unknown project '{folder}' in {eco.path}")
+    return f"{eco.github.url}/{folder}.git"

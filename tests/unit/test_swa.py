@@ -78,6 +78,20 @@ def _state(model: nn.Module) -> dict[str, torch.Tensor]:
     return {k: v.detach().clone() for k, v in model.state_dict().items()}
 
 
+def _training_optimizer(model: nn.Module, lr: float) -> torch.optim.SGD:
+    """SGD optimizer in the state the engine hands to SWA at an epoch end.
+
+    The engine always owns a main LR scheduler and runs optimizer steps before
+    ``SwaPhase.end_epoch``; mirroring that keeps ``SWALR.step()`` after
+    ``optimizer.step()`` as PyTorch requires. The step has no gradients, so the
+    weights are unchanged.
+    """
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=1.0)
+    optimizer.step()
+    return optimizer
+
+
 class TestSwaConfig(unittest.TestCase):
     """The ``swa`` config section."""
 
@@ -133,7 +147,7 @@ class TestSwaAverager(unittest.TestCase):
     def test_swalr_anneals_to_swa_lr(self) -> None:
         """With ``swa_lr`` set the LR reaches it after ``anneal_epochs`` steps."""
         model = TinyNet()
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        optimizer = _training_optimizer(model, 0.1)
         averager = SwaAverager(
             model,
             optimizer,
@@ -149,7 +163,7 @@ class TestSwaAverager(unittest.TestCase):
     def test_no_swa_lr_leaves_lr_alone(self) -> None:
         """Without ``swa_lr`` no SWALR is created."""
         model = TinyNet()
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        optimizer = _training_optimizer(model, 0.1)
         averager = SwaAverager(model, optimizer, SwaConfig())
         averager.step_lr()
         self.assertIsNone(averager.scheduler)
@@ -192,7 +206,7 @@ class TestSwaAverager(unittest.TestCase):
         """Averaged weights, ``n_averaged`` and the SWALR position survive a round trip."""
         config = SwaConfig(lr=SwaLrSchedule(0.01, anneal_epochs=4))
         model = TinyNet()
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        optimizer = _training_optimizer(model, 0.1)
         averager = SwaAverager(model, optimizer, config)
         for value in (1.0, 3.0):
             _fill(model, value)
@@ -201,7 +215,7 @@ class TestSwaAverager(unittest.TestCase):
         state = averager.state_dict()
 
         model2 = TinyNet()
-        optimizer2 = torch.optim.SGD(model2.parameters(), lr=0.1)
+        optimizer2 = _training_optimizer(model2, 0.1)
         optimizer2.load_state_dict(optimizer.state_dict())
         restored = SwaAverager(model2, optimizer2, config)
         restored.load_state_dict(state)
@@ -226,7 +240,7 @@ def _build_ctx(root: Path, config: dict[str, Any], total_epochs: int = 3) -> Tra
     x_train, y_train = torch.randn(12, 8), torch.randn(12, 1)
     x_val, y_val = torch.randn(4, 8), torch.randn(4, 1)
     paths = TrainingPaths(
-        project_root=root,
+        project_root=root / "suite",
         local_checkpoint_dir=root / "checkpoints",
         export_dir=root / "export",
         progress_local_path=root / "progress.pth",
@@ -353,7 +367,7 @@ class TestSwaResume(unittest.TestCase):
     def _phase(self, ckpt_dir: Path) -> tuple[SwaPhase, nn.Module]:
         model = TinyNet()
         config = SwaConfig(enabled=True, lr=SwaLrSchedule(0.01, anneal_epochs=3))
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        optimizer = _training_optimizer(model, 0.1)
         return SwaPhase(config, SwaAverager(model, optimizer, config), 2, ckpt_dir), model
 
     def _write(self, ckpt_dir: Path) -> SwaPhase:

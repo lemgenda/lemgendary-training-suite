@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import io
 import logging
-from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import onnx
 import torch
-from onnx import external_data_helper
 from torch import nn
 
 from models.nima import SoftmaxWrapper
-from training.utils.paths import get_project_root
+from training.quality_calibration import calibrated_temperature
+from training.utils.model_payload import model_payload_of
+from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.export.common")
 
@@ -42,9 +40,12 @@ def resolve_export_paths(
     model_filename = model_info.get("filename", model_key)
     base_name = f"LemGendary{model_filename}"
 
-    export_dir_rel = cfg.get("export_dir", "../LemGendaryModels")
-    production_dir = (root / export_dir_rel / model_key).resolve()
-    production_dir.mkdir(parents=True, exist_ok=True)
+    export_dir_rel = cfg.get("export_dir")
+    if export_dir_rel:
+        production_dir = (root / export_dir_rel / model_key).resolve()
+        production_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        production_dir = get_model_hub_dir(model_key, root)
 
     return base_name, production_dir
 
@@ -102,21 +103,19 @@ def extract_input_dimensions(
 
 
 def wrap_quality_model(model: nn.Module, model_info: dict[str, Any]) -> nn.Module:
-    """Applies softmax temperature wrapper for quality scoring models if needed."""
-    if model_info.get("dataset_type") == "quality":
-        try:
-            temp_raw = getattr(model, "softmax_temp", torch.tensor(1.0))
-            temp = float(temp_raw.item() if isinstance(temp_raw, torch.Tensor) else temp_raw)
-            if temp == 1.0:
-                stab = model_info.get("stabilizers", {})
-                temp = float(stab.get("softmax_temp", 1.0))
-            logger.info("Applying production SoftmaxWrapper with temperature=%.2f", temp)
-            wrapped = SoftmaxWrapper(model, temperature=temp)
-            wrapped.eval()
-            return wrapped
-        except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
-            logger.debug("SoftmaxWrapper unavailable or unnecessary: %s", exc)
-    return model
+    """Wrap a quality (NIMA) model in a ``SoftmaxWrapper`` at its calibrated temperature.
+
+    The temperature is the registry ``calibration.temperature`` written by the post-hoc
+    calibration (:mod:`training.quality_calibration`), else 1.0, the
+    temperature the model was trained at.
+    """
+    if model_info.get("dataset_type") != "quality":
+        return model
+    temp = calibrated_temperature(model_info)
+    logger.info("Applying production SoftmaxWrapper with temperature=%.2f", temp)
+    wrapped = SoftmaxWrapper(model, temperature=temp)
+    wrapped.eval()
+    return wrapped
 
 
 def unwrap_export_model(model: nn.Module) -> nn.Module:
@@ -128,14 +127,10 @@ def unwrap_export_model(model: nn.Module) -> nn.Module:
 def load_checkpoint_weights(model: nn.Module, ckpt: Any) -> None:
     """Load a checkpoint's model state into ``model`` (non-strict, DDP ``module.`` stripped).
 
-    ``ckpt`` is a raw state dict or a dict holding it under ``model_state`` or
-    ``model_state_dict``.
+    ``ckpt`` is anything :func:`training.utils.model_payload.model_payload_of` accepts: a
+    release payload, a checkpoint, a bare state dict or a module.
     """
-    raw_state = (
-        ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
-        if isinstance(ckpt, dict)
-        else ckpt
-    )
+    raw_state = model_payload_of(ckpt).state_dict
     state_dict = {k.removeprefix("module."): v for k, v in raw_state.items()}
     model.load_state_dict(state_dict, strict=False)
 
@@ -149,59 +144,38 @@ def model_device(model: nn.Module) -> torch.device:
         return torch.device("cpu")
 
 
+DEFAULT_ONNX_OPSET = 18
+"""Opset of every exported graph: the lowest opset the ``torch.export``-based exporter emits."""
+
+
 @dataclass(frozen=True)
 class OnnxGraphSpec:
-    """Graph options for one ONNX export: I/O names, dynamic axes, opset and weight layout.
+    """Graph options for one ONNX export: I/O names, dynamic axes and opset.
 
-    ``external_data`` moves the weights into a ``<file>.data`` sidecar after the export; it is
-    honoured by :func:`training.export.onnx.export_onnx`, not by :func:`run_onnx_export`.
+    ``dynamic_axes`` maps an input name to ``{axis index: axis name}``; output axes are
+    inferred by the exporter. Weight layout is a property of the variant, not of the graph
+    (see :mod:`training.export.onnx_weights`).
     """
 
     input_names: list[str] = field(default_factory=lambda: ["input"])
     output_names: list[str] = field(default_factory=lambda: ["output"])
     dynamic_axes: dict[str, dict[int, str]] | None = None
-    opset: int = 17
-    external_data: bool = False
+    opset: int = DEFAULT_ONNX_OPSET
 
 
-def run_onnx_export(
-    model: nn.Module,
-    inputs: tuple[torch.Tensor, ...],
-    out_file: Path,
-    graph: OnnxGraphSpec,
-) -> None:
-    """Run the TorchScript ``torch.onnx.export`` with the suite's standard options.
-
-    The exporter's console chatter is captured and logged at debug level.
-    """
-    buf = io.StringIO()
-    try:
-        with redirect_stdout(buf), redirect_stderr(buf):
-            torch.onnx.export(
-                model,
-                inputs,
-                str(out_file),
-                export_params=True,
-                opset_version=graph.opset,
-                do_constant_folding=True,
-                input_names=graph.input_names,
-                output_names=graph.output_names,
-                dynamic_axes=graph.dynamic_axes,
-                dynamo=False,
-            )
-    finally:
-        if buf.getvalue():
-            logger.debug("torch.onnx.export output for %s:\n%s", out_file, buf.getvalue())
-
-
-def detach_onnx_weights(onnx_path: Path, data_filename: str) -> None:
-    """Move an ONNX model's tensors into one external ``data_filename`` sidecar file."""
-    onnx_model = onnx.load(str(onnx_path))
-    external_data_helper.convert_model_to_external_data(
-        onnx_model,
-        all_tensors_to_one_file=True,
-        location=data_filename,
-        size_threshold=1024,
-        convert_attribute=False,
+def default_graph_spec(
+    sample: torch.Tensor,
+    input_names: list[str] | None = None,
+    output_names: list[str] | None = None,
+    dynamic_axes: dict[str, dict[int, str]] | None = None,
+) -> OnnxGraphSpec:
+    """Spec with dynamic batch, plus dynamic height and width for 4-D image inputs."""
+    in_names = input_names or ["input"]
+    out_names = output_names or ["output"]
+    image_axes = {0: "batch", 2: "height", 3: "width"}
+    default_axes = {in_names[0]: image_axes if sample.ndim >= 4 else {0: "batch"}}
+    return OnnxGraphSpec(
+        input_names=in_names,
+        output_names=out_names,
+        dynamic_axes=dynamic_axes or default_axes,
     )
-    onnx.save(onnx_model, str(onnx_path))

@@ -35,6 +35,9 @@ class TaskClassifier(nn.Module):
 class MultiTaskRestorer(nn.Module):
     """Shared-encoder restorer that blends per-task heads by predicted task weights."""
 
+    head_param_prefixes: tuple[str, ...] = ("classifier.", "heads.")
+    """Task classifier and the per-task restoration heads."""
+
     def __init__(self, num_tasks=11, **kwargs):
         super().__init__()
 

@@ -3,24 +3,30 @@
 Interacts directly with the Kaggle Models REST API via the kaggle package to create or update
 the model-level metadata and model-instance-level variation metadata (overview, usage,
 license, etc.).
+
+The ``kaggle`` package authenticates (and prints its sign-in help) when it is imported, so
+``KaggleApi`` is imported only for type checking; the client comes from
+:func:`training.cloud.kaggle_client.authenticated_kaggle_api` on first use.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import tempfile
 from pathlib import Path
-from typing import Any
-
-from kaggle.api.kaggle_api_extended import KaggleApi
+from typing import TYPE_CHECKING, Any
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kaggle_client import authenticated_kaggle_api
 from training.cloud.model_metadata import ModelMetadata
 from training.cloud.variations import VARIATIONS, KaggleVariation
+from training.ecosystem import kaggle_collaborators
 from training.utils.lazy_imports import load_kaggle_iam
+
+if TYPE_CHECKING:
+    from kaggle.api.kaggle_api_extended import KaggleApi
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_api_sync")
 
@@ -74,6 +80,28 @@ def _editor_principals(iam: Any, editors: list[str]) -> list[Any]:
     return principals
 
 
+def _model_resource_id(iam: Any, security: Any, model_id: Any) -> Any:
+    """IAM resource id of the Kaggle model ``model_id``."""
+    res_id = iam.KaggleResourceId()
+    res_id.type = security.KaggleResourceType.KAGGLE_RESOURCE_TYPE_MODELS
+    res_id.id = model_id
+    return res_id
+
+
+def _write_policy(iam: Any, iam_svc: Any, res_id: Any, policy: Any) -> None:
+    """Store ``policy`` on the resource ``res_id``."""
+    s_req = iam.SetIamPolicyRequest()
+    s_req.resource_id = res_id
+    s_req.policy = policy
+    iam_svc.set_iam_policy(s_req)
+
+
+def _member_user_name(member: Any) -> str:
+    """User name of an IAM principal ('' for a group or other principal kind)."""
+    user = getattr(member, "user", None)
+    return str(getattr(user, "user_name", "") or "") if user is not None else ""
+
+
 def _editor_binding(iam: Any, existing_bindings: list[Any]) -> Any:
     """The editor-role binding in ``existing_bindings``, appended when missing."""
     canonical_role_enum = iam.CanonicalRole
@@ -100,14 +128,23 @@ class KaggleApiSyncService:
 
     def client(self) -> KaggleApi:
         """The authenticated KaggleApi client (created on first use)."""
-        # Ensure official Kaggle API client uses active Bearer API token
-        if self.key and self.key.startswith("KGAT_"):
-            os.environ["KAGGLE_API_TOKEN"] = self.key
-        if self._api is None:
-            api = KaggleApi()
-            api.authenticate()
+        api = self._api
+        if api is None:
+            api = authenticated_kaggle_api(self.username, self.key)
             self._api = api
-        return self._api
+        return api
+
+    def sync_model(self, metadata: ModelMetadata) -> dict[str, Any]:
+        """Create or update only the model page (title, subtitle, license) on Kaggle.
+
+        ``results["model"]`` is ``"updated"``, ``"created"`` or None when both calls failed
+        (the reasons are in ``results["errors"]``). A push runs this before its first upload,
+        so a new model never starts with Kaggle's defaults (K-MDL-6).
+        """
+        results: dict[str, Any] = {"model": None, "variations": {}, "errors": []}
+        full_model_ref = f"{metadata.model.owner}/{metadata.model.slug}"
+        _sync_model_metadata(self.client(), metadata, full_model_ref, results)
+        return results
 
     def sync_metadata(self, metadata: ModelMetadata) -> dict[str, Any]:
         """Apply model-level and instance-level metadata to Kaggle via KaggleApi."""
@@ -127,7 +164,7 @@ class KaggleApiSyncService:
             if variation.key in metadata.variations:
                 self._sync_variation(api, metadata, variation, full_model_ref, results)
 
-        self._sync_collaborators(api, full_model_ref, results)
+        self.sync_collaborators(api, full_model_ref, results)
         return results
 
     def _sync_variation(
@@ -179,25 +216,29 @@ class KaggleApiSyncService:
                     )
                     results["variations"][var_key] = "deferred"
 
-    def _sync_collaborators(
+    def sync_collaborators(
         self, api: KaggleApi, full_model_ref: str, results: dict[str, Any]
     ) -> None:
-        """Give the default editors the editor role on the model (Kaggle IAM API)."""
-        # Synchronize default collaborators (editors) via Kaggle IAM API
-        default_editors = ["lemgenda", "shyning123", "kuznetsovr"]
+        """Merge the configured collaborators into the model's editor role (Kaggle IAM API).
+
+        The list is ``kaggle.collaborators`` in the ecosystem file (SSOT). Existing editors
+        are kept; an empty list changes nothing.
+        """
+        editors = list(kaggle_collaborators())
+        if not editors:
+            results["collaborators"] = []
+            return
         try:
             iam, security = load_kaggle_iam()
 
             m_obj = api.model_get(full_model_ref)
             if hasattr(m_obj, "id") and m_obj.id:
                 with api.build_kaggle_client() as kaggle_client:
-                    self._set_editor_policy(
-                        kaggle_client, (iam, security), m_obj.id, default_editors
+                    merged = self.set_editor_policy(
+                        kaggle_client, (iam, security), m_obj.id, editors
                     )
-                    logger.info(
-                        "Synchronized collaborators for %s: %s", full_model_ref, default_editors
-                    )
-                    results["collaborators"] = default_editors
+                    logger.info("Synchronized collaborators for %s: %s", full_model_ref, merged)
+                    results["collaborators"] = merged
         except (*KAGGLE_API_ERRORS, ImportError, AttributeError) as iam_err:
             logger.warning(
                 "Collaborator synchronization skipped or failed for %s: %s", full_model_ref, iam_err
@@ -205,30 +246,30 @@ class KaggleApiSyncService:
             results["collaborators_error"] = str(iam_err)
 
     @staticmethod
-    def _set_editor_policy(
+    def set_editor_policy(
         kaggle_client: Any, modules: tuple[Any, Any], model_id: Any, editors: list[str]
-    ) -> None:
-        """Replace the members of the model's editor binding with ``editors``."""
+    ) -> list[str]:
+        """Add ``editors`` to the model's editor binding; return all editor user names.
+
+        Members already bound (users or groups) are kept; the policy is written only when a
+        name is missing.
+        """
         iam, security = modules
-        resource_type_enum = security.KaggleResourceType
         iam_svc = kaggle_client.security.iam_client
+        res_id = _model_resource_id(iam, security, model_id)
         g_req = iam.GetIamPolicyRequest()
-        res_id = iam.KaggleResourceId()
-        res_id.type = resource_type_enum.KAGGLE_RESOURCE_TYPE_MODELS
-        res_id.id = model_id
         g_req.resource_id = res_id
-        current_policy = iam_svc.get_iam_policy(g_req)
+        policy = iam_svc.get_iam_policy(g_req)
 
-        principals = _editor_principals(iam, editors)
-        existing_bindings: list[Any] = (
-            list(current_policy.bindings) if current_policy.bindings is not None else []
-        )
-        editor_binding = _editor_binding(iam, existing_bindings)
+        bindings: list[Any] = list(policy.bindings) if policy.bindings is not None else []
+        editor_binding = _editor_binding(iam, bindings)
+        members = list(getattr(editor_binding, "members", None) or [])
+        names = [name for name in (_member_user_name(m) for m in members) if name]
+        missing = [name for name in editors if name not in names]
+        if not missing:
+            return names
 
-        current_policy.bindings = existing_bindings
-        editor_binding.members = principals
-
-        s_req = iam.SetIamPolicyRequest()
-        s_req.resource_id = res_id
-        s_req.policy = current_policy
-        iam_svc.set_iam_policy(s_req)
+        editor_binding.members = members + _editor_principals(iam, missing)
+        policy.bindings = bindings
+        _write_policy(iam, iam_svc, res_id, policy)
+        return names + missing

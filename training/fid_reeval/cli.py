@@ -32,14 +32,14 @@ from training.fid_reeval.measure import (
     fid_backend_available,
     measure_fid,
 )
-from training.utils.paths import get_project_root, get_workspace_root
+from training.utils.paths import get_models_hub_root, get_project_root
 
 EXIT_INPUT = 2
 EXIT_FID = 3
 
 
 def _models_root(args: argparse.Namespace) -> Path:
-    return Path(args.models_root) if args.models_root else get_workspace_root() / "LemGendaryModels"
+    return Path(args.models_root) if args.models_root else get_models_hub_root()
 
 
 def _add_common(parser: argparse.ArgumentParser) -> None:

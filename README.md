@@ -16,19 +16,1937 @@
 
 ## Current Status
 
-## Changelog
-
-- 2026-11-13: Strided LPIPS/FID per epoch, shard index cache, val clock.
-
-- **Version**: `v16.9.139-STABLE`
+- **Version**: `v16.9.224-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
   Ecosystem Ready
 - **Verified Models**: 24+ production architectures, multi-platform execution
-  (Local, Kaggle T4x2/P100, Google Colab)
+  (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.224 - Strided Epoch Validation & Resume Clock Alignment
+
+- **Validation Optimization**: Strided evaluation for LPIPS and FID metrics
+  during per-epoch validation (`EPOCH_HEAVY_METRIC_STRIDE = 4`), running heavy
+  perceptual models on every 4th batch while standalone/test runs evaluate
+  every batch.
+- **Resume Clock**: Synchronized `BatchClock.start_time` upon fast-forwarding
+  pre-completed resume batches so elapsed time during fast-forward does not
+  skew iteration speed and ETA telemetry.
+- **Container Cleanup**: Replaced redundant shard index caching with unified
+  byte-offset reader backed by `shard_offsets.json`.
+- **Inference Suite**: Hardened MT5 live pipeline wrapper with optional
+  pandas test skipping.
+
+### v16.9.223 - Export Parity And Release Files In The Run Log
+
+- **Bug**: Kaggle run 6 of `upn_v2` (v16.9.222) exported `.pt`, ONNX FP32
+  and ONNX FP16 at the end of epoch 2, but the log showed only `[EXPORT]
+  Initiating ...`. The trainer configures no INFO handler, so the passed
+  parity probe and the written files went to `logging` only and never
+  appeared.
+- `build_verified_program` now prints `[EXPORT] ONNX FP32 parity probe at
+  <shape>: passed, max abs diff <x> (atol <a>, rtol <r>)`, or says the
+  probe was not run for a graph without dynamic axes (`report_parity` in
+  `training/export/dynamo_onnx.py`).
+- `export_tri_format` prints the release files it wrote, or that it wrote
+  none (`export_summary` in `training/export/universal_exporter.py`).
+- Tests: the parity line for passed, failed and skipped probes; a verified
+  export prints it; the export summary for written and empty exports.
+
+### v16.9.222 - Export Probe Compares Outputs On The CPU
+
+- **Bug**: Kaggle run 5 of `upn_v2` (v16.9.221) finished epoch 1 and saved
+  `best.pth`, but both ONNX release exports failed with `Expected all tensors
+  to be on the same device, but found at least two devices, cuda:0 and cpu`.
+  The dynamic-axes probe subtracted the model's CUDA outputs from ONNX
+  Runtime's CPU outputs.
+- The probe now moves both sides to `PROBE_DEVICE` (the CPU) before comparing
+  (`compare_outputs` in `training/export/dynamo_onnx.py`); the tolerance is
+  unchanged.
+- Tests: outputs from another device are moved to the CPU on both sides,
+  differing outputs still fail, and with a GPU a CUDA model exports with a
+  verified probe.
+
+### v16.9.221 - Registry Parameter Counts Measured From The Code
+
+- **Bug**: `parameters_m` in `unified_models_v2.yaml` was not measured:
+  `retinaface` said 27.2 M for a 935,663-parameter network, `upn_v2` 88.5 M
+  for 928,739, `mprnet_deraining` 20.1 M for 4,582. Every value is now the
+  parameter count of the model the code builds on the CPU from the registry
+  (millions, 4 decimals); `yolov8n` is counted from Ultralytics
+  `yolov8n.yaml` (3,157,200). `ai_helper_lemgend` (a fine-tuned external
+  base) still has no value.
+- **Bug**: `lemtrain sync push --all` help said "22 registered models" while
+  the registry has 23. The help now takes the count from the registry
+  (`push_all_help`).
+- Checked, unchanged: the `LemGendizedForexUniverse` count 26,818,700 matches
+  the dataset's `dataset_info.yaml` and the sum of its `index.json` (765
+  chunks: 21,015,570 train, 5,803,130 val). The 24,850,000 in the docs
+  dataset compiler paper is the stale figure.
+- Tests: each registry `parameters_m` equals the instantiated model's count;
+  the push help names the registry's model count.
+
+### v16.9.220 - Decode Warnings Name The Sample Key And Shard
+
+- **Bug**: Kaggle run 4 of `upn_v2` warned `Image decode failed for
+  LemGendizedUpnV2[1147997]` and `[1156981]`, naming only the loader index,
+  which depends on shard order and cannot be traced back to the packed data.
+- `Image decode failed` and `Target decode failed` warnings now add the sample
+  key, its member, the payload size, its first 8 bytes in hex and the shard
+  file (`data/sample_origin.py`), so the dataset compiler can repair the
+  record.
+- Diagnosis (read only, from the two 17 MB shards on Kaggle): train shards
+  hold 5000 samples each. Index 1147997 is `UpnV2_DPED_001208204.jpg` in
+  `shards/train/shard-00229.data`, index 1156981 is
+  `UpnV2_DPED_001217648.jpg` in `shard-00231.data`; both image members are
+  0 bytes. Each of the two shards has 4 such empty DPED `.jpg` members.
+- Tests: an undecodable image member is reported with its key, member, size,
+  head bytes and shard.
+
+### v16.9.219 - Trainer Lines Appear Once In The Kaggle Log
+
+- **Bug**: Kaggle run 4 of `upn_v2` (v16.9.217) printed every trainer line
+  twice, 0.2 s apart, with identical content (the same `BytesIO` address in
+  a decode warning, the same upload rates). The Kaggle training cell started
+  the trainer with inherited file descriptors; ipykernel captures fd 1 and 2
+  and forwards a child's output both to the kernel's terminal and, after its
+  0.2 s flush, as notebook output, and the Kaggle log records both. No
+  logger handler or propagation was doubled.
+- Kaggle now uses the same launch as Colab (`TRAINER_STREAM_LINES`): the
+  trainer's stdout and stderr go through a pipe and the cell prints each line,
+  carriage-return progress updates included.
+- Tests: the generated launch run with a child that logs one record gives
+  that record once in the cell output and never on the raw file descriptors;
+  Kaggle and Colab cells both use the piped launch.
+
+### v16.9.218 - Shard Scan Probes The Largest Shard
+
+- **Bug**: Kaggle run 4 of `upn_v2` (v16.9.217) indexed the 270 train shards on
+  one thread in 906.6 s (15 minutes, down from 48). The latency probe scanned
+  the first missing shard, a 17 MB shard whose dense headers share buffered
+  reads, so it measured less than 100 microseconds per header and judged the
+  storage CPU-bound; the larger shards then paid one network read per header.
+- The probe is now the largest missing shard, where each header is a fresh
+  read, so latency-bound storage is detected and the rest is scanned on 16
+  threads. A local disk still scans on one thread.
+- Tests: the probe is the largest shard, and the thread count follows the
+  probe's time per header.
+
+### v16.9.217 - Notebook Sync Skips Read-Only Manifold Folders
+
+- **Bug**: every training process logged `Failed syncing manifold notebook ...
+  [Errno 30] Read-only file system` for each generated notebook, because the
+  `LemGendaryDatasets` folders on Kaggle link to the read-only `/kaggle/input`.
+- A manifold folder without write access (or a write refused with `EROFS`) is
+  skipped with one info record per folder and process; other write errors are
+  still warnings.
+- Tests: writable folders get the notebooks, a read-only folder and an `EROFS`
+  write give one info record and no warnings.
+
+### v16.9.216 - Dataset Discovery Loads Each Manifold Once
+
+- **Bug**: on Kaggle the data cell links alias names (`UpnV2`,
+  `LemGendizedUpnV2`) to the attached folder, and the `...KaggleReady` name
+  falls back to that same attached manifold. Discovery compared path strings,
+  so `LemGendizedUpnV2` and `LemGendizedUpnV2KaggleReady` each opened a
+  reader: every train and validation sample was in the epoch twice (2,699,430
+  train entries for 1,349,715 samples).
+- Discovery and the container loader now compare real paths (symlinks
+  resolved) and load each real folder once, logging the skipped alias.
+- Tests: symlink aliases plus the KaggleReady name give one reader, two
+  spellings of one folder count once, distinct manifolds are all loaded.
+
+### v16.9.215 - Fast WebDataset Open: Shipped Shard Index And One Shared Scan
+
+- **Bug**: Kaggle run 3 of `upn_v2` spent 48 minutes opening the train split
+  (1,349,715 samples, 270 shards on `/kaggle/input`) and trained 0 steps.
+  `WebDatasetReader` read every tar member header (about 4 million small
+  random reads on network storage), on both DDP ranks at once. The offset
+  cache did not help: the hidden `.shard_offsets.json` is skipped by Kaggle
+  dataset uploads, and a copied cache was rejected because the shard
+  modification times change on upload.
+- The shard index is now `shard_offsets.json` (no leading dot) in each shard
+  folder, written there whenever the folder is writable, so a manifold opened
+  once locally ships its index with the next upload. An entry is used when the
+  shard size matches and either the modification time matches or the tar
+  headers of its first, middle and last member agree with it (three reads).
+- A read-only shard folder keeps its scan cache under the suite's
+  `.cache/shard_offsets` (session-only `/kaggle/temp` on Kaggle;
+  `LEMGENDARY_SHARD_CACHE_DIR` overrides it).
+- Shards still missing an index are scanned once, under a file lock per shard
+  folder: the first process (one DDP rank) builds, the others wait and load the
+  saved index. A probe shard decides the scan threads: latency-bound storage
+  scans on 16 threads, a local disk stays on one.
+- Local measurements (synthetic, 540,000 members): with 0.5 ms emulated read
+  latency (40 shards, 48,000 members) one open went from 100.7 s to 10.6 s, two
+  concurrent processes from 102 s wall (both scanning) to 15.9 s (one scans).
+  An open after an upload (new shard mtimes, shipped index) went from a full
+  rescan (16.1 s) to 3.9 s.
+- `filelock` is a declared dependency (already installed with torch).
+- Tests: shipped index used after an upload without a scan, a same-size shard
+  with other headers rescanned, only missing shards scanned, two concurrent
+  readers scan each shard once, cache folder fallback.
+
+### v16.9.214 - The lemtrain Console Script Finds The tools Package
+
+- **Bug**: the installed `lemtrain` script failed with
+  `ModuleNotFoundError: No module named 'tools'` when started outside the
+  checkout. `training.cli.lemtrain` imports `tools.judicial_audit`, but
+  `[tool.setuptools.packages.find] include` listed only `training*`,
+  `models*`, `data*` and `export*`, so the distribution (and the editable
+  install's import map) had no `tools`.
+- `pyproject.toml` now includes `tools*`. Reinstall the suite once
+  (`pip install -e .`) so the editable import map picks it up.
+- Tests: every top-level suite package matches an include pattern, and the
+  installed `lemtrain --help` exits 0 from an unrelated folder.
+
+### v16.9.213 - Cloud Notebooks Install The cu126 Torch Build
+
+- **Live run finding**: the dependency cell named the `cu126` index, but
+  the manifest it installs (the env-manager `requirements-training.txt`)
+  pins `torch==2.15.0` and `torchvision==0.29.2` for the owner's host
+  (`cu134`). The `cu126` index has no such wheels (newest: torch `2.14.1`,
+  torchvision `0.29.1`, torchaudio `2.11.0`), and it was only an extra
+  index, so pip installed the CUDA 13 build from PyPI. The cell's
+  `torch 2.11.0+cu130` line was the stale in-process module (fixed in
+  v16.9.212).
+- New `training/notebooks/torch_build.py` is the one place that names the
+  cloud torch build: `CLOUD_CUDA_BUILD` (`cu126` index, `torch==2.14.1+cu126`,
+  `torchvision==0.29.1+cu126`, `torchaudio==2.11.0+cu126`) for the T4
+  (sm_75) of Kaggle and Colab.
+- On a CUDA host the dependency cell installs those pins from that index
+  alone (`--index-url`), then installs the manifest without its torch
+  family, constrained (`-c`) to the same builds, so no PyPI wheel replaces
+  them. Other accelerators install as before. The hardware sentinel no
+  longer hardcodes its own torch build in a remedy line.
+- Checked with a Linux / Python 3.13 `pip --dry-run`: the manifest
+  resolves to the three `+cu126` wheels.
+- Tests: the generated cell, executed with a recorded pip, installs the
+  pins from the build index only and the manifest without the torch family
+  under the build constraints.
+
+### v16.9.212 - Notebook Cells Run Torch Code In A Fresh Interpreter
+
+- **Live run finding**: the kernel process of a Kaggle or Colab notebook
+  imported the preinstalled torch in the hardware sentinel, before the
+  dependency cell installed the suite build. Any later cell that imported
+  torch or suite code reaching torchvision in that process got a stale
+  torch (`operator torchvision::nms does not exist`), and the dependency
+  cell's `[OK] torch ...` line reported the old in-memory build.
+- No generated training cell imports torch or torch-loading suite code in
+  the kernel process any more. The hardware sentinel, the accelerator
+  fallback and the post-install torch version run as `python -c` probes;
+  the training cell counts GPUs in a probe; the recovery cell reads stored
+  epochs with the new `python -m training.utils.epoch_probe`; the publish
+  cell runs the new `python -m training.cloud.release_publish_cli` and
+  `python -m training.gdrive_cloud_manager --model`. Every subprocess exit
+  code is checked: a failed sentinel, epoch probe or release publish raises
+  `RuntimeError`; a failed Google Drive mirror is reported.
+- The one in-process suite import left is the trainer exit gate.
+  `training.run_settings.refusal` now imports its policy type for type
+  checking only, so `training.cloud.trainer_exit` loads neither torch nor
+  numpy.
+- Tests: an AST audit of every Kaggle and Colab training cell (no torch, no
+  suite import but the exit gate), a fresh-interpreter check that the gate
+  is torch-free, the epoch probe and release CLI exit codes, and the
+  publish cell against a stub checkout.
+
+### v16.9.211 - Trainer Exit Gate No Longer Imports Torchvision
+
+- **Live run finding**: the private test kernel stopped cleanly at its
+  session deadline (`[DEADLINE]`, `session_deadline.json`), but the exit
+  gate in the training cell then failed with `RuntimeError: operator
+  torchvision::nms does not exist`. The gate imports
+  `training.cloud.trainer_exit` in the notebook's own kernel process, and
+  the `training.cloud` package imported its whole export stack
+  (`kaggle_model_sync` -> `training.export` -> `models.factory` ->
+  torchvision). That kernel process loaded the preinstalled torch in the
+  hardware sentinel before the dependency cell installed another build, so
+  torchvision no longer matches it.
+- `training/cloud/__init__.py` now resolves its exports lazily (PEP 562
+  `__getattr__`, typed imports under `TYPE_CHECKING`): the public names are
+  unchanged, and importing a light submodule loads only that submodule.
+- Tests: a fresh interpreter importing `training.cloud.trainer_exit` or
+  `training.cloud.session_deadline` loads neither torchvision,
+  `models.factory` nor `training.export`; every `training.cloud` export
+  still resolves.
+
+### v16.9.210 - Kaggle Launches Choose The Clone Ref And Session Window
+
+- **Clone ref**: a Kaggle kernel always cloned the suite and the env-manager
+  at `main`, so a test of fix-branch code ran old code (a private test kernel
+  failed with `ModuleNotFoundError: training.utils.model_payload`). New
+  options `--git-ref` (suite, and env-manager by default) and
+  `--env-manager-ref` choose a branch, tag or full commit SHA. The clone cell
+  now runs `git fetch --depth 1 origin <ref>` and `git reset --hard
+  FETCH_HEAD` for each repository, checks every git exit code, and prints
+  the commit it checked out (`[GIT] <url> at <ref> (<sha>)`). The default
+  stays `main`.
+- **Injection safety**: `training/notebooks/git_ref.py` validates every ref
+  before it is written into the notebook: letters, digits, `.`, `_`, `/` and
+  `-` only, a letter or digit first (so no git option), at most 200
+  characters, and none of `..`, `//`, `@{`, `/.`, a trailing `/`, `.` or
+  `.lock`. Git gets the ref as one list argument, never through a shell.
+- **Session window**: `--limit-hours` and `--margin-minutes` override
+  `kaggle_session.limit_hours` / `margin_minutes` of `config.yaml` for one
+  kernel. The training cell exports `LEMGENDARY_SESSION_LIMIT_HOURS` /
+  `LEMGENDARY_SESSION_MARGIN_MINUTES` before it starts the trainer, and the
+  session deadline prefers them. A malformed or inconsistent value stops the
+  run with an error. Without the options nothing is exported.
+- One `LaunchOptions` (clone refs, `--override-frozen`, session window)
+  reaches the notebook: `BundleRequest.launch` (replaces
+  `BundleRequest.override_frozen`), `lemtrain kaggle bundle|launch`,
+  `python -m training.kaggle_cloud_manager --action launch` and
+  `POST /api/training/kaggle/train` (optional `git_ref`, `env_manager_ref`,
+  `limit_hours`, `margin_minutes`; invalid values answer 422 before a job is
+  created). The flag names and help texts are defined once in
+  `training/cli_args.py`. `openapi.json` regenerated.
+- New `tests/unit/test_kaggle_launch_ref_session.py`: ref validation, the
+  generated clone and training cell source (defaults unchanged, options
+  present, valid Python), the deadline reading the exported window, every
+  launch path, and the generated clone helper run against a local git
+  repository at a branch, a commit SHA and `main`.
+
+### v16.9.209 - No Silent Error Swallowing In Notebook Cells And Helpers
+
+- **Colab background Drive sync**: the worker caught `Exception` and passed, so
+  an unmounted Drive or a full quota stopped checkpoint backups without a
+  word. It now catches `OSError` (which covers `shutil.Error`), prints each
+  new failure once with its type, and retries on the next 30 s pass.
+- Repo-wide search for `except ...: pass` and other silent handlers. Fixed in
+  the generated cells:
+  - `cells/data.py`: nine handlers (Forex directory listing, composite,
+    metadata, alias and flat symlinks, the Google Drive symlink, the
+    kagglehub symlink-or-copy fallback) now catch `OSError` and print what
+    failed.
+  - `cells/deps.py` (Kaggle and Colab): the torch probe before install
+    prints that torch is not installed yet; the probe after install catches
+    `ImportError`, `AttributeError` and `TypeError` and prints the cause.
+- Fixed in suite modules (typed catches that hid data): the FID ledger
+  warns when a re-evaluated value is not a number, the pruned path search
+  logs unreadable directories at debug level, the governor warns when the
+  registry `input_size` is not an integer before starting at 224, and the
+  server warns about a PID file without a process id.
+- Kept as they are: typed parse helpers whose `None` / `False` result is the
+  documented answer (number parsing, optional imports, the sidecar health
+  probe), and the handlers that log and re-raise.
+- New `tests/unit/test_notebook_silent_errors.py` parses every code cell of
+  the Kaggle and Colab training notebooks (image, Forex and RetinaFace
+  models) and fails on an untyped `except` or a handler that only passes.
+
+### v16.9.208 - RetinaFace Measures Box IoU, AP And Landmark NME
+
+- **The RetinaFace `map_*` values were not a metric.** The validation score was
+  `1 - |sigmoid(conf) - target|`, but the model already applies the sigmoid,
+  so the confidence was squashed twice and the score capped near 0.73.
+  `map50_95`, `map_easy`, `map_medium` and `map_hard` were fixed multiples of
+  that score (0.75, 1.0, 0.95, 0.85), so the registry targets 0.915 / 0.89 /
+  0.75 could never be reached and said nothing about the boxes.
+- New `training/training/face_detection_metrics.py` measures the single-box
+  output (one box, one probability and five landmarks per image, no anchors):
+  - `box_iou`: mean IoU of the predicted box with the labelled box over the
+    images that hold a face.
+  - `ap50` and `ap50_95`: single-class AP over images. Each image is one
+    detection ranked by its confidence (used as returned, no second
+    sigmoid); it is a true positive when the image holds a face and the IoU
+    reaches the threshold. All-point interpolated AP; `ap50_95` averages the
+    COCO thresholds 0.50:0.05:0.95.
+  - `landmark_nme`: mean distance of the five points divided by the
+    inter-ocular distance (points 0 and 1); box-only labels are left out.
+- The validation pass keeps one entry per image (`FaceDetectionTotals`, also
+  in the progress-checkpoint snapshot) instead of the old per-batch score.
+  The fake multiples are gone; no model writes `map_easy`, `map_medium` or
+  `map_hard` any more.
+- **Registry**: RetinaFace `sota_targets` are now `box_iou: 0.80`,
+  `ap50: 0.95`, `ap50_95: 0.60`, `landmark_nme: 0.10`, marked
+  `sota_targets_provisional: true` with a `sota_targets_note`. No cited source
+  backs them; WIDER FACE easy / medium / hard AP does not apply to a
+  one-box-per-image model validated on LemGendizedRetinaFace.
+- **Score and governor**: the four keys have directions and weights in
+  `training/governance/metrics.py` (NME is lower-is-better, scored as
+  `1 - NME`). Face detection gets its own score scheme
+  (`face_box_weighted_targets_v1`), so best scores saved under the old fake
+  metrics are not reused as an anchor.
+- **metrics.csv**: RetinaFace writes a 17-column layout
+  (`Box_IoU,AP50,AP50_95,Landmark_NME`); the first run archives the old
+  28-column file as `metrics_legacy.csv`. The vision layout keeps its 28
+  columns (`mAP_Medium` and `mAP_Hard` stay empty).
+- **GUI API**: the model stats map the new columns and labels, the headline
+  metric of RetinaFace is AP50, and `ModelWithStats` has a new
+  `sota_targets_provisional` flag (`openapi.json` regenerated). The model
+  card and `models.md` show the measured metrics.
+- New `tests/unit/test_face_detection_metrics.py`: a perfect prediction
+  gives IoU 1, AP 1 and NME 0; shifted boxes and landmarks lower all three;
+  plus confidence ranking, face-less images, box-only labels, the snapshot,
+  the registry keys, the score scheme and the CSV layout.
+
+### v16.9.207 - RetinaFace Box Range Check After The Label Rebuild
+
+- The LemGendizedRetinaFace labels were rebuilt from the SFHQ 110-point
+  landmarks: one face per image with a tight WIDER-style box (median
+  w 0.55 x h 0.65 of the image; the old boxes were about 0.86 x 0.97).
+- Checked the model against the new boxes: the suite's RetinaFace
+  (`RetinaFaceMobileNet`) has no prior boxes. One globally pooled head
+  regresses a single normalized `cx cy w h` box, one confidence and five
+  landmarks per image, so there are no `min_sizes`, `steps` or matching IoU
+  thresholds to size, and the 640 px training resolution does not limit the
+  box sizes it can learn. No registry change is needed. The loss weights
+  stay confidence 1, box 2, landmarks 1 (smooth L1 on normalized
+  coordinates); the loss docstring no longer speaks of anchors.
+- New `tests/unit/test_retinaface_box_range.py` encodes synthetic boxes in
+  the rebuilt and the old size range, checks that every one is a positive
+  box target (coverage 1.0 at the 0.35 reference IoU) and that the box loss
+  separates exact from shifted boxes, and guards that neither the registry
+  entry nor the model defines priors (a future anchor head needs a real
+  coverage check).
+- **RetinaFace metrics recorded before the label rebuild are not comparable**
+  with new runs: the box targets are about 0.31-0.57 of the old box area and
+  every image now holds exactly one face. Treat earlier `map_*` values and
+  checkpoints' best scores as a different task.
+
+### v16.9.206 - Training Notebooks Stop On A Failed Trainer
+
+- The generated Kaggle and Colab training cell ignored the trainer's exit
+  code, so a failed, interrupted or refused training (the `resume_refusal.json`
+  of v16.9.202) let the kernel end `COMPLETE` and run the release-publish
+  cell. The cell now ends with an exit gate,
+  `training.cloud.trainer_exit.check_trainer_exit`:
+  - a non-zero exit raises `TrainerExitError`, which stops the notebook; the
+    kernel ends with an error and no later cell (release publish, Google
+    Drive mirror) runs. A resume refusal keeps its `resume_refusal.json`
+    record for the Kaggle job watcher and its text is the exception message,
+    so the job `error_message` is unchanged;
+  - exit 0 with the session deadline marker (`session_deadline.json`) is the
+    intentional 12 h session-guard stop that the next session (or the
+    `auto_resume` chain) resumes. It is reported as a deadline stop, not a
+    failure, and the publish cell still skips itself on the marker. The
+    deadline stop keeps exit code 0 so `tools/launch_ddp.py` (torchrun) and
+    the forex curriculum pass it through unchanged; a non-zero exit is a
+    failure even when the marker exists.
+- The cell's default suite folder is rendered with `repr` (it broke on
+  Windows-style test paths), the Colab trainer output pipe is closed after
+  streaming, and the stale-process scan catches `OSError`, `ValueError` and
+  `SubprocessError` and prints the reason instead of a bare
+  `except Exception: pass`.
+- New `tests/unit/test_notebook_trainer_exit_gate.py` runs the generated
+  training cell against a stub trainer (failure on Kaggle and Colab, refusal,
+  deadline stop, completion) and checks that the gate sits in the training
+  cell before the publish cell.
+
+### v16.9.205 - Ruff Format Pass
+
+- `ruff format` applied to the nine files that `ruff format --check`
+  flagged: `data/json_labels.py`, `models/encoder.py`,
+  `training/fid_reeval/ledger.py`, `training/governance/metrics.py` and five
+  unit test modules. Formatting only; no behaviour change.
+
+### v16.9.204 - Imports No Longer Load The Kaggle Package
+
+- The `kaggle` package authenticates when it is imported and printed its
+  "Authentication required" sign-in help without credentials. The chain was
+  `training.export` (and the `lemtrain` CLI, `training.cloud`) importing the
+  `training.cloud` package, whose `kaggle_api_sync` imported `KaggleApi` at
+  module load for type annotations only. That import is now type-checking
+  only; the client still comes from `authenticated_kaggle_api` on first use.
+- New `tests/unit/test_kaggle_lazy_import.py` imports `training.model_card`,
+  `training.export`, `training.cli.lemtrain`, `training.cloud` and
+  `training.cloud.kaggle_api_sync` in a fresh interpreter each and checks
+  that `kaggle` is not in `sys.modules`.
+
+### v16.9.203 - Class Ids Stay Below The Ignore Target
+
+- Unlabeled classification samples carry `IGNORE_TARGET` (255), the
+  cross-entropy `ignore_index`, so a real class id must stay below it. Setup
+  of a classifier's criterion now raises `IgnoreTargetCollision` when the
+  registry declares more than 255 classes (`kwargs.num_classes`, else the
+  `class_names` count; new `declared_class_count` in
+  `training/registry/class_names.py`). A model with up to 255 classes (ids
+  0..254) is unaffected.
+- Both dataset readers (loose folders and WebDataset shards) raise
+  `IgnoreTargetCollision` for a resolved class id of 255 or more (a numeric
+  label or folder, a `classes.txt` or `dataset_info.yaml` position) instead of
+  silently skipping the sample as unlabeled.
+
+### v16.9.202 - Kaggle Jobs Report The Resume Refusal Text
+
+- A resume refused because frozen run settings changed now writes
+  `resume_refusal.json` into `LemGendaryModels/<model>` (new
+  `training/run_settings/refusal.py`, main process only) before the refusal
+  ends the run; every resume attempt removes a stale record first. The record
+  holds the `FrozenSettingsChanged` text word for word and the changed
+  setting names.
+- The Kaggle kernel output download includes the record. A Kaggle training or
+  monitor job whose kernel left one fails with that text as its
+  `error_message` (and an `[ERROR]` log line), the same text a local job
+  records, whatever status the kernel ended with. A failed kernel without a
+  record keeps the `Kaggle kernel ended with status ...` error.
+
+### v16.9.201 - YOLOv8n Trains From WebDataset Shards
+
+- New `data/yolo_shard_cache.py` materialises an Ultralytics dataset from a
+  manifold's shards (`shards/<split>/`, or a flat `shards/` as train) under
+  `.cache/yolo_datasets/<manifold>/`: `images/<split>/` holds the image
+  members, `labels/<split>/<key>.txt` the YOLO rows built from the JSON
+  `objects`, and `data.yaml` names the classes from `dataset_info.yaml`
+  `classes`. Without val shards, val reuses the train images.
+- Idempotent and resumable: each finished shard leaves a progress record
+  (size, modification time, files), so a rerun skips unchanged shards, redoes
+  an interrupted one, and removes a changed shard's earlier files first.
+- A sample without a JSON label is a background image (counted and logged);
+  an unreadable label, a label without `objects`, an unknown class name or a
+  class id outside `classes` raises `YoloCacheError`. A manifold without
+  `classes` raises too.
+- `generate_yolo_yaml` (the YOLOv8n governor's dataset YAML) returns the
+  cache's `data.yaml` for a sharded manifold; loose image folders keep the
+  previous config.
+
+### v16.9.200 - Shard Labels Read Only From JSON
+
+- The datasets compiler writes every shard label as `<key>.json`; the training
+  decoders now read labels only from that document. `WebDatasetReader` has no
+  text label role: `.txt` and `.caption` members are not read, and an
+  unreadable `.json` member is recorded under `metadata["json_error"]`
+  instead of being dropped.
+- New `data/json_labels.py` reads the label schema (lemgendary-datasets
+  `utils/label_json.py`): boxes from `objects` (`category_id`, or
+  `class_name` mapped through the manifold's `dataset_info.yaml` `classes`,
+  read by the new `data/manifold_classes.py`), `class_id` / `class_name`,
+  and `caption`. A schema break raises `LabelDocumentError` naming the sample.
+- FFA-Net boxes come from the JSON `objects`; a sample without `objects`
+  has no boxes (warned once per dataset). RetinaFace reads faces only from
+  JSON: an empty `objects` list is a face-free image, while a missing JSON
+  label or one without `objects` raises. Classification names resolve
+  through the registry `class_names`, then `dataset_info.yaml` `classes`,
+  then `classes.txt`; a sample without a label still trains as
+  `IGNORE_TARGET`, a malformed one raises.
+- Loose image folders (directory mode, `DirectoryReader`) keep their
+  `labels/<name>.txt` files; only shard samples changed.
+
+### v16.9.199 - Ruff Clean Test Suite
+
+- `tests/test_vram_safety_governor.py` calls the governor's rung hook with
+  `operator.methodcaller` (ruff B009 flagged `getattr` with a constant name);
+  `tests/unit/test_fid_reeval.py` imports sorted (ruff I001) and formatted.
+
+### v16.9.198 - Kaggle Launches Forward --override-frozen
+
+- New `training/notebooks/launch_options.py` `LaunchOptions` (default: no
+  switch). `build_training_cell`, `training_cells` and
+  `build_training_notebook` take it; with `override_frozen` the generated
+  training cell appends `--override-frozen` to the trainer command on every
+  path (single process, `tools/launch_ddp.py`, Forex curriculum).
+- `BundleRequest.override_frozen` carries it into the kernel bundle; the GUI
+  route `POST /kaggle/train` (`KaggleTrainRequest.override_frozen`, default
+  false, also for auto-resume sessions), `lemtrain kaggle bundle|launch
+  --override-frozen` and `python -m training.kaggle_cloud_manager --action
+  launch --override-frozen` forward it. `training/cli_args.py`
+  `OVERRIDE_FROZEN_FLAG` and `training/cli/shared_options.py`
+  `OverrideFrozenOption` are the one flag definition.
+- `openapi.json` regenerated (`python -m tools.export_openapi`).
+- Tests: `tests/unit/test_override_frozen_launch.py`.
+
+### v16.9.197 - DirectML Discovery Through torch_directml
+
+- `training/hardware/discovery.py` `dml_device_info` (was `_dml_device_info`)
+  read `torch.dml`, which torch-directml never defines, and built
+  `torch.device("dml")`, which is not a torch device type: DirectML was never
+  discovered. It now loads the `torch_directml` module
+  (`training.utils.lazy_imports.load_torch_directml`) and uses its 0.2.x API:
+  `is_available()`, `device_count()`, `device_name(index)`,
+  `default_device()` and `device(index)` (a `privateuseone:<index>` device).
+  A missing package or a DLL that does not load against the installed torch
+  is logged at debug level and skipped. `device_memory.directml_device_name`
+  uses the same loader.
+- Tests: `tests/unit/test_dml_discovery.py` (mocked `torch_directml`:
+  device and names, unavailable adapter, missing or broken backend, auto
+  discovery).
+
+### v16.9.196 - Usage Snippets Import What Exists
+
+- The restoration model-card snippet imported `models.factory.create_model`,
+  which does not exist; it and the quality snippet (which built
+  `models.nima.NIMAModel()` with the default backbone whatever the model) now
+  use `models.factory.get_model("<model_key>")`. Both import NumPy (they used
+  `np` without it, and imported `base64` unused) and load the weights before
+  the optional `DataParallel` wrap (the wrap prefixes the state-dict keys).
+- Tests: `tests/unit/test_usage_snippet_imports.py` parses every model-card
+  and Kaggle variation snippet and checks that each import resolves.
+
+### v16.9.195 - ONNX Files Carry Their Model Metadata
+
+- New `training/export/onnx_metadata.py`: `PyTorchModelExporter` stamps both
+  ONNX release variants (`metadata_props`, finalizer of `OnnxVariantWriter`)
+  with `model_key`, `task`, `input_size` (`[C, H, W]` of the export sample,
+  JSON), the training preprocessing (`normalization`, `pixel_scale`, `mean`,
+  `std`) and, for a classifier, `class_names` (JSON list in logit order).
+  The FP32 graph is rewritten without loading its `.onnx.data` sidecar, which
+  stays referenced; foreign metadata entries are kept.
+- Tests: `tests/unit/test_onnx_metadata.py`.
+
+### v16.9.194 - Unlabeled Classification Samples Are Ignored
+
+- A classification sample whose label names no class (no label file or
+  metadata label, no class folder, an unknown folder name) trained as class
+  0. It now gets `IGNORE_TARGET` (255, new `training/ignored_targets.py`, the
+  cross-entropy `ignore_index`): the loss skips it (a batch of only such
+  samples gives a zero, graph-connected loss instead of NaN) and the
+  validation accuracy leaves it out. Label decoding is unchanged.
+- `SampleCatalog.unlabeled` (`UnlabeledLog`) counts them per dataset and logs
+  the running count at 1, 2, 4, 8, ... (per data-loading process).
+- Tests: `tests/unit/test_unlabeled_classification.py`.
+
+### v16.9.193 - One Image Preprocessing per Model
+
+- New `training/registry/preprocessing.py` is the single reader of a model's
+  image preprocessing: the registry `preprocessing.normalization` (`unit` or
+  `imagenet`), else the task default (`quality` models are ImageNet-normalized,
+  every other task trains on `[0, 1]` pixels). `load_model_info` validates it
+  (`PreprocessingError`). `universal_nsfw_classification` declares `unit`.
+- The training and validation transforms (`data/dataset.py`), the `.pt`
+  export metadata (`preprocessing`), the model card (input requirements and
+  usage snippet) and the generated notebook inference cells all follow it
+  through `training/registry/preprocessing_source.py`. The NSFW cells applied
+  ImageNet statistics to a model trained on `[0, 1]` pixels, and the ONNX cells
+  fed float64 arrays; the NIMA card snippet left out the ImageNet step.
+- `usage_snippet` takes one `SnippetInput` (size, class names, preprocessing);
+  the quality snippet resizes to `(width, height)` like the others.
+- `tools/judicial_audit.py` takes the NIMA ImageNet statistics from the
+  same module.
+- Tests: `tests/unit/test_preprocessing_parity.py` (registry defaults and
+  override, typed errors, generated input code equal to the validation
+  transform, cells and card per model).
+
+### v16.9.192 - MQL5 EA Computes the Model's Input Features
+
+- New `data/mt5_feature_spec.py` is the one feature specification: the 14
+  column names in model order, the indicator windows (RSI 14, MACD 12/26/9,
+  ATR 14, Bollinger 20 / 2 sigma, ATR rank 100, volume z-score 50), the
+  epsilon, the flat-band tolerance and the 300 warm-up bars.
+  `data/mt5_features.py` computes the training shards from it (values
+  unchanged) and `export/mt5_signal.py` live signals use its warm-up and all
+  14 columns (they fed the first 10, which the 14-feature model rejects).
+- New `training/export/mql5_features.py` renders the EA's `BuildFeatures`
+  from that specification: `#define` constants and one `COL_<NAME>` column
+  per feature in order; rendering fails (`FeatureSpecMismatch`) when a
+  specified column is not written. `BuildFeatures` copies `lookback + 300`
+  closed bars (`CopyRates` from shift 1, oldest first) and reproduces
+  `compute_indicators` (the pinned `pandas_ta_classic` path: SMA-seeded
+  Wilder RSI/ATR and EMA MACD/signal, population-std Bollinger width) and
+  `normalize_ohlcv` bar for bar. The EA no longer stops at a placeholder.
+- `ea_spec` refuses a model whose `in_features` differs from the
+  specification width.
+- Tests: `tests/unit/test_mql5_features.py` (a Python mirror of the MQL5
+  loops against the pandas pipeline, spec order, missing-column refusal,
+  golden text `tests/fixtures/golden/LemGendaryForexEA.mq5`; regenerate with
+  `python -m export.mt5_signal --mode mql5_ea --out
+  tests/fixtures/golden/LemGendaryForexEA.mq5`).
+- Owner check (no MetaEditor here): compile the EA in MetaEditor (0 errors,
+  0 warnings), copy the FP16 `ForexPredictor.onnx` to `MQL5\Files`, and run
+  the Strategy Tester (Every tick based on real ticks, M1 chart of a model
+  pair, a recent month). Expect no `CopyRates` or `OnnxRun` errors in the
+  journal and trades with SL/TP; for a feature spot check, print one
+  `BuildFeatures` row and compare it with `compute_indicators` +
+  `normalize_ohlcv` on the same closed bars exported from the terminal.
+
+### v16.9.191 - Shared Single-Shard Dataset Test Fixture
+
+- `tests/fixtures/webdataset.py` `single_shard_config` (new) writes one
+  WebDataset shard for a dataset and returns the config that serves it;
+  `tests/unit/test_container_targets.py` and
+  `tests/unit/test_nsfw_classifier_classes.py` duplicated that code (pylint
+  duplicate-code, env-manager validate lint gate).
+
+### v16.9.190 - Score Scheme Object, EMD Form in the Resume State
+
+- Lint fix for v16.9.184 and v16.9.186 (env-manager validate gate):
+  `CheckpointLifecycleManager` takes one `score_scheme`
+  (`training.governance.quality_score.ScoreScheme`: task type and Forex
+  risk per trade, with `scheme_id` and `is_comparable`) instead of the
+  separate `task_type` and `risk_per_trade` arguments.
+- `TrainState` no longer carries the loss: the checkpoint's `emd_form` is
+  read into `ResumeState.governance.emd_form`, and `build_training_context`
+  pins it on the criterion (`pin_resumed_emd_form(recorded, criterion)`)
+  for checkpoints without a run-settings record.
+- Tests: `tests/unit/test_nima_temperature_emd.py` (resume state field).
+
+### v16.9.189 - Universal NSFW Classifier Builds 5 Classes
+
+- `universal_nsfw_classification` declared no class count, so the factory
+  built `UniversalClassifier` with its default 2-logit head while the docs
+  and the labels use 5 classes. The registry entry now sets
+  `kwargs.num_classes: 5` and a new `class_names` list in id order:
+  `0 drawings, 1 hentai, 2 neutral, 3 porn, 4 sexy`.
+- New single reader `training/registry/class_names.py`: `class_names()`
+  returns the names (empty when none are declared) and raises
+  `ClassNamesError` for a malformed list or a count that differs from
+  `kwargs.num_classes`. `load_model_info` checks it at load time.
+- Label decoding: `data.sample_labels.class_index()` decodes an int, a whole
+  float, numeric text or a registry class name, for both container and
+  directory samples. An id outside `0..len(class_names) - 1` (or negative)
+  raises `ClassLabelRangeError` at decoding instead of failing in the loss.
+  `classes.txt` is only consulted for models without registry names.
+- Model card: classifiers list their output classes and show top-5 accuracy
+  only above 5 classes; a classification usage snippet (softmax, top-1 class
+  name) replaces the generic placeholder. The `.pt` export metadata carries
+  `class_names`.
+- Consumers checked: validation accuracy (argmax), focal/cross-entropy loss,
+  ONNX export (dynamic batch, inferred output shape) and the notebook cells
+  are class-count agnostic. An existing 2-class checkpoint does not load
+  into the 5-class head.
+- Tests: `tests/unit/test_nsfw_classifier_classes.py` (factory build with 5
+  logits, reader validation, label ids 0..4 and names, out-of-range ids,
+  model card, `.pt` metadata).
+
+### v16.9.188 - DirectML Free Memory from the DXGI Budget (R4-C6)
+
+- DirectML free memory is read, not assumed. New module
+  `training/hardware/dxgi_memory.py` calls
+  `IDXGIAdapter3::QueryVideoMemoryInfo` through stdlib `ctypes` (Windows
+  only): free = LOCAL budget minus current usage, total = budget,
+  `measured=True`, read again on every `budget()` call (start-up,
+  resolution jump, resume).
+- The adapter is matched to the torch-directml device by name
+  (`torch_directml.device_name(i)` equals the DXGI description); an
+  ambiguous or unmatched name takes the smallest budget (logged). Software
+  adapters are skipped. Integrated GPUs (dedicated memory under 1 GiB, or a
+  budget above dedicated plus shared memory) are capped by available host
+  RAM.
+- Fallback chain: DXGI budget, then 0.8 x the adapter's dedicated video
+  memory (`measured=False`), then 2.0 GB. An explicitly set
+  `hardware.directml_assumed_free_gb` wins over everything; it stays
+  commented out in `config.yaml`. On other platforms DXGI is skipped.
+- `DirectMLMemory` depends on an `AdapterReader` callable;
+  `device_name()` reports the torch-directml name when available.
+- Tests: `tests/unit/test_directml_memory.py` (mocked reader; one
+  structural check of the real query on Windows); `test_device_memory.py`
+  updated.
+
+### v16.9.187 - Resume Finishes the Epoch, New Settings Apply Next (R4-C5)
+
+- Owner decision: a paused run finishes the current epoch on the settings
+  it trained with, and the next epoch picks up the configured ones. New
+  package `training/run_settings/` (record, capture, policy, pinning,
+  ledger); `training/training/settings_switch.py` applies a switch.
+- Checkpoints record `run_settings`: `frozen` settings plus `frozen_sha`
+  (SHA-256 of their canonical JSON): model class, `kwargs` and param-group
+  layout, optimizer type, betas, eps and momentum, datasets and task type,
+  quality scheme, forex `evaluation.risk_per_trade`, NIMA
+  `stabilizers.emd_form`, the subset seed and the configured precision.
+  `epoch` settings: `data.locality`, batch (requested batch, effective
+  batch, accumulation), LR schedule (`scheduler` section, base LR, epoch
+  budget), weight decay, gradient clip and loader worker counts. The
+  `data_locality` key is no longer written.
+- Resume: a changed frozen setting raises `FrozenSettingsChanged` (the
+  message names the change, `--clean` and `--override-frozen`). New flag
+  `--override-frozen` (trainer, forex curriculum, `lemtrain train`, the
+  `/training/train` and `/gui/quick-train` job parameters) resumes anyway,
+  logs a warning and records it. The recorded epoch settings stay in
+  effect until the epoch after the checkpoint's, so a mid-epoch resume
+  replays the recorded batch order; the configured ones apply when that
+  epoch starts (at once for a resume at an epoch boundary). This replaces
+  pinning `data.locality` for the whole run.
+- Epoch switch: locality and loader changes rebuild the train subset and
+  loader; a batch size is taken only if `effective / batch` is an exact
+  accumulation, otherwise refused and logged; the scheduler is rebuilt from
+  the new LR schedule and fast-forwarded to the steps already taken (old
+  scheduler state is never combined with new parameters; a mid-epoch
+  resume loads the old state into the recorded schedule); weight decay
+  goes to the decaying param groups. Every change set is logged as
+  `[SETTINGS] epoch N: ...` and appended to
+  `LemGendaryModels/<model>/settings_changes.jsonl`.
+- Old checkpoints without the record: no frozen check (logged); the epoch
+  finishes on the recorded `data_locality` (or locality off), and the
+  configured settings apply from the next epoch. The NIMA `emd_form`
+  fallback for such checkpoints is unchanged.
+- New `optimizer.grad_clip` setting (default 1.0, the former fixed clip);
+  the `optimizer` section readers live in
+  `training/config/optimizer_settings.py`.
+- `TrainRequest` groups `clean` and `override_frozen` in `ResumeOptions`.
+- Tests: `tests/unit/test_run_settings.py`; `test_locality_resume.py` and
+  `test_cli.py` updated. `openapi.json` regenerated.
+
+### v16.9.186 - NIMA Trains at Temperature 1 with the Paper EMD (R4-C4)
+
+- Quality (NIMA) models train at temperature 1 under a fixed logit soft cap
+  (15): `build_thermal` / `build_runtime` give them `PinnedThermalState`
+  and `PinnedCalibration` (`training/governance/pinned_state.py`, new), so
+  sharpening, recoil, resets, breakouts and checkpoint restore leave the
+  temperature at 1.0 and the clamp at the registry `logit_clamp` for the
+  whole run; other tasks are unchanged. The quality loss is a plain
+  softmax (it divided by the static `softmax_temp`, 1.0 for every NIMA
+  entry), and the `CombinedLoss` fallback stabilizers use temperature 1.0
+  instead of 0.1.
+- EMD (`training/loss_emd.py`, new): registry option `stabilizers.emd_form`,
+  `nima` (default, the paper's r = 2 form `sqrt(mean_k (CDF_p - CDF_t)^2 +
+  1e-8)` per sample, then the batch mean) or `squared` (`mean_k`). The
+  form is fixed for a run: checkpoints record `emd_form`, a resume keeps the
+  recorded form (a NIMA checkpoint without one keeps the pre-R4 `sum_k`
+  form, `legacy_sum`) and logs it; the new form applies to fresh runs.
+  The five NIMA entries set `emd_form: nima`; `load_model_info` rejects an
+  unknown form.
+- `NIMAModel` no longer has the unused `softmax_temp` parameter or
+  `set_temp` (old state dicts load non-strictly).
+- Optional post-hoc calibration (`training/quality_calibration.py`, new;
+  `python -m training.quality_calibration val_scores.npz`): fits one
+  temperature on validation logits (grid 0.5 to 2.0, lowest EMD) and keeps
+  it only if PLCC and SRCC do not drop. An accepted value goes into the
+  registry as `calibration.temperature`; the export `SoftmaxWrapper` uses it
+  (default 1.0, the training temperature).
+- Model card: the stability line names the EMD form and temperature 1.
+- Tests: `tests/unit/test_nima_temperature_emd.py`.
+
+### v16.9.185 - MT5 Artefact Loads in ONNX Runtime 1.17, MQL5 Expert Advisor (R4-C1)
+
+- MetaTrader 5 (build 4230 and later) bundles ONNX Runtime 1.17, which reads
+  opsets up to 20 but IR versions only up to 9; `torch.onnx.export` with onnx
+  1.23 stamps IR 10, so MT5 refused the model. Opset 18 is kept.
+- `training/export/mt5_compat.py` (new): `make_mt5_compatible` rewrites the
+  MT5 artefact as one file with embedded weights (`OnnxCreate` cannot read
+  an `.onnx.data` sidecar) and stamps IR 9 after `ir9_blockers` finds no IR
+  10 feature (local functions, overloads, 4/2-bit or 8-bit float types,
+  custom domains, opset above 20); the exporter's per-node metadata (an IR 10
+  field) is dropped, then `onnx.checker.check_model(full_check=True)` runs.
+- `OnnxVariantWriter.finalizers` (new, per variant key) runs a step on a
+  written file. `forex_variant_writer` finalizes the FP16 `<Stem>.onnx`
+  (FP32 I/O, the EA's model) and the new `MT5_FP32_VARIANT`;
+  `export_forex_onnx_from_model` now writes that single-file FP32 IR 9 graph
+  (it wrote the FP32 sidecar layout MT5 cannot load). The release
+  `<Stem>_FP32.onnx` + `.onnx.data` is unchanged.
+- MQL5 Expert Advisor: `training/export/mql5_ea.py` (new) renders it from the
+  registry (`python -m export.mt5_signal --mode mql5_ea`, was `mql5_stub`):
+  `CTrade` orders, `OnnxCreate` / `OnnxSetInputShape` / `OnnxSetOutputShape`
+  (batch 1: one `[1, lookback, features]` float matrix per timeframe, the
+  int64 pair index, outputs `[1, 3]` and `[1, 2]`), `OnnxRun`, softmax and
+  confidence gate, risk-based lot size, the pair index and model-unit price
+  per symbol, and `RiskPct` from `evaluation.risk_per_trade`. The MQL4
+  `OrderSend(..., OP_BUY, ...)` stub is gone. `BuildFeatures` must still be
+  ported from `data/mt5_features.py`; until then the EA places no trade.
+  `data.mt5_features.pair_pip_size` is public (was `_pip_size`);
+  `DIRECTION_LABELS` moved to `training/export/mt5_signal.py`.
+- `tools/mt5_ort_check.py` (new): runs a model under a separate interpreter
+  with `onnxruntime==1.17.3` and `numpy<2` (one venv cannot hold two ONNX
+  Runtime releases); setup and manual check in its docstring.
+- Tests: `tests/unit/test_mt5_onnx_compat.py` (IR 9, opset 18, single file,
+  FP32 I/O, checker, refusals, EA source); the ORT 1.17.3 load and parity
+  test runs when `LEMTRAIN_MT5_ORT_PYTHON` names that interpreter (passed
+  here against a scratch venv).
+
+### v16.9.184 - Forex Risk per Trade Registry Setting (R4-C3)
+
+- `forex_predictor.evaluation.risk_per_trade` in `unified_models_v2.yaml`
+  (default 0.01, the common 1 % money-management rule) replaces the
+  `RISK_PER_TRADE` module constant of the validation equity model.
+  `training/registry/forex_risk.py` is its one reader: it validates
+  `0 < x <= 0.05` (a non-number is a `TypeError`, a value out of range a
+  `ValueError`) and `load_model_info` rejects an invalid entry when the
+  run loads it.
+- The validation MaxDD (`val_summary` through `max_drawdown_pct`) compounds
+  the equity at that risk. It is part of the metric definition: the Forex
+  quality scheme id now carries it (`forex_weighted_targets_v2_risk0.01`;
+  the bare tag of older checkpoints means 1 %), so a best score at another
+  risk is not reused as the SOTA anchor; the governor state in every
+  checkpoint records the id.
+- Model card: the Forex summary shows `MaxDD @ 1% risk`.
+- Tests: `tests/unit/test_forex_risk_setting.py` (default, bounds, registry
+  entries, load refusal, drawdown at 2 %, scheme ids, model card).
+
+### v16.9.183 - Tests Never Read the Real Token Vault
+
+- `tests/conftest.py` stubs the one `.secrets.yaml` reader
+  (`training.config.secrets.load_secrets_records`) and unsets
+  `GITHUB_PAT`, `SUITE_PAT`, `GOOGLE_DRIVE` and `GOOGLE_DRIVE_JSON`, so
+  `get_secret` (GitHub and Google Drive tokens) never reads the vault
+  next to the checkout nor mounts its tokens into `os.environ` during a
+  test. Before, `tests/unit/test_secrets.py` called the real
+  `load_secrets`.
+- `training/cloud/credentials.py`: `load_secrets_yaml_registry` delegates
+  to `load_secrets_records` instead of a second vault reader with its own
+  candidate list (SSOT); the resolver docstrings name the vault instead of
+  dotfiles that are not read.
+- Tests: `tests/unit/test_secrets.py` (isolation, environment and
+  override precedence, the real reader against a vault in the fake
+  workspace).
+
+### v16.9.182 - Per-Job Kaggle Auto-Resume Options
+
+- `POST /api/training/kaggle/train` takes `auto_resume` (bool) and
+  `max_resumes` (int >= 0), both optional. Left out, they default to
+  `kaggle_session.auto_resume` / `max_resumes` of `config.yaml` (the one
+  source of the defaults); given, they override it for that job only.
+  The job params record the effective values; bad values answer 422.
+- `SessionDeadlineConfig.with_chain` (new) applies the overrides and
+  validates them with the config rule (`check_chain`); the GUI job's
+  resume chain reads the job params through it.
+- `limit_hours` stays config-only: the kernel reads it from the bundled
+  `config.yaml`, so a per-job value would need a notebook change.
+- `openapi.json` regenerated (`python -m tools.export_openapi`).
+- Tests: `tests/unit/test_kaggle_train_route.py` (config defaults,
+  overrides, 422 cases; job queue replaced by a recorder),
+  `tests/unit/test_session_deadline.py` (overrides, chain follows the
+  job values).
+
+### v16.9.181 - Shared Kaggle Test Home Fixture (R3-K3)
+
+- `tests/conftest.py` `kaggle_home` (fake `Path.home()`, Kaggle variables
+  cleared) is shared by `test_kaggle_auth.py` and
+  `test_kaggle_secrets_cleanup.py`, which duplicated it (pylint
+  duplicate-code, env-manager validate lint gate).
+
+### v16.9.180 - All-Zero Face Landmarks Are Absent
+
+- Face detection targets (`data/sample_labels.py`, used by directory and
+  container samples): a YOLO `.txt` line whose 10 landmark values are all
+  zero, and a JSON object whose landmarks are all zero (flat or point
+  pairs), now give `LANDMARK_ABSENT` landmarks (masked in the loss)
+  instead of five real points at the image corner. Box-only lines (5
+  values) and objects without landmarks were already absent. Matches the
+  datasets side (`face_landmarks` strategy, datasets v16.9.93).
+- Tests: `tests/unit/test_face_landmarks_absent.py` (text and JSON:
+  all-zero, box-only or missing, and real points kept).
+
+### v16.9.179 - Generator State per DDP Rank, Self-Describing .pt Exports (R3-K3)
+
+- K-CK-3 under DDP: checkpoints hold `rng_state_ranks`, the generator
+  record of every rank gathered with one `all_gather_object`
+  (`training/utils/rng_state.py` `rng_payload`); `rng_state` stays rank
+  0's record. A resumed rank restores its own entry; a single-rank
+  checkpoint (or a rank beyond the saved list) restores `rng_state` on
+  every rank, which is logged.
+- The gather is collective, so every rank builds the payload: at epoch
+  end (all ranks already ran `_save_checkpoints`) and for intra-epoch
+  progress through `step_progress.progress_save_agreed` (under DDP the
+  ranks agree on decision steps, every 25 steps, with one `all_reduce`
+  of `progress_due`), then `save_progress_now` on all ranks; only rank 0
+  writes `progress.pth`.
+- Forex exporter: the `.pt` `metadata` holds `model_kwargs`
+  (`ForexPredictor.model_kwargs()`: the `ForexArch` fields,
+  `active_timeframes`, `pairs`); `load_forex_checkpoint` rebuilds the
+  model from them (explicit `active_timeframes` still override), so a
+  non-default architecture loads without the registry.
+- LLM exporter: the `.pt` is the suite's dict format (`model_state`,
+  `metadata` with model key, architecture and base model), read by
+  `load_model_payload` with `weights_only=True`; the default output folder
+  is the hub root (it was `../LemGendaryModels` relative to the cwd).
+- Tests: `tests/unit/test_rng_ranks.py` (simulated two-rank group: save
+  all, restore per rank, single-rank fallback, agreed decision steps) and
+  `tests/unit/test_export_pt_metadata.py`.
+
+### v16.9.178 - Vault-Only Kaggle Accounts, Plain Secrets Cell (R3-K3)
+
+- K-AUTH-4: the legacy `.kaggle_users` registry and the project
+  `.kaggle_token` file are no longer read or written.
+  `credentials.load_kaggle_users()` returns the `.secrets.yaml` vault
+  accounts only (`find_kaggle_users_file` and `parse_kaggle_users_text`
+  are deleted); the resolver order is vault, environment, `kaggle.json`,
+  `~/.kaggle/access_token`. An override user without a key takes its own
+  vault entry, never the default account's token (no mismatched pair).
+- `training/kaggle_accounts.py`: `vault_accounts()` replaces
+  `load_kaggle_users` / `find_kaggle_users_file` / `save_kaggle_user`;
+  `python -m training.kaggle_monitor` lists the vault accounts and takes
+  session-only credentials (nothing saved; `--users_file` removed).
+- `data/data_utils.py` exports the resolved credential without forcing
+  the dataset owner as the user (`_export_kaggle_credentials`).
+- K-NB-6, K-AUTH-3: the notebook secrets cell
+  (`training/notebooks/cells/secrets.py`, moved out of `cells/sync.py`)
+  uses a plain `from kaggle_secrets import UserSecretsClient` (Colab:
+  `google.colab.userdata`), catches only the client's missing-secret
+  errors, exports the `KAGGLE_API_TOKEN` secret only when it is a `KGAT_`
+  token (legacy keys are refused) and never writes `kaggle.json`. The
+  `KAGGLE_KEY` / `KAGGLE_USERNAME` secrets are no longer read.
+- Tests: `tests/unit/test_kaggle_secrets_cleanup.py` (vault-only accounts,
+  override user, the generated Kaggle and Colab cells run against fake
+  secrets clients); `tests/conftest.py` stubs the vault reader so no test
+  can read a real `.secrets.yaml` next to the checkout.
+
+### v16.9.177 - One Kaggle Push Policy, Variation Enum (R3-K3)
+
+- `KaggleModelSyncManager.push_model` is the one push policy for the GUI
+  job, `lemtrain sync push`, `kaggle_cloud_manager` and the notebook
+  release: validate the key, stage `dist/kaggle` (not on a dry run,
+  K-MDL-8), create or update the model page BEFORE the first upload (a
+  failed page sync uploads nothing, K-MDL-6), upload each variation with
+  `license_name` from the model metadata, then sync model and instance
+  metadata again. The GUI job reports progress through a `PushObserver`
+  (`training/cloud/push_observer.py`) instead of its own loop.
+- Unchanged variations are skipped (K-MDL-5): the SHA-256 of every staged
+  file is compared with the last upload of that variation recorded in
+  `<model>/.kaggle_sync.json`; equal payloads create no Hub version
+  (`skipped: true` in the result, `UNCHANGED` in the job log). The Kaggle
+  API returns no file hashes, so the comparison is against the local
+  record (a fresh Kaggle session uploads once).
+- Version notes (`training/cloud/version_notes.py`): every upload says
+  the epoch (stored in `latest.pth`, `progress.pth` or `best.pth`, else the
+  last `metrics.csv` row), up to 6 measured values of the last metrics row
+  (FID provenance applied) and the suite version, for push, auto-sync and
+  notebook alike. The per-epoch auto-sync also syncs the model page before
+  its first upload from a folder.
+- Variation names (K-MDL-4): `VariationKey` (`training/cloud/variations.py`)
+  is the SSOT; `POST /api/training/kaggle/pull`, `/push-model` and
+  `/push-all` take `variation: VariationKey | "all"` (OpenAPI enum
+  `VariationKey`; the old `pytorch` / `onnx_fp16` names are 422), and
+  `lemtrain sync push|pull --variation` accept only those values.
+- Notebook release cell: one call to
+  `training.cloud.release_publish.publish_release` (export, then
+  `push_model`); an export failure publishes nothing and the cell exits 1.
+  The embedded metadata copy, the own upload loop and the broad
+  `except Exception` blocks are gone; Google Drive mirroring reports its
+  boolean result.
+- `sync_kaggle_metadata` builds the metadata from the manager's own hub
+  folder (hand edits there were ignored for a custom hub root).
+- Tests: `tests/unit/test_kaggle_push_policy.py` (page before upload,
+  license, notes, skip unchanged, failed page, dry run, enum routes,
+  notebook cell, export failure); auto-sync, CLI and hub-dir tests
+  updated.
+
+### v16.9.176 - One Models Hub Root, Also on Kaggle (R3-K3)
+
+- Critical fix: since v16.9.174 the notebook clones the suite to
+  `/kaggle/temp`, but training resolved the hub as
+  `<suite parent>/LemGendaryModels`, so checkpoints landed in
+  `/kaggle/temp` (not kernel output), recovery restored into
+  `/kaggle/working` and auto-sync uploaded from `/kaggle/working`. The hub
+  now has one resolver, `training.utils.paths.get_models_hub_root()`:
+  `LEMGENDARY_WORKSPACE_ROOT` (the notebook sets it to the kernel output)
+  or the suite's parent folder locally. The cwd and `KAGGLE_WORKING_DIR`
+  sniffing is gone. Training (`core_loop.build_training_paths`), the YOLO
+  governor, exporters (`export/base.py`, `export/common.py`), recovery,
+  GitHub and Google Drive sync, Kaggle model sync, staging, metadata,
+  model soup, checkpoint, sync and notebook services, the doc and hub
+  README generators, FID re-evaluation, the forex curriculum and
+  `tools/train_all.py` all use it.
+- `config.yaml` `paths.checkpoints_root` and `paths.export_root` are
+  removed (they duplicated the hub root and pointed into the clone folder
+  on Kaggle); a value set there still overrides the resolver.
+- K-SSOT-2: `training/platform_paths.py` (moved from
+  `training/notebooks/`) is the one place for the Kaggle and Colab folders
+  (`working_dir`, `checkout_dir`, `input_dir`, `dataset_roots`) and
+  `on_kaggle()` (`KAGGLE_KERNEL_RUN_TYPE`, `KAGGLE_WORKING_DIR` or the
+  working dir). Recovery, the manifold resolver, the hardware probe, cloud
+  sync, GitHub sync and the forex curriculum read it; no non-notebook
+  module hard-codes `/kaggle/...` any more.
+- `training/checkpoint_sync.py` (unused legacy, K-CK-6) is deleted.
+- Tests: `tests/unit/test_hub_root_kaggle.py` (a fake Kaggle layout whose
+  workspace root is not the suite's parent: training paths, exporters,
+  recovery, GitHub sync and soup share the hub; platform folders feed
+  recovery and the manifold resolver; Kaggle detection).
+
+### v16.9.175 - Kaggle Kernel Bundle, Cancel-Aware Watch, Session Deadline
+
+- `training/cloud/kernel_bundle.py` (new) is the one kernel bundle
+  builder (K-NB-1, K-GUI-1). A bundle is the generated training notebook
+  plus `kernel-metadata.json`: `id` `<user>/<registry slug>-training`, a
+  title that slugifies to it, `kernel_type` notebook, `language` python,
+  `is_private` and `enable_internet` true, `enable_gpu` / `enable_tpu`
+  and `machine_shape` from the ecosystem accelerator table
+  (`kaggle_accelerator(id)`; retired shapes are rejected), the model's
+  manifold `dataset_sources` from the registry and, when the Hub has
+  one, `model_sources` = `<owner>/<slug>/pytorch/default/<latest>`. The
+  notebook comes from `builders.kaggle.build_training_notebook`, the same
+  generator as the notebook files, so GUI- and notebook-launched training
+  run the same cells. The legacy key `accelerator` (ignored by Kaggle)
+  and P100 are gone.
+- `training/cloud/kernel_launch.py` (new) builds the bundle in a temporary
+  folder and pushes it with the authenticated `KaggleApi` (no CLI
+  subprocess fallback). Used by the GUI `kaggle_train` job,
+  `lemtrain kaggle launch`, `kaggle_cloud_manager --action launch` and
+  the interactive launcher. The script kernel that ran
+  `python -m training.core_loop` without the suite
+  (`ModuleNotFoundError` on Kaggle), `KaggleHubManager.
+  create_cloud_kernel_bundle` / `get_kernel_slug` and the tracked
+  `cloud_jobs/` folder are deleted (K-GUI-4).
+- `lemtrain kaggle` (new): `accelerators`, `bundle MODEL --out DIR`,
+  `launch MODEL`, `status MODEL`.
+- API: `GET /api/training/kaggle/accelerators` lists the ecosystem
+  accelerators (`id`, `label`, `kind`, `machine_shape`, plus `default`).
+  `POST /api/training/kaggle/train` takes `accelerator` (an id from that
+  list; 422 for an unknown or retired one) instead of `gpu`;
+  `poll_interval` defaults to 30 s.
+- Status names (`training/cloud/kernel_status.py`) are the
+  `KernelWorkerStatus` members; `CANCEL_REQUESTED` and
+  `CANCEL_ACKNOWLEDGED` are terminal (the old `CANCELACK` never matched),
+  and a cancelled kernel ends the GUI job as `cancelled` (K-GUI-3).
+- One watch loop (`training/cloud/kernel_watch.py`) for the GUI job and
+  the terminal monitor: one status call and one log call per poll, with
+  backoff from the poll interval to 300 s while the status is unchanged.
+  Auto-pull no longer re-pulls all four variations on every epoch log
+  line: `KaggleModelSyncManager.pull_default_if_newer` pulls
+  `pytorch/default` only when the Hub version is newer than the one last
+  merged, recorded in `<model>/.kaggle_sync.json` (K-GUI-5). When a
+  session completes, the kernel output's checkpoints, `README.md` and
+  `metrics.csv` are downloaded (`kernels_output`) and merged by stored
+  epoch (`training/cloud/kernel_output.py`).
+- Notebook handles use `ecosystem.kaggle_owner` on every machine; the
+  notebook generator no longer resolves local credentials (K-NB-8).
+- Kaggle session deadline (K-CK-2, `training/cloud/session_deadline.py`,
+  `config.yaml` `kaggle_session`: `limit_hours` 12, `margin_minutes` 30,
+  `auto_resume` false, `max_resumes` 3). The notebook's first cell
+  exports `LEMGENDARY_SESSION_START`; on `--env kaggle` the training and
+  validation loops check the deadline every step (under DDP the ranks
+  agree every 25 steps through one `all_reduce`, so no rank stops alone)
+  and before each epoch. At the deadline the loop force-saves
+  `progress.pth` (generator states included), writes
+  `LemGendaryModels/<model>/session_deadline.json`, runs the final Hub
+  sync synchronously and ends with status `session_deadline`; no release
+  export runs and the notebook's publish cell skips the release. The GUI
+  job reads the marker from the kernel output and, only with
+  `kaggle_session.auto_resume: true`, pushes a new kernel version (up to
+  `max_resumes`) that resumes from the Hub. The kernel output (checkpoints,
+  metrics, marker) is merged on every completed GUI-launched session.
+- `CheckpointLifecycleManager.progress_due` (new) holds the progress
+  guardrails; `check_and_save_progress(force=True)` skips them.
+- Tests: `tests/unit/test_kaggle_kernel_bundle.py` (a bundle for each of
+  the 23 registry models, pushed through the installed kaggle
+  `kernels_push` with a recording HTTP client; status enum; backoff;
+  cancel; output merge; Hub-version pulls; the GUI job) and
+  `tests/unit/test_session_deadline.py` (settings, the stop check, the
+  publish guard, the resume chain on and off).
+
+### v16.9.174 - Token-Free Notebook Clone Outside the Kernel Output (R3-K1)
+
+- The notebook clone cell never puts the GitHub PAT in a URL or a file
+  (K-NB-4). Clone URLs are the plain `<identity.github_url>/<folder>.git`
+  from the ecosystem file (`github_repo_url`). The token reaches git only
+  through `GIT_ASKPASS`: a helper script under the system temp folder
+  that prints `$LEMGENDARY_GIT_TOKEN` from the git process environment;
+  the helper folder is deleted afterwards. The origin URL is reset to the
+  plain URL on every run (older notebooks stored the token in it).
+- On Kaggle the suite and env-manager are cloned to `/kaggle/temp`, not
+  `/kaggle/working`, so no `.git` folder (config, hooks, packed refs) is
+  saved as public kernel output. The cell exports
+  `LEMGENDARY_WORKSPACE_ROOT=/kaggle/working`,
+  `LEMGENDARY_ECOSYSTEM_FILE` (env-manager checkout) and
+  `KAGGLE_WORKING_DIR`, so `LemGendaryModels` stays under
+  `/kaggle/working`. The install and training cells read the suite and
+  requirement paths from `platform_paths`.
+- Generated kernel bundles were already private (`is_private: true`); no
+  change there.
+- Tests: `tests/unit/test_notebook_kaggle_cells.py` (no token placeholder
+  or credential URL in the generated notebook, no clone under
+  `/kaggle/working`).
+
+### v16.9.173 - Kaggle Notebook Recovery by Slug and Stored Epoch (R3-K1)
+
+- Kaggle notebook checkpoint recovery (`build_checkpoint_recovery_cell`)
+  is rewritten (K-NB-2, K-NB-3). The latest `pytorch/default` Hub version
+  is loaded first and every model file of that explicit download folder
+  is used (no name filter, so the 18 models whose key has `_` recover
+  again). `/kaggle/input` folders count only when named after the Kaggle
+  slug (hyphenated) or the model key, and only when their checkpoints are
+  newer. Every choice compares the epoch stored in the checkpoint
+  (`checkpoint_epoch` from the `model_payload` loader), never the file
+  size, so a pinned old `model_sources` version cannot replace newer
+  weights. `metrics.csv` comes with the adopted `latest` checkpoint. The
+  Colab variant scans Google Drive folders named after the slug or key.
+- `build_stealth_cell` considers `.pth` and `.pt` files (it globbed only
+  `.pth` and filtered on the key in the file name) and loads the highest
+  stored epoch through `load_model_payload`.
+- The forex `.pt` usage cell indexes the model output dict
+  (`out['direction_logits']`, `out['magnitude']`) like the model card; it
+  unpacked the dict as a tuple and got its keys.
+- `training/notebooks/platform_paths.py` (new): the notebook platform
+  folders (working dir, checkout dir, suite, env-manager, hub root) in one
+  place; the hub-prep and recovery cells use it.
+- Generated notebooks are written at preflight/export time; none are
+  committed here.
+- Tests: `tests/unit/test_notebook_kaggle_cells.py` (the recovery cell is
+  executed against a temp hub with a fake kagglehub).
+
+### v16.9.172 - Throttled Kaggle Auto-Sync and Merged Editors (R3-K1)
+
+- The per-epoch Kaggle auto-sync (`--env kaggle --auto_sync`) goes
+  through `KaggleModelSyncManager.push_variation(..., "pytorch/default")`:
+  `KaggleHubManager.sync` uploads only the isolated payload
+  (`checkpoints/*.pth`, `README.md`, `metrics.csv`) instead of the whole
+  model folder (notebooks, `dist/`, stray `.pt`, `history.csv`), with the
+  epoch in the version notes. A failed upload raises `CloudSyncError`
+  (K-MDL-2).
+- The handle uses the registry slug (`kaggle_metadata.slug`, SSOT).
+  `KaggleHubManager.get_handle` is deleted with its `nima-aesthetic` ->
+  `nima-aesthetics` rewrite, which created duplicate Kaggle models such as
+  `nima-aesthetics-mobile` (K-MDL-3). The unused (and never applied)
+  `fleet.kaggle_slug_prefix` / `kaggle_slug_suffix` keys are removed.
+- Throttle (`training/cloud/sync_policy.py`, `KaggleSyncPolicy`):
+  `fleet.kaggle_sync_every_epochs` (default 5, 0 = cadence off) and
+  `fleet.kaggle_sync_on_best` (default true). The training engine and the
+  YOLO curriculum sync consult it; the final sync of a run is not
+  throttled.
+- Model editors: the collaborators come from `kaggle.collaborators` in
+  the ecosystem file and are merged into the existing editor binding
+  (existing editors are kept; nothing is written when all are present).
+  The hard-coded list that replaced the binding is gone (K-AUTH-6).
+- `training/ecosystem.py` reads `identity.github_url`, the project folders
+  and the `kaggle` section (collaborators, accelerators with id, label,
+  kind and machine shape, default accelerator, retired machine shapes)
+  with readers matching `env_manager.ecosystem`: `kaggle_collaborators()`,
+  `kaggle_accelerators()`, `kaggle_accelerator()`,
+  `kaggle_retired_machine_shapes()`, `github_url()`,
+  `github_repo_url(folder)`. The test fixture carries the new sections.
+- `training.training.engine.maybe_trigger_cloud_sync` (was private) takes
+  the epoch's new-best flag.
+- Tests: `tests/unit/test_kaggle_autosync.py`, new cases in
+  `tests/unit/test_ecosystem.py`.
+
+### v16.9.171 - Kaggle Pulls Merge Into the Hub Folder (R3-K1)
+
+- `KaggleModelSyncManager.pull_variation` downloads into a fresh
+  temporary folder under the hub root and merges the files into
+  `LemGendaryModels/<model>` (`pytorch/default`) or the staged
+  `dist/kaggle` folder (other variations) through the new
+  `training/cloud/model_pull.py`. kagglehub never sees the hub folder as
+  `output_dir` again: a non-empty folder used to fail with
+  `FileExistsError`, and `force_download` emptied it first (K-MDL-1).
+- Merge rules: a missing file is added; `force_download` overwrites only
+  the files being pulled and deletes nothing; otherwise a checkpoint
+  replaces its local copy only when its stored epoch is newer (never by
+  file size), and `metrics.csv` / `README.md` follow the newer
+  checkpoints. Export payloads (`.pt`, ONNX) keep existing local files
+  unless forced. The per-epoch GUI auto-pull now works on a non-empty
+  folder.
+- A pulled `pytorch/default` merges only the canonical payload:
+  `checkpoints/*.pth`, `README.md`, `metrics.csv`. Polluted older Hub
+  versions no longer bring `notebooks/`, `dist/` or stray `.pt` files.
+- `training/cloud/variations.py` owns that payload definition
+  (`is_default_payload_file`, `default_payload_files`), used by both pull
+  and push. `push_variation` now stages `pytorch/default` (hard links)
+  and audits and uploads the staged copy, so the model root's notebooks,
+  `dist/` and exports never reach Kaggle.
+- `training/utils/model_payload.py`: `checkpoint_epoch(path)` reads the
+  stored epoch through the one model-file loader.
+- Tests: `tests/unit/test_kaggle_pull.py` (fake kagglehub with the real
+  `output_dir` rules; non-empty folder, `force=True`, repeated auto-pull,
+  epoch beats size).
+
+### v16.9.170 - One Kaggle Credential Resolver, Real Status Probe (R3-K1)
+
+- `training/cloud/credentials.py`: `resolve_kaggle_credentials` is the one
+  Kaggle credential resolver. Tokens are returned exactly as stored. A
+  `KGAT_` access token is exported unchanged as `KAGGLE_API_TOKEN` (read
+  first by kaggle 2.x, kagglesdk and kagglehub); a legacy key goes to
+  `KAGGLE_KEY`. It also reads `KAGGLE_API_TOKEN` from the environment and
+  `~/.kaggle/access_token.txt`. It no longer rewrites
+  `~/.kaggle/kaggle.json` on every call (that wrote `KGAT_` tokens as a
+  legacy `key`, which the CLI rejects with 401), and `.kaggle_token` is no
+  longer stripped of `KGAT_` (K-AUTH-1, K-AUTH-3).
+- `training/cloud/kaggle_client.py` (new): `authenticated_kaggle_api`
+  replaces `kaggle_accounts.authenticate_kaggle_user`, which stripped
+  `KGAT_`, sent the rest as a legacy key (401) and popped
+  `KAGGLE_API_TOKEN` process-wide. The SDK's `exit(1)` when no
+  credentials exist becomes `KaggleAuthError`, so a server job fails
+  instead of dying silently (K-AUTH-5). Callers: the status and kernels
+  routes, the Kaggle train and monitor jobs, the interactive monitor and
+  the metadata sync client.
+- `GET /api/training/kaggle/status` makes one cheap authenticated call
+  (`kernels_list(mine=True, page_size=1)`) and reports the real outcome:
+  `authenticated`, `username`, `token_configured`, plus the new
+  `auth_method`, `http_status` and `error` fields (K-AUTH-2).
+- `training/kaggle_accounts.py`: import order fixed (ruff I001).
+- Tests: `tests/unit/test_kaggle_auth.py` (fakes only; fake home folder).
+  `test_cloud.py` no longer leaks the exported variables into later tests.
+
+### v16.9.169 - One Loader for Release Payloads and Bare State Dicts (R2-T1 Follow-Up)
+
+- `training/utils/model_payload.py` (new) is the one loader of model
+  weight files: the release `.pt` dict (`model_state`, `model`,
+  `metadata`), training checkpoints, old bare state dicts (and the LLM
+  release `.pt`, still bare) and pickled modules. It loads with
+  `weights_only=True` first (the torch >= 2.6 default, safe for bare state
+  dicts) and unpickles in full only when the caller trusts the file
+  (`trust_pickle=True`); otherwise it raises `UntrustedPickleError`. The
+  pickled `model` is optional; consumers load `state_dict`.
+- Consumers moved to it: resume (`_restore_weights_and_optimizer`),
+  export (`_load_export_model`,
+  `load_checkpoint_weights`), MT5 (`load_forex_checkpoint`), the Pareto
+  soup (a release donor's stale pickled module is no longer copied into
+  the soup), `checkpoint_service.inspect_checkpoint` (a bare `.pt` reported
+  0 parameters), `eval_service` (a bare `.pt` silently evaluated random
+  weights), FID re-evaluation, `model_registry.load_state_dict_robust` and
+  `tools/judicial_audit.py`.
+- Generated code shares the policy through `pt_load_source`: the notebook
+  `.pt` inference cells (which called `torch.load` without `weights_only`
+  and failed on torch >= 2.6), the Kaggle README PyTorch FP32 snippet and
+  the model-card snippets. Generated notebooks are written at
+  preflight/export time; none are committed here.
+- Tests: `tests/unit/test_model_payload.py` (both formats in every
+  loader, the generated loader executed on both).
+
+### v16.9.168 - Device-Memory Refit on Every GPU Backend (R2-T4)
+
+- `training/hardware/device_memory.py` (new) is the one device-memory
+  adapter: a `DeviceMemory` protocol with implementations for CUDA (which
+  covers ROCm/HIP builds), XPU, MPS, DirectML and a CPU no-op. The VRAM
+  audit (`audit_hardware_vram`: vision, Forex and LLM paths) reads free and
+  total memory, peaks, cache release and device names through it instead
+  of `torch.cuda`, so the resolution-jump refit
+  (`refit_batch_for_resolution`), the resume clamp
+  (`context_resume._clamp_resumed_batch`, split out of
+  `_resync_train_loader`) and the start-up audit measure every GPU backend,
+  not only CUDA. All three keep the effective batch exact through the
+  curriculum's largest-divisor rule, which the OOM throttle shares.
+- Where free memory cannot be queried the adapter returns a documented,
+  logged estimate: MPS uses `min(recommended_max_memory -
+  current_allocated_memory, host available RAM)` and samples allocations
+  for its peak; DirectML reports nothing and assumes
+  `hardware.directml_assumed_free_gb` (default 2.0 GB), with the
+  per-sample cost from the probe's resolution formula; a failing CUDA/XPU
+  `mem_get_info` falls back to total minus reserved.
+- The CPU has no device budget: the refit and the resume clamp are no-ops
+  there (the resume clamp used to cut the restored batch to the configured
+  default on CPU).
+- OOM relief: `release_device_memory` and `is_out_of_memory` replace the
+  CUDA-only `release_cuda_memory`, `release_cuda_cache` and `is_oom_error`;
+  OOM messages of CUDA, ROCm, MPS, XPU and DirectML are recognised and
+  every present backend's cache is released.
+- Tests: `tests/unit/test_device_memory.py` (mocked backends).
+
+### v16.9.167 - Generator State in Checkpoints and Resume-Exact Augmentation (R2-T8)
+
+- Checkpoints (progress, latest and best; all built by `progress_payload`)
+  record an `rng_state` entry: the Python `random`, NumPy and torch CPU
+  generators plus every present device generator (CUDA, which covers ROCm,
+  MPS and XPU). `resume_from_checkpoint` restores them last, so the
+  training loop's own randomness continues where the interrupted run
+  stopped. The record loads under `torch.load(weights_only=True)`.
+  Checkpoints without it resume with fresh generators, which is logged;
+  device states for a backend the host lacks are skipped (logged).
+- Augmentation no longer draws `random.randint` seeds inside the loader
+  workers. `training/data/sample_seed.py` (new) derives each sample's seed
+  from (base seed 42, epoch, dataset index), and `MultiTaskDataset`
+  seeds Python, NumPy and torch with it for that sample only (the
+  previous states are restored afterwards). The same sample therefore
+  gets the same crop, flip and synthesized degradation on any worker,
+  DDP rank, shard-locality order or resume, and different ones in the
+  next epoch. The epoch sits in shared memory so persistent workers
+  follow `set_loader_epoch` without a re-spawn. Validation datasets stay
+  at epoch 0, so their synthesized degradations are now the same every
+  epoch.
+- The train DataLoader has its own generator, reseeded per epoch by
+  `set_loader_epoch`; starting an iteration no longer advances the global
+  torch generator, so a resumed loop draws the same numbers.
+- `training/utils/rng_state.py` (new) holds the capture/restore code.
+- Tests: `tests/unit/test_rng_resume.py` interrupts an epoch, resumes in
+  a scrambled process with 0 and 2 workers and checks that the remaining
+  batches' augmented tensors and the loop's draws equal an uninterrupted
+  run's; plus weights-only loading, legacy and malformed records and
+  mocked device backends.
+
+### v16.9.166 - Inference Notebook Cells Use the Release File Names (R2-T1 Follow-Up)
+
+- `training/notebooks/cells/inference.py` builds the `.pt`, `_FP32.onnx`
+  and FP16 `.onnx` file names from `PT_SUFFIX`, `ONNX_FP32_SUFFIX` and
+  `ONNX_FP16_SUFFIX` in `training/cloud/variations.py` (the single source)
+  instead of hardcoding them. Generated notebooks are written into the
+  model hub at preflight/export time (none are committed here); their
+  text is unchanged because the constants hold the same names.
+
+### v16.9.165 - Persistent Validation Workers and Bounded Upload Wait at Exit (R2-T9)
+
+- Validation loader: `persistent_workers` is on when it has workers and
+  the host passes the train loader's RAM gate (>= 16 GB, >= 3 GB free),
+  and follows a `WorkerOverrides.persistent_workers` override. Validation
+  runs every epoch over a dataset that is never resized, so re-spawning
+  its workers (and re-pickling the dataset under the Windows/macOS spawn
+  start method) every epoch was pure overhead; the RAM gate bounds the
+  cost of keeping them resident.
+- Cloud sync: uploads ran on non-daemon threads, so interpreter shutdown
+  waited for a stalled upload without limit and logged nothing; a plain
+  daemon thread would instead be killed mid-upload silently.
+  `training/cloud/sync_threads.py` (new) runs uploads on daemon threads
+  and an `atexit` handler joins the pending ones with one shared deadline
+  (`fleet.sync_exit_timeout_sec`, default 300 s, in `config.yaml`),
+  logging which finished and which were abandoned.
+- Tests: `tests/unit/test_sync_threads_and_val_workers.py`.
+
+### v16.9.164 - Honest Forex Validation Metrics and Unmeasured Epochs (R2-T10)
+
+- Owner's Forex `metrics.csv`: epoch 1 held the registry `sota_targets`
+  digit for digit (58.5/56/1.65/1.85/2.1/12/12.5/12.5) with
+  `Quality_Score = 100 - Val_Loss` (99.7291); epoch 2 had `WinRate ==
+  DirAcc`, Sharpe/Sortino pinned at -5 and MaxDD pinned at 100. No code
+  path in this repository (any branch, any version) writes targets into
+  the metric dict, and the validation code always sets `quality_score`
+  next to `dir_entropy`, so the epoch-1 row was not produced by the
+  engine's validation; it survives later runs because the CSV upsert
+  keeps rows of other epochs. What the code did allow, and what is now
+  closed: a missing metric written as `0`, a substitute quality
+  (`100 - val_loss`) ranking as a best, model cards printing targets as
+  achieved results, and such a row anchoring later baselines.
+- Never targets as measurements: `metrics.csv` writes an unmeasured
+  metric (absent, NaN) and a missing quality score as an empty cell, never
+  `0`; model cards print `not measured` instead of the SOTA target or a
+  hardcoded figure (`training.model_card.measured`, every task family).
+- Unmeasured or degenerate epochs never become `best.pth` or a vault
+  checkpoint (`training/governance/measurement.py`): an epoch that
+  measured no SOTA target, has a non-finite quality score, or (Forex)
+  opened no trade is logged, keeps a NaN quality, is not offered to the
+  SOTA tracker, the vault or the governor audit. The `100 - val_loss`
+  substitute is gone; a model without SOTA targets ranks by its measured
+  validation loss, `1 / (1 + val_loss)`.
+- History: a `metrics.csv` row whose target columns equal the SOTA
+  targets exactly is skipped (logged) by the lifecycle manager's vault and
+  best-score baselines and by the resume reconciliation.
+- Forex trade metrics: with no directional prediction the win rate (no
+  longer the direction accuracy), profit factor, Sharpe, Sortino and
+  drawdown are not reported (logged). The drawdown is a real percentage
+  of an explicit equity model (`training/training/forex_equity.py`):
+  fixed-fractional 1 % risk per trade, a win returns `TP/SL` R and a loss
+  -1 R, equity compounds from 1.0, MaxDD is the largest peak-to-trough
+  fall in percent of the peak. The clips on profit factor, Sharpe,
+  Sortino and drawdown are gone from the reported metrics; the score
+  bounds them inside `weighted_quality_score` only (PF 0..10, Sharpe and
+  Sortino -5..10). A profit factor without losses is `inf`.
+- One score scale: `val_summary` no longer computes its own
+  `40*DirAcc + 30*WinRate + ...` Forex score (percent values on a
+  fraction formula, floored at 0 by the clipped 100 % drawdown, never on
+  the scale of the target). Forex epochs use `score_metrics` like the
+  target; the scheme is `forex_weighted_targets_v2`, old untagged Forex
+  anchors are dropped and old rows are rescored from their metric columns.
+- Tests: `tests/unit/test_forex_measurement.py` reproduces both rows
+  (target echo, resume baseline, unmeasured epoch, empty cells, model
+  card; no-trade epoch, unclipped Sharpe and equity drawdown, equity
+  model, in-score bounds, one scale).
+
+### v16.9.163 - Target Quality Score over the Targets Measured That Epoch (R2-T7)
+
+- Owner decision: `target_quality_score` ignores targets an epoch did not
+  measure. The governor recomputes its aim in every audit from the targets
+  with a finite value in that epoch's metrics, so an FID or rank-margin
+  target no longer raises the aim on epochs that do not measure it, and
+  the aim is on the same terms as the epoch score it is compared with
+  (propulsion's 80 % / 90 % checks, the stride threshold).
+- `target_quality_score` and `measured_targets` moved to
+  `training/governance/quality_score.py`, next to the single score
+  definition (`governor_setup` imports it; no duplicate).
+- Tests: `tests/unit/test_quality_score.py` (subset scoring, NaN/None
+  metrics, nothing measured, governor audit).
+
+### v16.9.162 - NIMA Logit Bound from the Registry as a Soft Cap (R2-T6)
+
+- Owner decision: the NIMA logit clamp is configuration, not code. The
+  hardcoded `torch.clamp(logits, -10, 10)` in `models/nima.py` (and in the
+  EfficientNet `AuthenticityScorer`/`UniversalClassifier`) is gone. The
+  bound is the registry `stabilizers.logit_clamp` of each model (15.0 for
+  every NIMA entry; the model factory applies it, `DEFAULT_LOGIT_CAP` =
+  15.0 covers a model built without a registry entry), and `0` turns it
+  off.
+- Best practice: the bound is a tanh soft cap, `cap * tanh(logits / cap)`,
+  the final-logit soft-capping of Gemma 2, instead of a hard clamp. A hard
+  clamp has zero gradient outside the range, so a saturated score bin stops
+  learning; softmax needs no clamp against overflow (PyTorch subtracts the
+  row maximum). The soft cap is near the identity for small logits, keeps
+  FP16/AMP logits bounded after a resolution jump and keeps every bin
+  differentiable; a cap of 15 still spans a probability ratio of e^30
+  between bins, far beyond what a 10-bin EMD target needs.
+- Governor wiring: the governor already starts its clamp at
+  `stabilizers.logit_clamp` and adjusts it (thermal reset, breakout). It
+  now drives the model: `training/governance/logit_cap_sync.py` applies
+  `current_clamp` to models with `set_logit_cap` at the start of every
+  epoch (logged on change), so the `Clamp` column of `metrics.csv` is the
+  bound the model used. The governor temperature is not wired into the
+  EMD loss (validation scores at temperature 1; see owner questions).
+- `CombinedLoss.perc` is typed as an optional module (pyright).
+- Tests: `tests/unit/test_nima_logit_cap.py` (bounded, smooth, gradients
+  kept, cap 0, no hard clamp left, registry caps applied, forward bound,
+  governor sync).
+
+### v16.9.161 - LPIPS Loss for Every Model with an LPIPS Target (R2-T5)
+
+- Owner decision: the LPIPS loss term is on for every model whose registry
+  `sota_targets` include LPIPS (the registry is the single source), and
+  still for a `loss_fn` that names an LPIPS term.
+  `training.core_loop.uses_perceptual_loss` now takes the model's registry
+  entry. Newly on: FFA-Net indoor/outdoor, MPRNet, NAFNet deblur/denoise,
+  the multitask restorer (its per-task `task_lpips_weights`), UltraZoom
+  and CodeFormer.
+- `CombinedLoss`: the perceptual engine is built for every image-to-image
+  task (`PERCEPTUAL_TASKS` = restoration, enhancement, face, the tasks the
+  restoration quality score covers); face restoration (CodeFormer, MSE
+  base) adds the LPIPS term to its pixel loss.
+- Tests: `tests/unit/test_losses.py` checks the rule, the whole registry
+  (on exactly where LPIPS is a target, and only for image-to-image tasks)
+  and the face term.
+
+### v16.9.160 - Explicit Head Parameters for Every Architecture (R2-T3)
+
+- Every registered architecture declares `head_param_prefixes` on its
+  model class (the single source; `head_lr_multiplier` applies to it),
+  following the usual discriminative fine-tuning split: the layers added
+  on a pretrained backbone, or the output layers of a net trained from
+  scratch, form the head.
+  - Transfer-learned classifiers and regressors: NIMA (MobileNet,
+    EfficientNetV2, Swin V2) `classifier.` plus a learnable `gem_pool.`;
+    `UniversalClassifier`/`AuthenticityScorer` `backbone.classifier.`;
+    UPN v2 `fc.`.
+  - Detection: RetinaFace `bbox_head.`, `conf_head.`, `landmark_head.`
+    (the fallback picked only the landmark head).
+  - Restoration output projections: NAFNet `ending.` (the fallback picked
+    `middle_blks`, the bottleneck), MPRNet `stage2_dec.`, MIRNet `outro.`,
+    UltraZoom `body.2.` (last conv before pixel shuffle), Film restorer
+    `decoder.4.`, CodeFormer and ParseNet `unet.final.` (the fallback
+    found no head, one top-level module), FFA-Net `conv2.` plus its
+    `detection_head.`.
+  - Multitask: `classifier.` and `heads.`; Forex: `direction_head.` and
+    `magnitude_head.` (the fallback picked only the magnitude head).
+  - Causal LLM: the trainable `lm_head` of a full fine-tune; with LoRA the
+    base model is frozen and the adapters train as one group (no head).
+    YOLO keeps the Ultralytics optimizer.
+- The last-top-level-module rule remains only for unknown models and now
+  logs a warning.
+- Tests: `tests/unit/test_head_prefixes.py` builds every registry model and
+  checks that each declared prefix matches trainable parameters and that
+  the head and backbone groups are non-empty; LLM full fine-tune and LoRA
+  cases and the logged fallback.
+
+### v16.9.159 - Shard-Locality Sampling On by Default (R2-T2)
+
+- Owner decision: `data.locality` is on by default. `window_shards: 4`
+  (four of the compiler's 1 GB WebDataset shards, a ~4 GB working set that
+  fits a Kaggle/Colab page cache while every batch still mixes four shards)
+  and `fraction_block_size: 256` (a shard of WebP input/target pairs holds
+  ~3,000-10,000 samples, so a block is one 25-75 MB sequential read, well
+  above the kernel readahead window, and a shard still splits into 12-40
+  blocks, so a 20 % fraction samples most shards instead of a few whole
+  ones). The defaults live in `training/data/locality.py`
+  (`DEFAULT_WINDOW_SHARDS`, `DEFAULT_FRACTION_BLOCK_SIZE`) and
+  `config.yaml` states the same values; a test keeps them equal.
+- Resume safety (`training/data/locality_resume.py`, new): every checkpoint
+  payload records the settings in effect (`data_locality`). A resume pins
+  the recorded settings into the run's config before the train subset and
+  loader are rebuilt, so a run never changes its epoch order or curriculum
+  subset mid-run. A checkpoint without the record (written before this
+  release) resumes with locality off, the order it was trained with, and
+  logs a warning; changed settings are logged and the recorded ones win.
+  New settings apply to a fresh run (`--clean`). Determinism (seed +
+  epoch), DDP sharding and mid-epoch resume are unchanged.
+- Tests: `tests/unit/test_locality_resume.py` (config defaults, record
+  round trip, legacy and changed checkpoints, missing section, malformed
+  record); `test_shard_locality.py` checks the on-by-default settings.
+
+### v16.9.158 - torch.export ONNX Exporter and the Three Release Variants
+
+- Every ONNX export now uses the supported `torch.export`-based exporter
+  (`torch.onnx.export(..., dynamo=True)`, opset 18); the legacy TorchScript
+  exporter and its 30 test-suite `DeprecationWarning`s are gone. Graph
+  capture lives in `training/export/dynamo_onnx.py`.
+- Release rule (owner decision, one writer for all exporters): `<Stem>.pt`
+  self-contained PyTorch FP32; `<Stem>_FP32.onnx` with weights always in
+  `<Stem>_FP32.onnx.data`; `<Stem>.onnx` FP16 with embedded weights, or a
+  `<Stem>.onnx.data` sidecar when the model exceeds the 2 GB protobuf
+  limit. The layout policy is `training/export/onnx_weights.py`, the
+  variants are `training/export/onnx_variants.py`, and the file suffixes
+  come from `training/cloud/variations.py` (SSOT for the GUI readiness
+  flags).
+- Dynamic axes are verified: after export the FP32 graph runs in ONNX
+  Runtime (CPU) at a larger batch and resolution against PyTorch. A model
+  with a shape-dependent branch (Swin window shift in
+  `nima_aesthetic_pro`) is re-exported with fixed height/width instead of
+  silently computing a different function, as the old trace did. Export
+  samples use batch 2 so the batch axis is not specialised to 1.
+- FP16 graphs are captured from a half-precision copy of the model; the
+  old path cast the caller's model to FP16 and back, losing FP32 weight
+  precision of a model that kept training. FP16-unsafe layers stay FP32
+  inside the FP16 graph (`training/export/precision.py`): Swin V2 window
+  attention normalises with `eps=1e-12`, which underflows in FP16 and
+  turned `nima_aesthetic_pro` outputs into NaN for padded windows.
+- Forex (MT5) FP16 keeps FP32 inputs/outputs in both the training
+  exporter and `export/mt5_signal.py`; `export_all` exports Forex through
+  `ForexModelExporter` (all three variants instead of one FP32 graph under
+  the FP16 name). PyTorch and Forex `.pt` files use the self-contained
+  `export_torch_standalone` payload.
+- LLM and YOLO graphs keep their producers (LLM already used the dynamo
+  exporter; YOLO uses Ultralytics' exporter) but save through the shared
+  writer, so a >2 GB FP16 LLM gets its sidecar. YOLO FP16 is converted
+  from the FP32 graph because Ultralytics writes FP16 only on CUDA.
+- Staging moves an ONNX file together with its sidecar and re-saves it
+  when the stem changes, so the location recorded in the graph matches;
+  before, a renamed FP32 graph pointed at a missing `.onnx.data`. The
+  isolation validator requires the FP32 sidecar.
+- Export progress output of `torch.onnx` is off (`verbose=False`): it
+  printed symbols a cp1252 Windows console cannot encode.
+- Tests: `tests/unit/test_onnx_parity.py` (every CPU-instantiable registry
+  model plus Forex: FP32/FP16 ONNX Runtime parity, second resolution,
+  `.pt` reload, file layout) and `tests/unit/test_onnx_weights.py`
+  (sidecar rules incl. a mocked >2 GB threshold, relocation, axis pinning).
+
+### v16.9.157 - Sampler Order State and Optional bitsandbytes Adapter
+
+- `ResumableBatchSampler`: shuffle, seed, epoch and shard window are one
+  `EpochOrder` dataclass that also draws the epoch's sample order
+  (pylint R0902 fixed at the root, 6 instance attributes). `shuffle`,
+  `seed`, `epoch` and `shard_window` stay readable as properties;
+  behaviour is unchanged.
+- `training/training/optimizer.py`: the module-level
+  `import bitsandbytes` is replaced by `paged_adamw_8bit()`, a typed
+  optional-import adapter that imports `bitsandbytes.optim` on demand and
+  returns `PagedAdamW8bit` only when it is a `torch.optim.Optimizer`
+  subclass, else None (AdamW fallback as before). bitsandbytes stays an
+  optional dependency in `requirements.txt`; pyright is clean on Windows
+  hosts where it is absent, and importing the optimizer module no longer
+  loads bitsandbytes.
+- Tests: `tests/unit/test_optional_bnb.py` (absent, installed, fallback,
+  factory use).
+
+### v16.9.156 - Exact-Divisor OOM Throttle
+
+- `CurriculumState.throttle_on_oom` (mid-epoch OOM path through
+  `SmartTrainingGovernor.handle_oom`) now goes through
+  `fit_batch_to_budget`, the exact-divisor rule already used by the
+  resolution-jump refit (`training/training/batch_budget.py`) and the
+  resume clamp: the micro-batch becomes the largest divisor of
+  `batch * accumulation` within half the old micro-batch (never below
+  `min_batch`), so the effective batch stays exactly equal. It used to
+  round `target_effective_batch / batch`, which drifted the effective
+  batch (e.g. 7 x 1 became 3 x 2).
+- The rule stays on `CurriculumState` rather than in `batch_budget`:
+  `training.governance` cannot import `training.training` (which imports
+  the governor) without a cycle; `batch_budget` calls the same method.
+- `openapi.json` regenerated (`python -m tools.export_openapi`); it
+  still carried 16.9.154 after the v16.9.155 bump.
+- Tests: `tests/unit/test_batch_budget.py` (exact splits including prime
+  effective batches, `min_batch`, governor `handle_oom`).
+
+### v16.9.155 - Single Task-Type Resolver (SSOT)
+
+- `training/registry/task_type.py` (new): `resolve_task_type` is the one
+  resolver of a registry entry's task type: `task_type`, then
+  `dataset_type`, then `category` (first non-empty wins, a list resolves
+  to its first entry), `restoration` when none is declared.
+- The run spec and checkpoint lifecycle (`core_loop`), the governor
+  (`governor_setup`/`governor`) and the epoch quality scorer
+  (`training/training/engine.py`) all call it; the three private
+  resolvers are gone. Outputs are identical for every registry model.
+  The only representational change: the scorer used to stringify YOLO's
+  list-valued `dataset_type` (`"['detection', ...]"`); it now gets
+  `detection`, which scores identically.
+- Tests: `tests/unit/test_task_type_resolver.py` checks every registry
+  model key against `tests/fixtures/task_type_snapshot.json`, captured
+  from the three old resolvers before the merge, plus field precedence.
+
+### v16.9.154 - Shard-Window Sampling and Block-Wise Curriculum Fractions (Opt-In)
+
+- `training/data/locality.py` (new, audit 7.1.3): `LocalityConfig`
+  reads the optional `data.locality` section (`window_shards`,
+  `fraction_block_size`, both default 0 = off). `shard_window_order`
+  shuffles the shards for the epoch and the samples inside windows of
+  `window_shards` shards, so the workers read a few tar shards at a time
+  instead of seeking across all of them (50 shards x 1000 samples,
+  window 4: 3.9 shards per 16-sample batch instead of 13.8, and 3.9
+  shards per 1000 consecutive samples instead of all 50).
+  `block_fraction_subset` builds a curriculum fraction from shuffled
+  contiguous blocks inside each shard; the block order is fixed, so the
+  subsets stay nested across fraction steps (Monotonic Ratchet).
+- `ResumableBatchSampler.set_shard_window`: with a `ShardWindow` the
+  epoch order is the shard-window order drawn from `seed + epoch`, so it
+  stays deterministic, splits across DDP ranks and resumes mid-epoch at
+  batch K exactly like the uniform order. `rank` and `world_size` are now
+  properties over one topology pair.
+- `build_train_loader` sets the window when `window_shards > 0`, the
+  loader shuffles and the dataset reports shards.
+  `MultiTaskDataset.shard_keys_for` / `sample_shard_keys` map samples to
+  `(ds_name, shard)` through `WebDatasetReader.shard_of`; other samples
+  share `(ds_name, None)`. `_apply_sample_fraction` uses the block subset
+  when `fraction_block_size > 0`.
+- `config.yaml`: new `data.locality` section, both values 0, so training
+  order and subsets are unchanged until the owner turns them on.
+- Tests: `tests/unit/test_shard_locality.py` (config validation, window
+  permutation and shard spread, epoch seeding, resume, DDP coverage, key
+  validation, nested shard-local blocks, loader wiring, WebDataset shard
+  keys and block fractions).
+
+### v16.9.153 - Zero-Rebuild Curriculum Transitions Pinned by a Test
+
+- `tests/unit/test_curriculum_rebuild.py` (new, audit 7.1.4): steps a
+  WebDataset-backed restoration dataset through four fraction and
+  resolution changes and checks that `update_strategy`, item reads and
+  readers pickled for respawned loader workers never call
+  `scan_tar_members` or `tarfile.open`. It also checks that the fraction
+  subsets are nested (each larger fraction keeps every sample of the
+  smaller one), so a step up never drops trained samples. The behaviour
+  was already correct (`_apply_sample_fraction` re-slices the cached
+  sample list, and the offset index travels with the pickled reader);
+  the test keeps it that way.
+
+### v16.9.152 - One Quality Score Definition and the ROBOTS Restoration Formula
+
+- `training/governance/quality_score.py` (new): the only definition of
+  the scalar quality score, used both for the epoch score
+  (`TelemetryEngine.compute_quality_score`) and for the curriculum target
+  (`governor_setup.target_quality_score`). Before, the two kept their own
+  copies of the formula. Restoration, enhancement and face models now
+  score `PSNR + 20*SSIM - 20*LPIPS` (`ROBOTS.md`) on every epoch. FID was
+  measured every fifth epoch and added `(100 - FID)` only then, so the
+  score jumped by 60 to 90 points on FID epochs and `best.pth` followed
+  that cadence. FID now stays out of the score; it still gates
+  publication and triggers `vault_fid.pth` from its own column. Other
+  tasks keep the weighted sum of their SOTA targets.
+- Scale migration: governor state carries `quality_scheme`. A
+  restoration checkpoint without the tag was scored on the old scale
+  (about 8x larger), so its `best_quality`, quality history and the
+  SOTA tracker's and `best.pth`'s best scores are not reused (logged
+  warning). `metrics.csv` rows are rescored from their PSNR/SSIM/LPIPS
+  columns (`csv_row_quality`) in `reconcile_metrics_csv` and in the
+  lifecycle manager's baseline, so resumed runs compare on the new scale.
+  `CheckpointLifecycleManager` takes the governor's `task_type`.
+- Tests: `tests/unit/test_quality_score.py` (formula for the three task
+  types with and without FID, target equals the epoch formula, CSV
+  rescoring, anchor comparability, governor state round trip and
+  old-scale reset, CSV reconcile on the new scale; the audit 3.2.4
+  missing-target checks now run on a weighted task).
+
+### v16.9.151 - Backbone/Head Optimizer Groups with Legacy Checkpoint Migration
+
+- `training/training/param_groups.py` (new): the optimizer gets up to
+  four param groups (backbone decay, backbone no-decay, head decay, head
+  no-decay), tagged `group: "backbone"` or `group: "head"`. The governor's
+  `head_lr_multiplier` (head jolts, backbone cooling) was applied by
+  `lr_scaling.scale_learning_rates` only to `head` groups, and none
+  existed, so it never took effect. The head is named by a model's
+  `head_param_prefixes` attribute, else it is the last top-level child
+  with trainable parameters (when there are at least two such children).
+- `training/training/optimizer.py`: `build_optimizer` uses
+  `build_param_groups`; group 0 is still the backbone decay group.
+- `training/context_resume.py`: `restore_optimizer_state` migrates a
+  checkpoint written with the old two-group layout. Each parameter keeps
+  its Adam moments and step, and each new group takes the
+  hyperparameters of the group it came from. The scheduler's per-group
+  lists (`base_lrs`, `_last_lr`, ...) are widened the same way, so the LR
+  curve continues. A state that does not match the model's layout keeps
+  the fresh optimizer and logs a warning (weights are still restored).
+- Tests: `tests/unit/test_param_groups.py` (partition and tags, declared
+  head, single-block models, head multiplier surviving cosine steps,
+  legacy state and schedule migration, mismatch fallback with warning).
+  `test_training_engine` now expects the four groups.
+
+### v16.9.150 - Rung Entry Fraction and VRAM Refit on Resolution Jumps
+
+- `training/governance/governor_setup.py`: `rung_entry_fraction` is the
+  one place that decides the data fraction a new resolution rung starts
+  at (`optimization.initial_fraction`, then the config's
+  `governor.manifold.initial_fraction`, then 0.15).
+- `training/governance/epoch_audit.py`: a SOTA-forced jump entered the
+  next rung at a hardcoded 50% data fraction, while an organic spatial
+  jump entered at `initial_fraction`. Both now use `rung_entry_fraction`;
+  the move still goes through `_commit_rung` (Monotonic Ratchet pair
+  rule: the resolution steps up, so the fraction may reset).
+- `training/governance/curriculum.py`: `fit_batch_to_budget` shrinks the
+  micro-batch to a VRAM budget and keeps `batch * accumulation` exactly
+  equal (largest divisor of the effective batch within the budget).
+  `update_batch_and_accumulation` rounds `target / batch` and could drift.
+- `training/training/batch_budget.py` (new): after a resolution jump the
+  engine re-runs the VRAM audit at the new resolution and fits the
+  micro-batch to it. Before, the micro-batch of the previous rung was
+  kept and only a resume re-audited it. The probe's train-mode passes
+  would move BatchNorm running statistics, so buffers and train/eval
+  mode are restored after it. Off CUDA there is no measurement, so no
+  probe runs.
+- `training/context_resume.py`: the resume VRAM clamp uses the same
+  `fit_batch_to_budget`, so a clamped resume keeps its effective batch.
+- Tests: `tests/unit/test_governor_jumps.py` (entry fraction precedence,
+  forced jump at `initial_fraction`, top-rung no-op) and
+  `tests/unit/test_batch_budget.py` (`b_micro * accum` invariant over a
+  grid, probe at the new resolution, model state untouched).
+
+### v16.9.149 - Warning-Free SWA and MT5 Tests
+
+- `tests/unit/test_swa.py`: the SWA tests built a bare SGD optimizer and
+  stepped `SWALR` with no optimizer step, so PyTorch warned that
+  `lr_scheduler.step()` ran before `optimizer.step()` (`swa.py:92`). In a
+  real run the engine always owns a main LR scheduler and runs optimizer
+  steps before `SwaPhase.end_epoch`, so production never hit it. A new
+  `_training_optimizer` helper builds the optimizer in that state (main
+  scheduler attached, one gradient-free step), and the warning is gone
+  without touching `swa.py`.
+- `tests/test_mt5_live_inference.py`: the module-level pipeline function
+  was named `test_*`, so pytest collected it and warned that it returned
+  a dict. It is now `run_multi_timeframe_live_pipeline`; the unittest
+  wrapper still runs it and asserts on its outputs.
+- The ONNX export keeps the TorchScript exporter (`dynamo=False`). The
+  `torch.export` exporter passes the suite's export tests on tiny models,
+  but nothing yet checks the exported graphs against onnxruntime for the
+  real architectures and the FP16, onnxsim and WebGPU steps after it, so
+  the switch is left to the owner. Its two DeprecationWarnings per export
+  remain.
+
+### v16.9.148 - Byte-Offset WebDataset Reads and Bounded Shard Handles
+
+- `training/data/containers/tar_offsets.py` (new): `scan_tar_members`
+  records `(name, offset, size)` of every regular member of an
+  uncompressed shard. `ShardOffsetCache` keeps the tables in
+  `.shard_offsets.json` next to the shards, or in a temp-dir fallback
+  when the shard folder is read-only (Kaggle `/kaggle/input`). An entry
+  is reused only while the shard's size and mtime match and every member
+  lies inside the file; otherwise the shard is rescanned.
+- `training/data/containers/webdataset.py`: uncompressed shards are read
+  with one `seek` and one `read` per member instead of
+  `tarfile.extractfile(name)`, whose reverse linear name scan ran two to
+  five times per sample, and whose first use read every header of the
+  shard in each worker after every loader rebuild. Compressed shards keep
+  the `tarfile` path. A short read (shard changed after indexing) raises
+  `OSError` and drops the handle. Samples, bytes and `__getitem__`/`len`
+  are unchanged, so `ResumableBatchSampler` resume is unaffected.
+- `training/data/containers/handle_pool.py` (new): `HandlePool` keeps at
+  most `max_open_handles` (default 16) shard handles per process,
+  closing the least recently used one. Handles are never pickled; a
+  forked worker closes inherited handles; a collected reader closes its
+  handles.
+- JSON sidecar labels: a falsy label (class `0`, score `0.0`) no longer
+  falls through to the next key and gets lost. A text sidecar label still
+  takes precedence over the JSON one.
+- Measured on four 5,000-member shards (CPU, warm page cache): 188.6 us
+  per sample with `tarfile` reads vs 29.7 us with offset reads; index
+  build 314 ms by header scan vs 132 ms from the cache.
+- Tests: `test_webdataset_offsets.py`.
+
+### v16.9.147 - Per-Format Readiness Flags in Model Stats
+
+- `training/server/routes/gui_schemas.py`, `gui_model_stats.py`:
+  `ModelWithStats` gains `pytorch_ready`, `onnx_fp32_ready` and
+  `onnx_fp16_ready`, true when `<Stem>.pt`, `<Stem>_FP32.onnx` or
+  `<Stem>.onnx` exists in the model hub dir, its `checkpoints/` or the
+  variation's `dist/kaggle` folder. The stem comes from
+  `resolve_model_stem`; the GUI variation badges read these flags.
+- `training/cloud/variations.py`: `STAGED_FOLDERS`, `variation_dirs` and
+  `variation_ready` are the single place that knows where variation
+  binaries live; `training/export/validation.py` uses `STAGED_FOLDERS`
+  instead of its own legacy folder map.
+- `openapi.json` regenerated with `tools/export_openapi.py`.
+- Tests: `test_model_readiness.py`.
+
+### v16.9.146 - Cross-Platform Bootstrap, DDP Backend and Process Cleanup
+
+- `training/utils/paths.py`: `venv_site_packages` resolves the venv's
+  site-packages with `sysconfig`'s venv scheme (`Lib/site-packages` on
+  Windows, `lib/pythonX.Y/site-packages` on POSIX). `bootstrap_sys_path`
+  used the Windows layout only.
+- `training/train.py`: delegates to `bootstrap_sys_path` (loaded by file
+  path before `training` is importable) instead of its own Windows-only
+  copy.
+- `training/parallel/ddp.py`: `select_backend` picks NCCL only with CUDA on
+  a platform that ships it (not Windows), else Gloo; `device_id` is passed
+  to `init_process_group` only for NCCL.
+- `training/data/workers.py`: macOS starts workers with spawn like Windows,
+  so it gets the spawn-aware worker budget (`SPAWN_PLATFORMS`).
+- `training/utils/interrupt.py`: on POSIX, cleanup signals the child's
+  process group (torchrun ranks, dataloader workers) and falls back to
+  terminating the child alone, matching `taskkill /T` on Windows.
+- Tests: `test_platform_compat.py`.
+
+### v16.9.145 - Deterministic Mid-Epoch Resume and GradScaler State
+
+- `training/data/resumable_sampler.py` (new): `ResumableBatchSampler`
+  draws each epoch's permutation from `seed + epoch` (seed 42), shards it
+  per DDP rank like `DistributedSampler`, and can start at batch K. The
+  train, validation and instruction loaders batch through it, so a resumed
+  epoch keeps the interrupted run's sample order and slices the index list
+  instead of loading and discarding every finished batch.
+- `training/training/epoch.py`, `validation.py`, `engine.py`: resume through
+  `resume_start_batch`; `skip_resumed` stays as the fallback for loaders
+  with their own sampler (Forex row groups). Batch size is read with
+  `loader_batch_size`, since `loader.batch_size` is `None` under a batch
+  sampler.
+- `training/training/step_progress.py`, `training/context_resume.py`,
+  `training/core_loop.py`: the AMP `GradScaler` state is saved in progress
+  checkpoints and restored on resume. The scaler is now created before the
+  resume, so a resumed fp16 run keeps its loss scale instead of restarting
+  at 65536.
+- `tests/unit/test_checkpoint.py`: lifecycle tests use a project root nested
+  in their temp dir. A root directly under the system temp dir resolved the
+  shared `%TEMP%/LemGendaryModels` hub, whose stale checkpoints made the
+  best-checkpoint assertion depend on earlier runs.
+- Tests: `test_resumable_sampler.py`, `test_scaler_resume.py`.
+
+### v16.9.144 - Governor LR Scaling, LPIPS and Quality Score Fixes
+
+- `training/core_loop.py`: `build_criterion` enables the LPIPS perceptual
+  term for models whose registry `loss_fn` names it (`l1_lpips`:
+  `film_restorer`, `ffanet_indoor`, `ffanet_outdoor`). Before, `use_perc`
+  was never passed and LPIPS was always 0.
+- `training/telemetry.py`: `compute_quality_score` skips SOTA metrics the
+  epoch did not measure. A missing FID used to count as 0.0, adding a
+  phantom +100 to the quality score.
+- `training/training/lr_scaling.py` (new): governor LR multipliers are
+  applied as the ratio between the new and the previously applied
+  multiplier to the group rates and the scheduler's `base_lrs`, so cosine
+  decay and governor cooling compose. `head_lr_multiplier` applies to param
+  groups tagged `group: head`. The applied multiplier is stored in the param
+  group and survives resume.
+- `training/governance/governor_groups.py`: `LrPropulsion` gains the
+  `trigger_mini_swa` field `GovernorHost` already delegated to (reading it
+  raised `AttributeError`).
+- `training/export/soup.py`, `training/training/engine.py`: the model soup
+  and the best checkpoint without a lifecycle manager are written with
+  `safe_atomic_save` instead of a raw `torch.save`.
+- `tests/unit/test_swa.py`: the engine-seam context resolves its model hub
+  inside its own temporary root, so a stale `LemGendaryModels` folder in the
+  system temp directory no longer leaks SWA files between runs.
+- Tests: `test_lr_scaling.py`, `test_quality_score.py`, LPIPS flag test.
+
+### v16.9.143 - Container Targets for Every Task
+
+- `data/container_targets.py` (new): per-task builders for container
+  (WebDataset, Parquet, MDS, LitData) samples, mixed into `MultiTaskDataset`
+  as `ContainerTargetsMixin`. Both shard layouts decode: labels in the
+  `.json` sidecar (published manifolds) and `.txt` label sidecars with
+  lossless `.mask.webp` masks (current compiler output).
+  - Quality (NIMA): the 10-bin distribution comes from a list, a
+    whitespace-separated `.txt` label or the `nima_scores` JSON. Before, a
+    `.txt` label gave an all-zero target.
+  - Segmentation (ParseNet): the mask member is decoded and cropped with the
+    image's seed; a sample without a mask raises instead of training on
+    zeros.
+  - Face detection (RetinaFace): `[conf, box, 10 landmarks]` from a YOLO
+    label or the JSON `objects` list. Labels without landmarks set them to
+    `LANDMARK_ABSENT` (-1).
+  - Parameter prediction (UPN v2): synthetic degradation with random
+    parameters, as in directory mode.
+  - Restoration: an unpaired sample is never an identity pair; the input is
+    a synthesised degradation (film damage for `film_restorer`). UltraZoom's
+    input is the aligned target crop downscaled by 2 (antialiased bicubic)
+    instead of a full-size copy.
+  - Classification: numeric label, digit text or `classes.txt` entry.
+  - A task without a builder raises `RuntimeError`; missing labels warn once
+    per dataset.
+- `data/sample_labels.py` (new): label parsing shared by directory and
+  container samples (NIMA distribution, face target, FFA-Net boxes).
+- `data/dataset_targets.py`: directory mode uses the shared parsers. A
+  box-only face label is now a positive face with absent landmarks.
+- `data/dataset_containers.py`: decodes the sample and hands it to the task
+  builder; `sync_dummy` shapes cover face detection and classification.
+- `training/losses.py`: the face loss leaves `LANDMARK_ABSENT` coordinates
+  out of the landmark term. Autocast regions use the tensor's device type
+  instead of a hardcoded `cuda` (audit 3.4.3).
+- `tests/unit/test_container_targets.py` (new): target shape and value tests
+  for all 23 registry models in both shard layouts, on tiny synthetic CPU
+  shards, plus routing checks for Forex, YOLOv8n and the instruction LLM.
+
+### v16.9.142 - Chat-Template Prompt Masking
+
+- `training/data/instruction_dataset.py`: chat-template encoding now masks
+  the prompt. The prompt (every turn before the final assistant reply,
+  rendered with `add_generation_prompt=True`) is tokenized once more and its
+  length set to `IGNORE_INDEX` (-100) in the labels, as the manual ChatML
+  path already did. Before, every system and user token was supervised.
+- `tests/unit/test_llm_engine.py`: chat-template masking test.
+
+### v16.9.141 - Registry Dataset Lists Deduplicated
+
+- `unified_models_v2.yaml`: 21 models listed their dataset twice
+  (`datasets: [X, X]`); each dataset is now listed once.
+  `_registry_metadata.datasets.LemGendizedForexUniverse.count` is corrected
+  from 30810572 to 26818700 rows.
+
+### v16.9.140 - Validator Findings: No Swallowed Errors
+
+- `lemgendary_models_hub.ps1`: the Python lookup no longer swallows a missing
+  interpreter with `-ErrorAction SilentlyContinue`; it catches
+  `CommandNotFoundException`, reports it and returns. The running-server
+  lookup filters `Get-Process` output instead of suppressing lookup errors.
+- `models/core_restoration.py`: the two silent `except RuntimeError: pass`
+  blocks around `data_ptr()` alignment checks are replaced by one
+  `is_unaligned()` helper (16-byte cuDNN alignment) that logs a debug message
+  when a tensor has no addressable storage.
 
 ### v16.9.139 - MultiTask Restorer Dynamic Spatial Pooling ONNX Export Hardening
 

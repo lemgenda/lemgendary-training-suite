@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from training.data.task_resolution import ManifoldLayout, resolve_manifold_task
+from training.platform_paths import kaggle_paths, on_kaggle, platform_paths
 from training.utils.paths import get_project_root, get_workspace_root, unique_resolved
 
 logger = logging.getLogger("lemtrain.manifold")
@@ -190,20 +191,8 @@ class ManifoldResolver:
                 p = self.workspace_root / p
             roots.append(p)
 
-        if self.env == "kaggle":
-            roots.extend(
-                [
-                    Path("/kaggle/working/LemGendaryDatasets"),
-                    Path("/kaggle/input"),
-                ]
-            )
-        elif self.env == "colab":
-            roots.extend(
-                [
-                    Path("/content/LemGendaryDatasets"),
-                    Path("/content/drive/MyDrive/LemGendaryDatasets"),
-                ]
-            )
+        if self.env in ("kaggle", "colab"):
+            roots.extend(Path(r) for r in platform_paths(self.env).dataset_roots)
 
         roots.extend(
             [
@@ -297,9 +286,10 @@ class ManifoldResolver:
 
     @classmethod
     def scan_kaggle_input_manifolds(
-        cls, root: Path = Path("/kaggle/input"), max_depth: int = 4
+        cls, root: Path | None = None, max_depth: int = 4
     ) -> list[Path]:
-        """Discover all attached dataset manifolds in /kaggle/input regardless of name."""
+        """Discover all attached dataset manifolds in the Kaggle input dir regardless of name."""
+        root = root if root is not None else Path(kaggle_paths().input_dir)
         if not root.exists() or not root.is_dir():
             return []
         discovered: list[Path] = []
@@ -348,16 +338,11 @@ class ManifoldResolver:
                     return found
 
         # Phase B: Kaggle /kaggle/input inspection (train on whichever datasets are attached)
-        if (
-            self.env == "kaggle"
-            or any("/kaggle/input" in str(r).replace("\\", "/") for r in search_roots)
-            or Path("/kaggle/input").exists()
-        ):
-            kaggle_input = Path("/kaggle/input")
-            if kaggle_input.exists():
-                attached_manifolds = self.scan_kaggle_input_manifolds(kaggle_input)
-                if attached_manifolds:
-                    return _match_attached(manifold_name, candidates, attached_manifolds)
+        kaggle_input = Path(kaggle_paths().input_dir)
+        if (self.env == "kaggle" or on_kaggle()) and kaggle_input.exists():
+            attached_manifolds = self.scan_kaggle_input_manifolds(kaggle_input)
+            if attached_manifolds:
+                return _match_attached(manifold_name, candidates, attached_manifolds)
 
         return None
 

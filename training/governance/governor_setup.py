@@ -7,7 +7,6 @@ knobs) so ``SmartTrainingGovernor.__init__`` only wires the groups together.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -21,31 +20,18 @@ from training.governance.governor_groups import (
     LossWeights,
     RankShaping,
 )
-from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS, DEFAULT_METRIC_WEIGHTS
+from training.governance.pinned_state import PinnedCalibration, PinnedThermalState
+from training.governance.quality_score import target_quality_score
 from training.governance.sota import SotaTracker
 from training.governance.thermal import ThermalState
 
 logger = logging.getLogger("lemtrain.governance.governor")
 
+PINNED_CALIBRATION_TASKS = frozenset({"quality"})
+"""Tasks trained at temperature 1 under a fixed logit soft cap (NIMA, R4-C4)."""
+
 # Tasks whose resolution ladder is capped by the GPU's VRAM.
 _VRAM_CAPPED_TASKS = ("restoration", "enhancement", "face", "parameter_prediction")
-
-# Score contribution of a lower-is-better SOTA target, by metric; others use 1 / target.
-_LOWER_IS_BETTER_SCORE: dict[str, Callable[[float], float]] = {
-    "fid": lambda v: 100.0 - v,
-    "lpips": lambda v: 1.0 - v,
-    "rank_margin": lambda v: 10.0 - v,
-    "max_drawdown": lambda v: max(0.0, 100.0 - v),
-    "tp_mae": lambda v: max(0.0, 50.0 - v),
-    "sl_mae": lambda v: max(0.0, 50.0 - v),
-    "dir_entropy": lambda v: max(0.0, 1.099 - v),
-}
-
-
-def resolve_task_type(model_info: dict[str, Any]) -> str:
-    """Return the dataset type (first entry when it is a list)."""
-    raw_task = model_info.get("dataset_type", "quality")
-    return raw_task[0] if isinstance(raw_task, list) else str(raw_task)
 
 
 def _trains_on_full_data(model_info: dict[str, Any]) -> bool:
@@ -89,6 +75,18 @@ def _initial_fraction(
     return float(manifold_defaults.get("initial_fraction", 0.15))
 
 
+def rung_entry_fraction(model_info: dict[str, Any], config: dict[str, Any]) -> float:
+    """Data fraction a new resolution rung starts at (spatial and SOTA-forced jumps).
+
+    Precedence: ``optimization.initial_fraction``, then the config's
+    ``governor.manifold.initial_fraction``, then 0.15. A resolution step-up may
+    lower the fraction under the Monotonic Ratchet pair rule.
+    """
+    opt = model_info.get("optimization") or {}
+    manifold_defaults = (config.get("governor") or {}).get("manifold") or {}
+    return float(opt.get("initial_fraction", manifold_defaults.get("initial_fraction", 0.15)))
+
+
 def _initial_batch(model_info: dict[str, Any]) -> int:
     """Return the configured physical batch; 2 for LLMs and 16 otherwise when unset."""
     batch_val = model_info.get("batch_size")
@@ -108,6 +106,7 @@ def _initial_resolution(model_info: dict[str, Any]) -> int:
     try:
         return int(current_res) if current_res is not None else 224
     except (ValueError, TypeError):
+        logger.warning("Registry input_size %r is not an integer size; starting at 224.", raw_size)
         return 224
 
 
@@ -178,21 +177,38 @@ def _align_start_rung(curriculum: CurriculumState, task_type: str) -> None:
         curriculum.res_ladder = sorted(set(curriculum.res_ladder + [curriculum.current_res]))
 
 
+def configured_target_effective_batch(model_info: dict[str, Any], config: dict[str, Any]) -> int:
+    """The configured effective batch: ``optimization``, then ``curriculum``, then 24."""
+    opt = model_info.get("optimization") or {}
+    curriculum_cfg = model_info.get("curriculum") or {}
+    manifold_defaults = (config.get("governor") or {}).get("manifold") or {}
+    return int(
+        opt.get(
+            "target_effective_batch",
+            curriculum_cfg.get(
+                "target_effective_batch",
+                manifold_defaults.get("target_effective_batch", 24),
+            ),
+        )
+    )
+
+
+def configured_accumulation(model_info: dict[str, Any]) -> int | None:
+    """The configured gradient accumulation (``None``: derived from the effective batch)."""
+    configured_acc = model_info.get("accumulation_steps") or (
+        model_info.get("curriculum") or {}
+    ).get("accumulation_steps")
+    return None if configured_acc is None else max(1, int(configured_acc))
+
+
 def build_curriculum(
     model_info: dict[str, Any], config: dict[str, Any], task_type: str
 ) -> CurriculumState:
     """Build the starting rung, batch and resolution ladder of the curriculum."""
     opt = model_info.get("optimization", {})
     manifold_defaults = config.get("governor", {}).get("manifold", {})
-    curriculum_cfg = model_info.get("curriculum") or {}
     curriculum = CurriculumState()
-    curriculum.target_effective_batch = opt.get(
-        "target_effective_batch",
-        curriculum_cfg.get(
-            "target_effective_batch",
-            manifold_defaults.get("target_effective_batch", 24),
-        ),
-    )
+    curriculum.target_effective_batch = configured_target_effective_batch(model_info, config)
     curriculum.fraction_increment = opt.get(
         "fraction_increment",
         manifold_defaults.get("fraction_increment", 0.20),
@@ -200,11 +216,9 @@ def build_curriculum(
     curriculum.current_fraction = _initial_fraction(model_info, opt, manifold_defaults)
 
     curriculum.current_batch = _initial_batch(model_info)
-    configured_acc = model_info.get("accumulation_steps") or curriculum_cfg.get(
-        "accumulation_steps"
-    )
+    configured_acc = configured_accumulation(model_info)
     if configured_acc is not None:
-        curriculum.current_acc = max(1, int(configured_acc))
+        curriculum.current_acc = configured_acc
     else:
         curriculum.update_batch_and_accumulation(curriculum.current_batch)
     curriculum.current_res = _initial_resolution(model_info)
@@ -251,7 +265,16 @@ def build_tuning(
 
 
 def build_thermal(stab: dict[str, Any], task_type: str, clamp_range: list[float]) -> ThermalState:
-    """Return the thermal state with the task's starting and minimum temperature."""
+    """Return the thermal state with the task's starting and minimum temperature.
+
+    Quality (NIMA) models train at temperature 1, fixed for the run (:mod:`pinned_state`).
+    """
+    if task_type in PINNED_CALIBRATION_TASKS:
+        pinned = PinnedThermalState()
+        pinned.clamp_range = list(clamp_range)
+        pinned.temperature = 1.0
+        pinned.min_temperature = 1.0
+        return pinned
     if task_type == "forex":
         min_temp = max(0.75, float(stab.get("min_temp", 0.75)))
         temperature = max(min_temp, float(stab.get("softmax_temp", 1.0)))
@@ -270,34 +293,20 @@ def build_thermal(stab: dict[str, Any], task_type: str, clamp_range: list[float]
     return thermal
 
 
-def build_runtime(stab: dict[str, Any], min_temp: float) -> GovernorRuntime:
-    """Return the per-epoch state with the stabilizer block's loss shaping."""
+def build_runtime(stab: dict[str, Any], min_temp: float, task_type: str = "") -> GovernorRuntime:
+    """Return the per-epoch state with the stabilizer block's loss shaping.
+
+    Quality (NIMA) models keep the registry logit clamp (their soft cap) for the whole run.
+    """
+    calibration_type = PinnedCalibration if task_type in PINNED_CALIBRATION_TASKS else Calibration
     return GovernorRuntime(
         rank=RankShaping.from_stabilizers(stab),
         weights=LossWeights.from_stabilizers(stab),
-        calibration=Calibration(
+        calibration=calibration_type(
             min_temp=min_temp,
             current_clamp=float(stab.get("logit_clamp", 15.0)),
         ),
     )
-
-
-def target_quality_score(sota_targets: dict[str, float], task_type: str) -> float:
-    """Combine the SOTA targets into the quality score the curriculum aims for."""
-    target_score = 0.0
-    for k, target_v in sota_targets.items():
-        weight = DEFAULT_METRIC_WEIGHTS.get(k, 1.0)
-        if DEFAULT_METRIC_DIRECTIONS.get(k, True):
-            target_score += target_v * weight
-        elif k in _LOWER_IS_BETTER_SCORE:
-            target_score += _LOWER_IS_BETTER_SCORE[k](target_v) * weight
-        else:
-            target_score += (1.0 / (target_v + 1e-6)) * weight
-    if target_score <= 0:
-        return 1.0
-    if target_score <= 1.0 and task_type == "quality":
-        target_score *= 100.0
-    return target_score
 
 
 def build_sota(

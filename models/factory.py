@@ -88,6 +88,14 @@ def _populate_registry():
         logger.debug("Multimodal models unavailable: 'transformers' is not installed.")
 
 
+def apply_registry_logit_cap(model, stabilizers):
+    """Set the model's logit soft cap from the registry ``stabilizers.logit_clamp`` (R2-T6)."""
+    cap = stabilizers.get("logit_clamp") if isinstance(stabilizers, dict) else None
+    if cap is not None and hasattr(model, "set_logit_cap"):
+        model.set_logit_cap(float(cap))
+    return model
+
+
 def get_model(model_key, config=None):
     """Factory function using Dynamic Architecture Registry."""
     if not _MODEL_REGISTRY:
@@ -103,12 +111,14 @@ def get_model(model_key, config=None):
 
     model_class_name = config.get("class_name") if isinstance(config, dict) else None
     kwargs = config.get("kwargs", {}) if isinstance(config, dict) else {}
+    stabilizers = config.get("stabilizers") if isinstance(config, dict) else None
     if os.path.exists(unified_models_path):
         with open(unified_models_path, "r", encoding="utf-8") as f:
             unified = yaml.safe_load(f)
             if model_key in unified:
                 model_class_name = unified[model_key].get("class_name", model_class_name)
                 kwargs = unified[model_key].get("kwargs", kwargs)
+                stabilizers = unified[model_key].get("stabilizers", stabilizers)
 
     # YOLO models are delegated to the Ultralytics native trainer via
     # governance.yolo_governor.run_governed_yolo_training().
@@ -136,7 +146,7 @@ def get_model(model_key, config=None):
         except (ValueError, TypeError) as sig_err:
             logger.debug("Signature inspection failed for %s: %s", model_class_name, sig_err)
             filtered_kwargs = kwargs
-        return cls(**filtered_kwargs)
+        return apply_registry_logit_cap(cls(**filtered_kwargs), stabilizers)
 
     raise ValueError(
         f" [FACTORY ERROR] Model architecture '{model_class_name}' not found or implemented."

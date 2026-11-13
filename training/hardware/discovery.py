@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import torch
 
+from training.utils.lazy_imports import load_torch_directml
+
 logger = logging.getLogger("lemtrain.hardware.discovery")
 
 
@@ -146,22 +148,40 @@ def _xpu_device_info() -> DeviceInfo | None:
     return None
 
 
-def _dml_device_info() -> DeviceInfo | None:
-    """Microsoft DirectML."""
-    dml = getattr(torch, "dml", None)  # Present only with the torch-directml backend.
-    if dml is not None and dml.is_available():
-        logger.info("Discovered Microsoft DirectML acceleration.")
-        info = DeviceInfo(
-            device=torch.device("dml"),
-            device_type="dml",
-            device_count=1,
-            device_names=["Microsoft DirectML"],
-            total_vram_gb=0.0,
-            capability=(0, 0),
-            is_cuda=False,
-        )
-        return info
-    return None
+DIRECTML_ERRORS = (ImportError, OSError, RuntimeError, AttributeError)
+"""torch-directml missing (ImportError), its DLL not loadable against this torch (OSError,
+RuntimeError) or a build without the device API (AttributeError)."""
+
+
+def dml_device_info() -> DeviceInfo | None:
+    """Microsoft DirectML through ``torch_directml`` (torch device type ``privateuseone``).
+
+    ``torch_directml.is_available()``, ``device_count()``, ``device_name(index)``,
+    ``default_device()`` and ``device(index)`` (torch-directml 0.2.x); torch has no
+    ``torch.dml`` attribute and no ``"dml"`` device type.
+    """
+    try:
+        directml = load_torch_directml()
+        if not directml.is_available():
+            return None
+        index = int(directml.default_device())
+        count = int(directml.device_count())
+        names = [str(directml.device_name(i)) for i in range(count)]
+        device = directml.device(index)
+    except DIRECTML_ERRORS as exc:
+        logger.debug("DirectML (torch-directml) unavailable: %s", exc)
+        return None
+    name = names[index] if 0 <= index < count else "Microsoft DirectML"
+    logger.info("Discovered Microsoft DirectML acceleration: %s (%s).", name, device)
+    return DeviceInfo(
+        device=torch.device(device),
+        device_type="dml",
+        device_count=count,
+        device_names=names,
+        total_vram_gb=0.0,
+        capability=(0, 0),
+        is_cuda=False,
+    )
 
 
 def _cpu_device_info() -> DeviceInfo:
@@ -179,7 +199,7 @@ def _cpu_device_info() -> DeviceInfo:
     return info
 
 
-_ACCELERATOR_PROBES = (_cuda_device_info, _mps_device_info, _xpu_device_info, _dml_device_info)
+_ACCELERATOR_PROBES = (_cuda_device_info, _mps_device_info, _xpu_device_info, dml_device_info)
 
 
 def _auto_device_info() -> DeviceInfo:

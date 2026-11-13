@@ -1,6 +1,6 @@
 """Unit tests for cloud subsystem: credentials, git, kaggle, and gdrive bit-exact parity."""
 
-import shutil
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,7 +15,6 @@ from training.cloud.credentials import (
 )
 from training.cloud.gdrive import GDriveSyncManager, compute_file_sha256
 from training.cloud.git_hub import GitHubSyncManager
-from training.cloud.kaggle_hub import KaggleHubManager
 from training.cloud.manager import CloudSyncError
 
 
@@ -39,9 +38,11 @@ class TestCloudCredentials(unittest.TestCase):
         gh_token = resolve_github_credentials(override_pat="test_gh_token")
         self.assertEqual(gh_token, "test_gh_token")
 
-        k_user, k_key = resolve_kaggle_credentials(
-            override_user="custom_user", override_key="custom_key"
-        )
+        # The resolver exports the credentials; keep them out of the other tests.
+        with mock.patch.dict(os.environ):
+            k_user, k_key = resolve_kaggle_credentials(
+                override_user="custom_user", override_key="custom_key"
+            )
         self.assertEqual(k_user, "custom_user")
         self.assertEqual(k_key, "custom_key")
 
@@ -73,32 +74,6 @@ class TestGitHubSyncManager(unittest.TestCase):
             self.assertEqual(health["provider"], "github")
             self.assertTrue(health["hub_root_exists"])
             self.assertEqual(health["hub_repo"], "testuser/lemgendary-pretrained-models")
-
-
-class TestKaggleHubManager(unittest.TestCase):
-    """Tests for KaggleHubManager handle and bundle creation."""
-
-    def test_handle_generation(self) -> None:
-        """Verify Kaggle model handles are built as user/slug/framework/variation."""
-        mgr = KaggleHubManager(username="tester")
-        handle = mgr.get_handle("mirnet_exposure")
-        self.assertEqual(handle, "tester/mirnet-exposure/pytorch/default")
-
-        # NIMA aesthetic normalization
-        nima_handle = mgr.get_handle("nima_aesthetic")
-        self.assertEqual(nima_handle, "tester/nima-aesthetics/pytorch/default")
-
-    def test_create_cloud_kernel_bundle(self) -> None:
-        """Verify the Kaggle cloud kernel bundle contains metadata and the training script."""
-        mgr = KaggleHubManager(username="tester")
-        bundle_dir = mgr.create_cloud_kernel_bundle("test_model", gpu="T4")
-        try:
-            self.assertTrue(bundle_dir.exists())
-            self.assertTrue((bundle_dir / "kernel-metadata.json").exists())
-            self.assertTrue((bundle_dir / "train_cloud.py").exists())
-        finally:
-            if bundle_dir.exists():
-                shutil.rmtree(bundle_dir)
 
 
 class TestGDriveBitExactParity(unittest.TestCase):

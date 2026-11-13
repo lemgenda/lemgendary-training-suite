@@ -29,15 +29,18 @@ from training.cloud.model_metadata import (
 )
 from training.cloud.variations import (
     ONNX_FP16,
+    PT_SUFFIX,
     PYTORCH_DEFAULT,
     PYTORCH_FP32,
     VARIATIONS,
     KaggleVariation,
+    variation_files,
 )
 from training.ecosystem import docs_url
 from training.registry import KaggleModelMetadata, ModelSpecification, get_model_registry
 from training.registry.kaggle_datasets import model_kaggle_dataset_urls
-from training.utils.paths import get_workspace_root
+from training.utils.model_payload import pt_load_source
+from training.utils.paths import get_model_hub_dir, get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.metadata")
 
@@ -177,8 +180,7 @@ def _citation_lines(spec: ModelSpecification, resolved_whitepaper: str) -> list[
     lines = ["", "### Citations & Technical Documentation"]
     if resolved_whitepaper:
         lines.append(
-            "- **Architecture Whitepaper:**\n"
-            f"  [Whitepaper Reference]({resolved_whitepaper})"
+            f"- **Architecture Whitepaper:**\n  [Whitepaper Reference]({resolved_whitepaper})"
         )
 
     ref = spec.academic_reference
@@ -256,7 +258,7 @@ class KaggleMetadataService:
             is_base = variation is PYTORCH_DEFAULT
             variations[variation.key] = VariationSection(
                 overview=self._variation_overview(spec, variation),
-                usage=self._variation_usage(owner, slug, stem, variation),
+                usage=self.variation_usage(owner, slug, stem, variation),
                 licensing=VariationLicensing(
                     license=model.publishing.license,
                     fine_tunable=is_base,
@@ -296,7 +298,7 @@ class KaggleMetadataService:
         if output_dir:
             base = Path(output_dir).resolve()
         else:
-            base = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
+            base = get_model_hub_dir(model_key, create=False)
         return base / METADATA_FILENAME
 
     def build(
@@ -398,7 +400,8 @@ class KaggleMetadataService:
         )
 
     @staticmethod
-    def _variation_usage(owner: str, slug: str, stem: str, variation: KaggleVariation) -> str:
+    def variation_usage(owner: str, slug: str, stem: str, variation: KaggleVariation) -> str:
+        """Python usage snippet of one Kaggle model variation (loads its release files)."""
         handle = variation.handle(owner, slug)
         if variation is PYTORCH_DEFAULT:
             return (
@@ -415,10 +418,13 @@ class KaggleMetadataService:
                 "import kagglehub\n"
                 "import torch\n\n"
                 f'path = kagglehub.model_download("{handle}")\n'
-                f'weights = torch.load(f"{{path}}/{stem}.pt", map_location="cpu")\n'
+                f'model_path = f"{{path}}/{stem}{PT_SUFFIX}"\n'
+                + "".join(pt_load_source("model_path", '"cpu"'))
+                + "# pt_model: the pickled nn.Module (None for weights-only files); "
+                "state: the weights\n"
                 "```\n"
             )
-        file_name = f"{stem}.onnx" if variation is ONNX_FP16 else f"{stem}_FP32.onnx"
+        file_name = variation_files(variation, stem)[0]
         return (
             "```python\n"
             "import kagglehub\n"

@@ -7,6 +7,7 @@ SOTA tracking, atomic checkpointing, rollback recovery, and cloud sync triggers.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from collections.abc import Callable
@@ -17,10 +18,18 @@ import torch
 from torch.utils.data.distributed import DistributedSampler
 
 from data.forex_sampler import RowGroupAwareSampler
-from training.checkpoint import CheckpointLifecycleManager, ExportSource
+from training.checkpoint import CheckpointLifecycleManager, ExportSource, safe_atomic_save
+from training.cloud.session_deadline import (
+    DEADLINE_STATUS,
+    SessionDeadlineReached,
+    session_deadline,
+    write_deadline_marker,
+)
+from training.cloud.sync_policy import KaggleSyncPolicy
 from training.cloud_sync import trigger_cloud_sync
 from training.data import rebuild_train_loader
 from training.data.loaders import LoaderPlacement, TrainLoaderOptions, WorkerOverrides
+from training.data.resumable_sampler import loader_batch_size, set_loader_epoch
 from training.epoch_budget import (
     EpochAction,
     EpochBudgetConfig,
@@ -33,16 +42,22 @@ from training.governance.curriculum import (
     is_forex_model,
 )
 from training.governance.epoch_audit import EpochSignals
+from training.governance.logit_cap_sync import sync_logit_cap
+from training.governance.measurement import unmeasured_reason
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.ratchet import (
     FULL_FRACTION_THRESHOLD,
     executed_rung,
     top_resolution_reached,
 )
+from training.registry.task_type import resolve_task_type
 from training.telemetry import EpochLosses, EpochRow, ForexRowTag, TelemetryEngine
+from training.training.batch_budget import refit_batch_for_resolution
 from training.training.context import TrainingContext
 from training.training.epoch import train_one_epoch
-from training.training.step_progress import progress_payload
+from training.training.lr_scaling import scale_learning_rates
+from training.training.settings_switch import apply_due_settings
+from training.training.step_progress import any_rank, is_main_process, progress_payload
 from training.training.summary import TrainingSummary
 from training.training.swa import attach_swa
 from training.training.validation import EPOCH_HEAVY_METRIC_STRIDE, validate_one_epoch
@@ -67,7 +82,9 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
             fraction=new_frac if f_chg else None,
             stress=stress_val,
         )
-        fallback_batch = ctx.data.train_loader.batch_size or 16
+        if r_chg:
+            refit_batch_for_resolution(ctx)
+        fallback_batch = loader_batch_size(ctx.data.train_loader, 16)
         curr_batch = int(
             getattr(ctx.governance.governor.curriculum, "current_batch", fallback_batch)
         )
@@ -117,15 +134,20 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
         )
 
 
+def _rebuild_loader_for_settings(ctx: TrainingContext) -> None:
+    """Redraw the train subset and rebuild the loader after an epoch-settings switch."""
+    _rebuild_loader_on_directive(ctx, f_chg=True, r_chg=False)
+
+
 def _apply_lr_multiplier(ctx: TrainingContext) -> None:
-    """Scale every optimizer group's learning rate by the governor's ``lr_multiplier``."""
-    lr_mult = float(getattr(ctx.governance.governor, "lr_multiplier", 1.0))
-    for param_group in ctx.models.optimizer.param_groups:
-        if "initial_lr" in param_group:
-            param_group["lr"] = param_group["initial_lr"] * lr_mult
-        else:
-            param_group["lr"] = param_group.get("lr", 1e-4) * lr_mult
-    logger.debug("Applied governor learning rate multiplier: %.3fx", lr_mult)
+    """Compose the governor's LR multipliers with the scheduler's decay."""
+    governor = ctx.governance.governor
+    lr_mult = float(getattr(governor, "lr_multiplier", 1.0))
+    head_mult = float(getattr(governor, "head_lr_multiplier", lr_mult))
+    scale_learning_rates(ctx.models.optimizer, ctx.models.scheduler, lr_mult, head_mult)
+    logger.debug(
+        "Applied governor learning rate multipliers: %.3fx (head %.3fx)", lr_mult, head_mult
+    )
 
 
 @dataclass
@@ -162,6 +184,8 @@ class _EpochScore:
     train_loss: float
     current_quality: float
     is_best: bool = False
+    # Why the epoch cannot rank as a best (``None`` for a real measurement).
+    unmeasured: str | None = None
 
 
 class _GovernorSnapshot(NamedTuple):
@@ -215,6 +239,9 @@ def _prepare_run(ctx: TrainingContext, start_epoch: int) -> None:
         )
 
     ctx.governance.swa = attach_swa(ctx)
+    ctx.state.session_deadline = session_deadline(
+        ctx.run.config, str(getattr(ctx.run.args, "env", "local"))
+    )
 
 
 def _cancelled_summary(ctx: TrainingContext, loop: _LoopState, final_epoch: int) -> TrainingSummary:
@@ -226,6 +253,45 @@ def _cancelled_summary(ctx: TrainingContext, loop: _LoopState, final_epoch: int)
         total_time=time.time() - loop.started_at,
         status="cancelled",
     )
+
+
+def _deadline_summary(
+    ctx: TrainingContext, loop: _LoopState, stop: SessionDeadlineReached
+) -> TrainingSummary:
+    """End the run at the Kaggle session deadline: marker, synchronous Hub sync, summary.
+
+    ``progress.pth`` (generator states included) was saved where the loop stopped, or
+    ``latest.pth`` covers a stop at an epoch boundary. The final sync is not throttled and
+    waits, so the payload is on the Hub before the session ends.
+    """
+    print(
+        f"\n[DEADLINE] Kaggle session deadline reached for {ctx.model_name} at epoch "
+        f"{stop.epoch} ({stop.phase} {stop.step}); progress saved, syncing and stopping.",
+        flush=True,
+    )
+    if is_main_process():
+        write_deadline_marker(ctx.run.paths.export_dir, stop.epoch, stop.phase, stop.step)
+        if getattr(ctx.run.args, "auto_sync", False):
+            try:
+                trigger_cloud_sync(ctx.model_name, stop.epoch, ctx.run.config, wait=True)
+            except CLOUD_SYNC_START_ERRORS as sync_err:
+                logger.warning("Deadline cloud sync failed at epoch %d: %s", stop.epoch, sync_err)
+    return TrainingSummary(
+        model_name=ctx.model_name,
+        final_epoch=loop.last_epoch_executed,
+        best_metrics=loop.best_metrics,
+        total_time=time.time() - loop.started_at,
+        status=DEADLINE_STATUS,
+        stop_reason=DEADLINE_STATUS,
+    )
+
+
+def _deadline_before_epoch(ctx: TrainingContext) -> bool:
+    """Whether the session deadline passed before an epoch starts (agreed by all ranks)."""
+    deadline = ctx.state.session_deadline
+    if deadline is None:
+        return False
+    return any_rank(deadline.expired(), ctx.hardware.device_info.device)
 
 
 def _resumed_val_train_metrics(ctx: TrainingContext, epoch: int) -> dict[str, float]:
@@ -256,6 +322,7 @@ def _train_phase(
         ctx.governance.governor.thermal, "step_epoch"
     ):
         ctx.governance.governor.thermal.step_epoch()
+    sync_logit_cap(ctx.models.raw_model or ctx.models.model, ctx.governance.governor)
 
     is_resuming_val = (
         ctx.state.resume_state is not None
@@ -274,11 +341,8 @@ def _train_phase(
             flush=True,
         )
 
-    # Reseed sampler epoch if supported (e.g. RowGroupAwareSampler)
-    sampler = getattr(ctx.data.train_loader, "sampler", None)
-    set_epoch_fn = getattr(sampler, "set_epoch", None)
-    if callable(set_epoch_fn):
-        set_epoch_fn(epoch)
+    # Reseed the epoch permutation (ResumableBatchSampler, RowGroupAwareSampler, ...)
+    set_loader_epoch(ctx.data.train_loader, epoch)
 
     # 2. Train one epoch
     return train_one_epoch(ctx, epoch, cancel_check=hooks.cancel_check)
@@ -296,7 +360,7 @@ def _score_epoch(
     train_loss = float(combined_metrics.get("train_loss", 0.0))
 
     is_forex = _is_forex(ctx)
-    task_type_str = "forex" if is_forex else str(ctx.run.model_info.get("dataset_type", "image"))
+    task_type_str = resolve_task_type(ctx.run.model_info)
     sota_targets = ctx.run.model_info.get("sota_targets", {})
 
     if "quality_score" in combined_metrics:
@@ -307,10 +371,20 @@ def _score_epoch(
             combined_metrics, sota_targets, task_type_str
         )
         current_quality = float(computed_qs)
-        combined_metrics["quality_score"] = current_quality
+    elif "val_time" in combined_metrics:
+        # No SOTA targets: rank by the measured validation loss, mapped to (0, 1] so a
+        # lower loss scores higher and every score stays positive.
+        current_quality = 1.0 / (1.0 + max(0.0, current_loss))
     else:
-        current_quality = max(0.0, 100.0 - current_loss)
-        combined_metrics["quality_score"] = current_quality
+        current_quality = math.nan
+    unmeasured = unmeasured_reason(combined_metrics, sota_targets, current_quality, task_type_str)
+    if unmeasured is not None:
+        # Never a substitute score (the old ``100 - val_loss`` became a best): no quality.
+        current_quality = math.nan
+        logger.warning(
+            "Epoch metrics are not a measurement (%s); it cannot rank as a best.", unmeasured
+        )
+    combined_metrics["quality_score"] = current_quality
 
     return _EpochScore(
         train_metrics=train_metrics,
@@ -318,6 +392,7 @@ def _score_epoch(
         current_loss=current_loss,
         train_loss=train_loss,
         current_quality=current_quality,
+        unmeasured=unmeasured,
     )
 
 
@@ -385,7 +460,7 @@ def _record_epoch_telemetry(
     # Standard LemGendary Telemetry Engine export (metrics.csv)
     if lifecycle_manager is None:
         return
-    task_type = "forex" if _is_forex(ctx) else "image"
+    task_type = "forex" if _is_forex(ctx) else resolve_task_type(ctx.run.model_info)
     telemetry = TelemetryEngine(
         export_dir=str(lifecycle_manager.model_hub_dir), task_type=task_type
     )
@@ -501,7 +576,7 @@ def _save_checkpoints(
     lifecycle_manager = ctx.governance.lifecycle_manager
     if lifecycle_manager is None:
         if score.is_best and ctx.run.paths.best_checkpoint_path is not None:
-            torch.save(checkpoint_payload, ctx.run.paths.best_checkpoint_path)
+            safe_atomic_save(checkpoint_payload, ctx.run.paths.best_checkpoint_path)
         if ctx.run.paths.history_csv_path is not None:
             ctx.governance.vault.export_csv(ctx.run.paths.history_csv_path)
         return
@@ -517,7 +592,9 @@ def _save_checkpoints(
             export=ExportSource(model=raw_model, dummy_input=dummy_input),
         )
 
-    # Check and save vault milestones
+    # Check and save vault milestones (an unmeasured epoch has none to offer)
+    if score.unmeasured is not None:
+        return
     lifecycle_manager.check_and_save_vault(
         epoch=epoch,
         metrics=score.combined,
@@ -525,14 +602,22 @@ def _save_checkpoints(
     )
 
 
-def _maybe_trigger_cloud_sync(ctx: TrainingContext, epoch: int) -> None:
-    """Trigger the Kaggle auto-sync when it is configured."""
+def maybe_trigger_cloud_sync(ctx: TrainingContext, epoch: int, is_best: bool) -> None:
+    """Trigger the Kaggle auto-sync when it is configured and the throttle allows it.
+
+    The throttle (``fleet.kaggle_sync_every_epochs`` / ``fleet.kaggle_sync_on_best``) is
+    :class:`training.cloud.sync_policy.KaggleSyncPolicy`.
+    """
     args = ctx.run.args
-    if getattr(args, "auto_sync", False) and getattr(args, "env", "local") == "kaggle":
-        try:
-            trigger_cloud_sync(ctx.model_name, epoch, ctx.run.config)
-        except CLOUD_SYNC_START_ERRORS as sync_err:
-            logger.warning("Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err)
+    if not (getattr(args, "auto_sync", False) and getattr(args, "env", "local") == "kaggle"):
+        return
+    if not KaggleSyncPolicy.from_config(ctx.run.config).should_sync(epoch, is_best):
+        logger.debug("Kaggle auto-sync throttled at epoch %d", epoch)
+        return
+    try:
+        trigger_cloud_sync(ctx.model_name, epoch, ctx.run.config)
+    except CLOUD_SYNC_START_ERRORS as sync_err:
+        logger.warning("Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err)
 
 
 def _notify_epoch_end(epoch: int, score: _EpochScore, hooks: _Hooks) -> bool:
@@ -670,7 +755,7 @@ def _run_epoch(
         heavy_stride=EPOCH_HEAVY_METRIC_STRIDE,
     )
     score = _score_epoch(ctx, train_metrics, val_metrics)
-    score.is_best = ctx.governance.sota_tracker.record_epoch(
+    score.is_best = score.unmeasured is None and ctx.governance.sota_tracker.record_epoch(
         current_quality=score.current_quality,
         current_loss=score.current_loss,
         train_loss=score.train_loss,
@@ -687,7 +772,11 @@ def _run_epoch(
 
     # 7. Check governor directives (curriculum fraction/resolution promotion before saving
     # checkpoints)
-    audit = _audit_governor(ctx, epoch, score, loop.epochs_no_improve)
+    audit = (
+        _audit_governor(ctx, epoch, score, loop.epochs_no_improve)
+        if score.unmeasured is None
+        else _AuditOutcome(False, False)
+    )
 
     # 7b. Stochastic Weight Averaging (no-op when disabled; never touches the governor)
     if ctx.governance.swa is not None:
@@ -697,7 +786,7 @@ def _run_epoch(
     # resume)
     _save_checkpoints(ctx, epoch, score, loop.best_metrics)
     # 9. Cloud sync trigger if configured
-    _maybe_trigger_cloud_sync(ctx, epoch)
+    maybe_trigger_cloud_sync(ctx, epoch, score.is_best)
     # 10. External telemetry callback
     if _notify_epoch_end(epoch, score, hooks):
         return _cancelled_summary(ctx, loop, epoch)
@@ -705,6 +794,33 @@ def _run_epoch(
     loop.last_epoch_executed = epoch
     pillars = _completion_pillars(ctx, snapshot.state, score.combined)
     _apply_budget_decision(ctx, loop, epoch, pillars, audit)
+    return None
+
+
+def _run_epochs(ctx: TrainingContext, loop: _LoopState, hooks: _Hooks) -> TrainingSummary | None:
+    """Run epochs until the budget policy stops; return a summary when the run ends early.
+
+    An early end is a user cancellation or the Kaggle session deadline (checked before each
+    epoch and, through :class:`SessionDeadlineReached`, inside it).
+    """
+    epoch = loop.start_epoch
+    while loop.stop_reason is None:
+        if hooks.cancelled():
+            print(f"[CANCEL] Training aborted at epoch {epoch} by user cancellation.", flush=True)
+            return _cancelled_summary(ctx, loop, max(0, epoch - 1))
+        if _deadline_before_epoch(ctx):
+            return _deadline_summary(
+                ctx, loop, SessionDeadlineReached(loop.last_epoch_executed, "epoch", 0)
+            )
+        # Settings changed since a resume take effect when their epoch starts (R4-C5).
+        apply_due_settings(ctx, epoch, _rebuild_loader_for_settings)
+        try:
+            cancelled = _run_epoch(ctx, loop, epoch, hooks)
+        except SessionDeadlineReached as stop:
+            return _deadline_summary(ctx, loop, stop)
+        if cancelled is not None:
+            return cancelled
+        epoch += 1
     return None
 
 
@@ -745,15 +861,9 @@ def run_training(
         ),
     )
 
-    epoch = start_epoch
-    while loop.stop_reason is None:
-        if hooks.cancelled():
-            print(f"[CANCEL] Training aborted at epoch {epoch} by user cancellation.", flush=True)
-            return _cancelled_summary(ctx, loop, max(0, epoch - 1))
-        cancelled = _run_epoch(ctx, loop, epoch, hooks)
-        if cancelled is not None:
-            return cancelled
-        epoch += 1
+    early_end = _run_epochs(ctx, loop, hooks)
+    if early_end is not None:
+        return early_end
 
     if ctx.governance.swa is not None:
         ctx.governance.swa.finish(ctx, loop.last_epoch_executed)

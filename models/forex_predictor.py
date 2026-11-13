@@ -1,7 +1,7 @@
 """ForexPredictor: multi-timeframe causal-conv/attention model for FX direction and magnitude."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import torch
 import torch.nn.functional as F
@@ -419,6 +419,9 @@ class ForexPredictor(nn.Module):
         pairs:             Optional subset of pairs for pair-embedding sizing.
     """
 
+    head_param_prefixes: tuple[str, ...] = ("direction_head.", "magnitude_head.")
+    """Direction classifier and TP/SL magnitude regressor."""
+
     # Children registered by name in ``__init__`` (see ``_forex_layers``); the names are
     # the checkpoint ``state_dict`` prefixes.
     pair_embed: nn.Embedding
@@ -457,6 +460,18 @@ class ForexPredictor(nn.Module):
             self.add_module(name, layer)
 
         self._init_weights()
+
+    def model_kwargs(self) -> dict:
+        """Constructor keywords that rebuild this model (stored in exported ``.pt`` metadata).
+
+        The ``ForexArch`` fields as flat keywords plus ``active_timeframes`` and ``pairs``, so
+        ``ForexPredictor(**model.model_kwargs())`` has the same parameter shapes.
+        """
+        return {
+            **asdict(self.arch),
+            "active_timeframes": list(self.active_timeframes),
+            "pairs": list(self.pairs),
+        }
 
     @property
     def in_features(self) -> int:

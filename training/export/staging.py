@@ -3,8 +3,11 @@
 Stages and strictly isolates model artifacts into canonical publishing variation folders:
 1. dist/kaggle/pytorch_default/ -> checkpoints/ (*.pth) + root files (README.md, metrics.csv)
 2. dist/kaggle/pytorch_fp32/    -> [ModelStem].pt (linked/copied from dist/kaggle/pytorch/)
-3. dist/kaggle/onnx_fp16/       -> [ModelStem].onnx
+3. dist/kaggle/onnx_fp16/       -> [ModelStem].onnx (+ [ModelStem].onnx.data above 2 GB)
 4. dist/kaggle/onnx_fp32/       -> [ModelStem]_FP32.onnx + [ModelStem]_FP32.onnx.data
+
+An ONNX file is moved together with its weights sidecar; when the stem changes the model is
+re-saved so the sidecar location recorded inside the graph matches the new file name.
 """
 
 from __future__ import annotations
@@ -16,8 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from training.cloud.variations import (
+    ONNX_FP16_SUFFIX,
+    ONNX_FP32_SUFFIX,
+    PT_SUFFIX,
     PYTORCH_DEFAULT,
 )
+from training.export.onnx_weights import relocate_onnx, sidecar_path
 from training.export.validation import (
     IsolationReport,
     StrictIsolationValidator,
@@ -25,7 +32,7 @@ from training.export.validation import (
 )
 from training.registry import ModelSpecification
 from training.utils.fs import remove_tree
-from training.utils.paths import get_workspace_root
+from training.utils.paths import get_model_hub_dir
 
 logger = logging.getLogger("lemtrain.export.staging")
 
@@ -58,7 +65,7 @@ def _transfer(src: Path, dest: Path) -> None:
 
 
 def _not_fp32(path: Path) -> bool:
-    return not path.name.endswith("_FP32.onnx")
+    return not path.name.endswith(ONNX_FP32_SUFFIX)
 
 
 def _any_file(_path: Path) -> bool:
@@ -78,28 +85,32 @@ class _Artifact:
 
 @dataclass(frozen=True)
 class _Variation:
-    """A variation folder: its main artifact, an optional companion and purge rules."""
+    """A variation folder: its main artifact, ONNX sidecar handling and purge rules."""
 
     folder: str
     label: str
     main: _Artifact
-    companion: _Artifact | None
+    sidecar_key: str | None
+    """Result key of the ``.onnx.data`` weights sidecar; None for non-ONNX variations."""
     leftover_glob: str
     foreign: str
     """Log wording for files purged from the folder."""
 
 
-_PT = _Artifact("pytorch", ".pt", ("pt", "pytorch"))
-_FP32 = _Artifact("onnx_fp32", "_FP32.onnx", ("onnx_fp32",))
-_FP32_DATA = _Artifact("onnx_fp32_data", "_FP32.onnx.data", ("onnx_fp32_data",))
-_FP16 = _Artifact("onnx_fp16", ".onnx", ("onnx_fp16",), keep=_not_fp32)
+_PT = _Artifact("pytorch", PT_SUFFIX, ("pt", "pytorch"))
+_FP32 = _Artifact("onnx_fp32", ONNX_FP32_SUFFIX, ("onnx_fp32",))
+_FP16 = _Artifact("onnx_fp16", ONNX_FP16_SUFFIX, ("onnx_fp16",), keep=_not_fp32)
 
 _VARIATIONS: tuple[_Variation, ...] = (
-    _Variation("pytorch", "PyTorch FP32", _PT, None, "*.pt", "foreign file"),
-    _Variation("onnx_fp32", "ONNX FP32", _FP32, _FP32_DATA, "*_FP32.onnx*", "foreign file"),
-    _Variation("onnx_fp16", "ONNX FP16", _FP16, None, "*.onnx", "non-FP16 file"),
+    _Variation("pytorch", "PyTorch FP32", _PT, None, f"*{PT_SUFFIX}", "foreign file"),
+    _Variation(
+        "onnx_fp32", "ONNX FP32", _FP32, "onnx_fp32_data", f"*{ONNX_FP32_SUFFIX}*", "foreign file"
+    ),
+    _Variation(
+        "onnx_fp16", "ONNX FP16", _FP16, "onnx_fp16_data", f"*{ONNX_FP16_SUFFIX}", "non-FP16 file"
+    ),
 )
-"""Staging order: PyTorch ``.pt``, ONNX FP32 (+ external data), ONNX FP16."""
+"""Staging order: PyTorch ``.pt``, ONNX FP32 (+ sidecar), ONNX FP16 (+ sidecar above 2 GB)."""
 
 
 @dataclass
@@ -146,28 +157,32 @@ class _StagingRun:
         root = [f for f in self.hub_dir.glob(f"*{art.suffix}") if f.is_file() and art.keep(f)]
         return root[0] if root else src
 
+    def _move_main(self, var: _Variation, src: Path, dest: Path) -> Path | None:
+        """Move the main artifact; ONNX files take their sidecar along (renamed if needed)."""
+        if var.sidecar_key is None:
+            _transfer(src, dest)
+            return None
+        return relocate_onnx(src, dest)
+
     def stage(self, var: _Variation, out_dir: Path) -> None:
         """Move one variation into ``out_dir``, then purge foreign and leftover files."""
         main_src = self.find_source(var.main)
-        companion_src = self.find_source(var.companion) if var.companion else None
         dest = out_dir / f"{self.stem}{var.main.suffix}"
+        dest_data = sidecar_path(dest)
         allowed = {dest.name}
-        companion_dest = None
-        if var.companion:
-            companion_dest = out_dir / f"{self.stem}{var.companion.suffix}"
-            allowed.add(companion_dest.name)
 
         if main_src and main_src.exists():
-            _transfer(main_src, dest)
+            moved_data = self._move_main(var, main_src, dest)
             self.staged[var.main.key] = dest
-            if var.companion and companion_dest and companion_src and companion_src.exists():
-                _transfer(companion_src, companion_dest)
-                self.staged[var.companion.key] = companion_dest
+            if var.sidecar_key and moved_data is not None:
+                self.staged[var.sidecar_key] = moved_data
+                allowed.add(moved_data.name)
             logger.info("Staged %s variation to %s", var.label, dest)
         elif dest.exists():
             self.staged[var.main.key] = dest
-            if var.companion and companion_dest and companion_dest.exists():
-                self.staged[var.companion.key] = companion_dest
+            if var.sidecar_key and dest_data.is_file():
+                self.staged[var.sidecar_key] = dest_data
+                allowed.add(dest_data.name)
 
         for child in out_dir.iterdir():
             if child.is_file() and child.name not in allowed:
@@ -199,7 +214,7 @@ class VariationStagingService:
         if base_dir:
             hub_dir = Path(base_dir).resolve()
         else:
-            hub_dir = (get_workspace_root() / "LemGendaryModels" / model_key).resolve()
+            hub_dir = get_model_hub_dir(model_key, create=False)
         hub_dir.mkdir(parents=True, exist_ok=True)
         return hub_dir
 

@@ -1,6 +1,5 @@
 """Worker topology calculation and memory-leak-free DataLoader disposal."""
 
-import gc
 import logging
 import os
 import signal
@@ -11,7 +10,12 @@ from typing import Any
 import psutil
 import torch
 
+from training.hardware.device_memory import release_device_memory
+
 logger = logging.getLogger("lemtrain.workers")
+
+SPAWN_PLATFORMS = ("win32", "darwin")
+"""Platforms whose default multiprocessing start method is ``spawn``."""
 
 
 @dataclass(frozen=True)
@@ -92,8 +96,9 @@ def _default_train_workers(
     mem_limit = max(0, int(available_ram_gb // 1.5))
 
     # 3. Safe upper bound per environment
-    if sys.platform == "win32":
-        # On Windows, spawning processes incurs more memory overhead than Linux fork.
+    if sys.platform in SPAWN_PLATFORMS:
+        # Windows and macOS start workers with spawn: every worker re-imports the program,
+        # costing more memory than a Linux fork (on Apple silicon the GPU shares that RAM).
         # Dynamically scale up to 6 workers if RAM and cores allow; scale down if RAM is low.
         if ram_gb < 8.0 or available_ram_gb < 2.0:
             return 0
@@ -101,7 +106,7 @@ def _default_train_workers(
             return min(core_limit, mem_limit, 2)
         return max(2, min(core_limit, mem_limit, 6))
 
-    # Linux / macOS
+    # Linux (fork)
     return max(1, min(core_limit, mem_limit, 8))
 
 
@@ -136,7 +141,6 @@ def compute_worker_topology(
     """Compute optimal DataLoader worker counts, persistent worker policies, and CPU threads."""
     user = user_workers or UserWorkerCounts()
     cpu_count = os.cpu_count() or 2
-    dev_type = (device or torch.device("cuda" if torch.cuda.is_available() else "cpu")).type
 
     ram_gb = _system_ram_gb()
     available_ram_gb = _available_ram_gb()
@@ -163,7 +167,9 @@ def compute_worker_topology(
     else:
         val_num_workers = _default_val_workers(env, num_workers, config or {})
 
-    pin_memory = dev_type == "cuda"
+    pin_memory = (
+        device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ).type == "cuda"
     persistent_workers = num_workers > 0 and ram_gb >= 16.0 and available_ram_gb >= 3.0
     prefetch_factor = _prefetch_factor(env, num_workers)
 
@@ -231,18 +237,8 @@ def dispose_loader(loader: Any) -> None:
             except (OSError, RuntimeError) as exc:
                 logger.warning("Error closing dataset resources: %s", exc)
 
-    # Reclaim garbage and empty CUDA memory cache if available
-    release_cuda_memory("loader disposal")
-
-
-def release_cuda_memory(purpose: str) -> None:
-    """Collect garbage and empty the CUDA cache; a failed release is logged, not raised."""
-    gc.collect()
-    if torch.cuda.is_available():
-        try:
-            torch.cuda.empty_cache()
-        except RuntimeError as exc:
-            logger.debug("CUDA cache release failed during %s: %s", purpose, exc)
+    # Reclaim garbage and every present accelerator's allocator cache
+    release_device_memory("loader disposal")
 
 
 def dataloader_worker_init_fn(worker_id: int) -> None:

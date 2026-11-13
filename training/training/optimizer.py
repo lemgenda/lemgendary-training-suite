@@ -6,8 +6,10 @@ and instantiates modern schedulers with warmup and cosine decay.
 
 from __future__ import annotations
 
+import importlib
 import logging
 import math
+from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -21,43 +23,37 @@ from torch.optim.lr_scheduler import (
     StepLR,
 )
 
+from training.config.optimizer_settings import (
+    adam_betas,
+    base_learning_rate,
+    base_weight_decay,
+    optimizer_eps,
+    optimizer_type,
+    sgd_momentum,
+)
+from training.training.param_groups import build_param_groups
+
 logger = logging.getLogger("lemtrain.training.optimizer")
 
-try:
-    import bitsandbytes as bnb
-except ImportError:
-    bnb = None
+OptimizerFactory = Callable[..., optim.Optimizer]
+"""``(param_groups, lr=..., betas=..., eps=...) -> optimizer``."""
 
 
-def _param_groups(model: torch.nn.Module, base_wd: float) -> list[dict[str, Any]]:
-    """Decay group (weights) and no-decay group (biases, norms, 1-D params)."""
-    decay_params: list[torch.nn.Parameter] = []
-    no_decay_params: list[torch.nn.Parameter] = []
+def paged_adamw_8bit() -> OptimizerFactory | None:
+    """``bitsandbytes.optim.PagedAdamW8bit``, or None where bitsandbytes is not installed.
 
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-        if (
-            param.ndim <= 1
-            or name.endswith(".bias")
-            or "norm" in name.lower()
-            or "bn" in name.lower()
-        ):
-            no_decay_params.append(param)
-        else:
-            decay_params.append(param)
-
-    return [
-        {"params": decay_params, "weight_decay": base_wd},
-        {"params": no_decay_params, "weight_decay": 0.0},
-    ]
-
-
-def _betas(betas: Any) -> tuple[float, float]:
-    """Adam betas from config; the defaults unless it is a pair."""
-    if isinstance(betas, (list, tuple)) and len(betas) == 2:
-        return (float(betas[0]), float(betas[1]))
-    return (0.9, 0.999)
+    bitsandbytes is an optional, CUDA-oriented dependency (``requirements.txt``) that is
+    often absent on Windows and CPU hosts, so it is imported on demand rather than at
+    module import; the optimizer then falls back to ``torch.optim.AdamW``.
+    """
+    try:
+        bnb_optim = importlib.import_module("bitsandbytes.optim")
+    except ImportError:
+        return None
+    factory = getattr(bnb_optim, "PagedAdamW8bit", None)
+    if isinstance(factory, type) and issubclass(factory, optim.Optimizer):
+        return factory
+    return None
 
 
 def build_optimizer(
@@ -66,36 +62,34 @@ def build_optimizer(
     lr: float | None = None,
     weight_decay: float | None = None,
 ) -> torch.optim.Optimizer:
-    """Build optimizer with decoupled weight decay for biases and normalization layers."""
-    opt_config = config.get("optimizer", {})
-    if not isinstance(opt_config, dict):
-        opt_config = {}
+    """Build the optimizer over backbone/head x decay/no-decay param groups.
 
-    opt_type = opt_config.get("type", "adamw").lower()
-    base_lr = float(lr if lr is not None else opt_config.get("lr", 1e-4))
-    base_wd = float(
-        weight_decay if weight_decay is not None else opt_config.get("weight_decay", 1e-2)
-    )
+    Biases and normalization layers get no weight decay; head groups are tagged so the
+    governor's ``head_lr_multiplier`` reaches them (see ``param_groups``).
+    """
+    opt_type = optimizer_type(config)
+    base_lr = base_learning_rate(config, lr)
+    base_wd = base_weight_decay(config, weight_decay)
 
-    param_groups = _param_groups(model, base_wd)
-    beta_tuple = _betas(opt_config.get("betas", [0.9, 0.999]))
-    eps = float(opt_config.get("eps", 1e-8))
+    param_groups = build_param_groups(model, base_wd)
+    beta_tuple = adam_betas(config)
+    eps = optimizer_eps(config)
 
     if opt_type == "adam":
         return optim.Adam(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
     if opt_type == "sgd":
-        momentum = float(opt_config.get("momentum", 0.9))
-        return optim.SGD(param_groups, lr=base_lr, momentum=momentum)
+        return optim.SGD(param_groups, lr=base_lr, momentum=sgd_momentum(config))
     if opt_type == "rmsprop":
         return optim.RMSprop(param_groups, lr=base_lr, eps=eps)
 
     # Use 8-bit Paged AdamW when bitsandbytes is available and CUDA is active
-    if (
-        opt_type in ("paged_adamw_8bit", "adamw_8bit")
-        or (opt_type == "adamw" and torch.cuda.is_available() and config.get("category") == "llm")
-    ) and bnb is not None:
+    wants_8bit = opt_type in ("paged_adamw_8bit", "adamw_8bit") or (
+        opt_type == "adamw" and torch.cuda.is_available() and config.get("category") == "llm"
+    )
+    paged_factory = paged_adamw_8bit() if wants_8bit else None
+    if paged_factory is not None:
         try:
-            return bnb.optim.PagedAdamW8bit(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
+            return paged_factory(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
         except (AttributeError, RuntimeError) as exc:
             logger.warning("Failed to initialize PagedAdamW8bit (%s); falling back.", exc)
 

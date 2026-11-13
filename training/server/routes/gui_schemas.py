@@ -94,6 +94,15 @@ class ModelWithStats(BaseModel):
     data_fraction_completed: float = 0.0
     data_fraction_passed: bool = False
     checkpoint_exists: bool = False
+    pytorch_ready: bool = Field(
+        default=False, description="The PyTorch FP32 binary (<Stem>.pt) exists in the model hub"
+    )
+    onnx_fp32_ready: bool = Field(
+        default=False, description="The ONNX FP32 graph (<Stem>_FP32.onnx) exists in the model hub"
+    )
+    onnx_fp16_ready: bool = Field(
+        default=False, description="The ONNX FP16 graph (<Stem>.onnx) exists in the model hub"
+    )
     preferred_parallel: str = "single"
     epochs_completed: int = 0
     best_metric: float | str | None = None
@@ -103,6 +112,13 @@ class ModelWithStats(BaseModel):
     sota_targets_met: int = 0
     sota_all_met: bool = False
     sota_details: list[SotaMetricDetail] = Field(default_factory=list)
+    sota_targets_provisional: bool = Field(
+        default=False,
+        description=(
+            "True when the registry marks the SOTA targets provisional: no cited "
+            "benchmark backs them yet"
+        ),
+    )
     best_metrics_details: list[BestMetricDetail] = Field(default_factory=list)
     sota_reached: bool = False
     status: str = "VALIDATED"

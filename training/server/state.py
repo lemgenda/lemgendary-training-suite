@@ -7,6 +7,7 @@ and token generation.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from training.utils.paths import get_project_root
+
+logger = logging.getLogger("lemtrain.server.state")
 
 
 class ServerState:
@@ -100,7 +103,8 @@ class ServerState:
             return None
         try:
             return int(self.pid_path.read_text(encoding="utf-8").strip())
-        except ValueError:
+        except ValueError as exc:
+            logger.warning("PID file %s holds no process id (%s); ignoring it.", self.pid_path, exc)
             return None
 
     def clear_pid(self) -> None:

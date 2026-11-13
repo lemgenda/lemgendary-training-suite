@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.139"
+    "version": "16.9.223"
   },
   "paths": {
     "/api/health": {
@@ -1033,7 +1033,7 @@
           "training"
         ],
         "summary": "Get Kaggle Status",
-        "description": "Check Kaggle credentials configuration and authentication status.",
+        "description": "Report whether the resolved Kaggle credentials really work.\n\nMakes one cheap authenticated call (list the user's own kernels, page size 1) and returns\nits outcome: ``authenticated``, ``username``, ``token_configured``, ``auth_method``\n(``access_token`` or ``legacy_api_key``), ``http_status`` and ``error``.",
         "operationId": "get_kaggle_status_api_training_kaggle_status_get",
         "responses": {
           "200": {
@@ -1100,13 +1100,37 @@
         }
       }
     },
+    "/api/training/kaggle/accelerators": {
+      "get": {
+        "tags": [
+          "training"
+        ],
+        "summary": "List Kaggle Accelerators",
+        "description": "Kaggle session types from the ecosystem file (SSOT), without retired machine shapes.\n\n``id`` is what ``POST /kaggle/train`` takes as ``accelerator``; ``label`` is the picker\ntext; ``machine_shape`` is null for CPU.",
+        "operationId": "list_kaggle_accelerators_api_training_kaggle_accelerators_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Kaggle Accelerators Api Training Kaggle Accelerators Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/training/kaggle/train": {
       "post": {
         "tags": [
           "training"
         ],
         "summary": "Launch Kaggle Train",
-        "description": "Enqueue and launch Kaggle cloud training with live WebSocket telemetry.",
+        "description": "Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.\n\n``auto_resume`` / ``max_resumes`` default to ``kaggle_session`` of ``config.yaml``; the job\nrecords the effective values. ``git_ref`` / ``env_manager_ref`` (default ``main``) and\n``limit_hours`` / ``margin_minutes`` (default ``kaggle_session``) are written into the\npushed notebook; invalid values are refused with 422 before any job is created.",
         "operationId": "launch_kaggle_train_api_training_kaggle_train_post",
         "requestBody": {
           "content": {
@@ -1135,14 +1159,7 @@
             "description": "Model key not found in registry"
           },
           "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
+            "description": "Unknown or retired Kaggle accelerator, invalid git ref or invalid session window"
           }
         }
       }
@@ -1852,14 +1869,15 @@
           "auto_pull": {
             "type": "boolean",
             "title": "Auto Pull",
-            "description": "Enable auto-pull on epoch completion",
+            "description": "Pull pytorch/default whenever the Hub has a newer version",
             "default": false
           },
           "poll_interval": {
             "type": "integer",
+            "minimum": 5.0,
             "title": "Poll Interval",
-            "description": "Telemetry poll interval in seconds",
-            "default": 5
+            "description": "First status poll interval in seconds (backs off to 300 s)",
+            "default": 30
           }
         },
         "type": "object",
@@ -1877,9 +1895,17 @@
             "description": "Target model key"
           },
           "variation": {
-            "type": "string",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariationKey"
+              },
+              {
+                "type": "string",
+                "const": "all"
+              }
+            ],
             "title": "Variation",
-            "description": "Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')",
+            "description": "Kaggle Model Instance: 'all' or one of 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32'",
             "default": "all"
           },
           "force_download": {
@@ -1911,9 +1937,17 @@
       "KagglePushAllRequest": {
         "properties": {
           "variation": {
-            "type": "string",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariationKey"
+              },
+              {
+                "type": "string",
+                "const": "all"
+              }
+            ],
             "title": "Variation",
-            "description": "Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')",
+            "description": "Kaggle Model Instance: 'all' or one of 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32'",
             "default": "all"
           },
           "version_notes": {
@@ -1947,9 +1981,17 @@
             "description": "Target model key"
           },
           "variation": {
-            "type": "string",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariationKey"
+              },
+              {
+                "type": "string",
+                "const": "all"
+              }
+            ],
             "title": "Variation",
-            "description": "Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')",
+            "description": "Kaggle Model Instance: 'all' or one of 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', 'onnx/fp32'",
             "default": "all"
           },
           "version_notes": {
@@ -2024,23 +2066,111 @@
             "title": "Model",
             "description": "Target model key"
           },
-          "gpu": {
-            "type": "string",
-            "title": "Gpu",
-            "description": "Kaggle accelerator ('T4', 'P100', 'None')",
-            "default": "T4"
+          "override_frozen": {
+            "type": "boolean",
+            "title": "Override Frozen",
+            "description": "Pass --override-frozen to the kernel's trainer: resume although a frozen run setting changed (logged and recorded)",
+            "default": false
+          },
+          "git_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Ref",
+            "description": "Branch, tag or full commit SHA the kernel clones the training suite at (default: main)"
+          },
+          "env_manager_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env Manager Ref",
+            "description": "Ref the kernel clones the env-manager at (default: the git_ref value)"
+          },
+          "limit_hours": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Hours",
+            "description": "Session limit in hours for this kernel (default: kaggle_session.limit_hours)"
+          },
+          "margin_minutes": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Minutes",
+            "description": "Minutes before the limit the trainer stops (default: kaggle_session.margin_minutes)"
+          },
+          "accelerator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accelerator",
+            "description": "Kaggle accelerator id from GET /api/training/kaggle/accelerators (default: the ecosystem default accelerator)"
           },
           "auto_pull": {
             "type": "boolean",
             "title": "Auto Pull",
-            "description": "Auto-pull checkpoints to LemGendaryModels per epoch",
+            "description": "Pull pytorch/default whenever the Hub has a newer version, and merge the kernel output when the session completes",
             "default": true
           },
           "poll_interval": {
             "type": "integer",
+            "minimum": 5.0,
             "title": "Poll Interval",
-            "description": "Telemetry poll interval in seconds",
-            "default": 5
+            "description": "First status poll interval in seconds (backs off to 300 s)",
+            "default": 30
+          },
+          "auto_resume": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Resume",
+            "description": "Push a new kernel version when a session stops at its Kaggle deadline (default: kaggle_session.auto_resume of config.yaml)"
+          },
+          "max_resumes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Resumes",
+            "description": "Most resume sessions this job pushes (default: kaggle_session.max_resumes of config.yaml)"
           }
         },
         "type": "object",
@@ -2408,6 +2538,24 @@
             "title": "Checkpoint Exists",
             "default": false
           },
+          "pytorch_ready": {
+            "type": "boolean",
+            "title": "Pytorch Ready",
+            "description": "The PyTorch FP32 binary (<Stem>.pt) exists in the model hub",
+            "default": false
+          },
+          "onnx_fp32_ready": {
+            "type": "boolean",
+            "title": "Onnx Fp32 Ready",
+            "description": "The ONNX FP32 graph (<Stem>_FP32.onnx) exists in the model hub",
+            "default": false
+          },
+          "onnx_fp16_ready": {
+            "type": "boolean",
+            "title": "Onnx Fp16 Ready",
+            "description": "The ONNX FP16 graph (<Stem>.onnx) exists in the model hub",
+            "default": false
+          },
           "preferred_parallel": {
             "type": "string",
             "title": "Preferred Parallel",
@@ -2472,6 +2620,12 @@
             },
             "type": "array",
             "title": "Sota Details"
+          },
+          "sota_targets_provisional": {
+            "type": "boolean",
+            "title": "Sota Targets Provisional",
+            "description": "True when the registry marks the SOTA targets provisional: no cited benchmark backs them yet",
+            "default": false
           },
           "best_metrics_details": {
             "items": {
@@ -2651,6 +2805,12 @@
             "type": "boolean",
             "title": "Clean",
             "description": "Wipe checkpoints and start fresh",
+            "default": false
+          },
+          "override_frozen": {
+            "type": "boolean",
+            "title": "Override Frozen",
+            "description": "Resume although a frozen run setting changed (logged and recorded)",
             "default": false
           },
           "epochs": {
@@ -2886,6 +3046,12 @@
             "description": "Wipe local checkpoints and start fresh",
             "default": false
           },
+          "override_frozen": {
+            "type": "boolean",
+            "title": "Override Frozen",
+            "description": "Resume although a frozen run setting changed (logged and recorded)",
+            "default": false
+          },
           "auto_sync": {
             "type": "boolean",
             "title": "Auto Sync",
@@ -2983,6 +3149,17 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VariationKey": {
+        "type": "string",
+        "enum": [
+          "pytorch/default",
+          "pytorch/fp32",
+          "onnx/fp16",
+          "onnx/fp32"
+        ],
+        "title": "VariationKey",
+        "description": "Key of one Kaggle Model Instance: the only accepted variation names (API, CLI, GUI).\n\nThe sidecar API exposes these values as an OpenAPI enum, so the GUI type is generated\nfrom the same list."
       }
     }
   },

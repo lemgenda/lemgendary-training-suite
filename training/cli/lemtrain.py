@@ -19,6 +19,7 @@ import typer
 
 from tools.judicial_audit import JudicialAuditRequest
 from training import model_soup
+from training.cli.kaggle_commands import kaggle_app
 from training.cli.llm_commands import llm_app
 from training.cli.option_groups import option_group
 from training.cli.server_commands import server_app
@@ -56,6 +57,7 @@ app.add_typer(checkpoints_app, name="checkpoints")
 app.add_typer(presets_app, name="presets")
 app.add_typer(audit_app, name="audit")
 app.add_typer(sync_app, name="sync")
+app.add_typer(kaggle_app, name="kaggle")
 app.add_typer(server_app, name="server")
 app.add_typer(notebooks_app, name="notebooks")
 app.add_typer(llm_app, name="llm")

@@ -21,10 +21,32 @@ from training.checkpoint import (
 )
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS
 from training.context_data import RunSpec, rebuild_resumed_train_loader
+from training.data.locality import LocalityConfig
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.governor_setup import configured_data_fraction
+from training.governance.measurement import drop_target_echoes
+from training.governance.quality_score import (
+    anchor_is_comparable,
+    csv_row_quality,
+    payload_quality_scheme,
+)
+from training.hardware.device_memory import device_memory_for
 from training.hardware.probe import VramProbe, audit_hardware_vram
+from training.loss_emd import LEGACY_EMD_FORM
+from training.registry.forex_risk import risk_per_trade
+from training.run_settings.keys import LR_SCHEDULE
+from training.run_settings.pinning import pin_config_settings
+from training.run_settings.policy import FrozenPolicy, FrozenSettingsChanged, RunSettingsTracker
+from training.run_settings.record import canonical_json
+from training.training.param_groups import (
+    legacy_group_sources,
+    migrate_legacy_optimizer_state,
+    migrate_scheduler_state,
+)
+from training.training.settings_switch import build_recorded_scheduler
 from training.utils.error_types import STATE_RESTORE_ERRORS
+from training.utils.model_payload import ModelPayloadError, model_payload_of
+from training.utils.rng_state import restore_rng_state
 
 logger = logging.getLogger("lemtrain.core_loop")
 
@@ -39,6 +61,7 @@ class TrainState:
     scheduler: Any
     governor: Any
     sota_tracker: Any
+    scaler: Any = None
 
 
 @dataclass
@@ -85,10 +108,14 @@ def select_resume_candidate(spec: RunSpec) -> Path | None:
 
 def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainState) -> None:
     """Load model weights, then optimizer and scheduler state (unless ``--reset-scheduler``)."""
-    model_sd = (
-        loaded.get("model_state") or loaded.get("model_state_dict") or loaded.get("state_dict")
-    )
-    if isinstance(model_sd, dict):
+    try:
+        model_sd = model_payload_of(loaded).state_dict
+    except ModelPayloadError as payload_err:
+        logger.warning(
+            "Checkpoint holds no model weights (%s); keeping fresh weights.", payload_err
+        )
+        model_sd = None
+    if model_sd is not None:
         try:
             train.raw_model.load_state_dict(model_sd, strict=False)
         except STATE_RESTORE_ERRORS as model_err:
@@ -98,11 +125,13 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
             )
     opt_state = loaded.get("optimizer_state") or loaded.get("optimizer_state_dict")
     if isinstance(opt_state, dict):
-        try:
-            train.optimizer.load_state_dict(opt_state)
-        except STATE_RESTORE_ERRORS as opt_err:
-            logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
+        restore_optimizer_state(train, opt_state)
+    _restore_scaler(loaded, train.scaler)
     sched_state = loaded.get("scheduler_state") or loaded.get("scheduler_state_dict")
+    if isinstance(sched_state, dict):
+        sched_state = migrate_scheduler_state(
+            sched_state, legacy_group_sources(train.raw_model, train.optimizer)
+        )
     if getattr(spec.args, "reset_scheduler", False):
         logger.info(
             "--reset-scheduler set: ignoring checkpoint scheduler state "
@@ -113,6 +142,40 @@ def _restore_weights_and_optimizer(spec: RunSpec, loaded: dict, train: TrainStat
             train.scheduler.load_state_dict(sched_state)
         except STATE_RESTORE_ERRORS as sched_err:
             logger.warning("Scheduler state could not be loaded cleanly: %s", sched_err)
+
+
+def restore_optimizer_state(train: TrainState, opt_state: dict) -> None:
+    """Load ``opt_state``, migrating a pre-split two-group state to backbone/head groups."""
+    migrated = migrate_legacy_optimizer_state(train.raw_model, train.optimizer, opt_state)
+    if migrated is None:
+        saved_groups = opt_state.get("param_groups")
+        logger.warning(
+            "Optimizer state has %s param groups that do not match the %d groups of this "
+            "model; keeping fresh optimizer state (moments restart, weights are restored).",
+            len(saved_groups) if isinstance(saved_groups, list) else "no",
+            len(train.optimizer.param_groups),
+        )
+        return
+    if migrated is not opt_state:
+        logger.info(
+            "Migrated legacy decay/no-decay optimizer state to %d backbone/head groups.",
+            len(train.optimizer.param_groups),
+        )
+    try:
+        train.optimizer.load_state_dict(migrated)
+    except STATE_RESTORE_ERRORS as opt_err:
+        logger.warning("Optimizer state could not be loaded cleanly: %s", opt_err)
+
+
+def _restore_scaler(loaded: dict, scaler: Any) -> None:
+    """Restore the AMP ``GradScaler`` loss scale saved with the checkpoint, if any."""
+    scaler_state = loaded.get("scaler_state_dict") or loaded.get("scaler")
+    if scaler is None or not isinstance(scaler_state, dict) or not scaler_state:
+        return
+    try:
+        scaler.load_state_dict(scaler_state)
+    except STATE_RESTORE_ERRORS as scaler_err:
+        logger.warning("GradScaler state could not be loaded cleanly: %s", scaler_err)
 
 
 def calibrate_quality_anchor(spec: RunSpec, governor: Any) -> None:
@@ -136,8 +199,34 @@ def calibrate_quality_anchor(spec: RunSpec, governor: Any) -> None:
         governor.best_quality = reset_to
 
 
+def _csv_maxima(
+    rows: list[dict[str, Any]], task_type: str, current_res: int, floors: tuple[float, float]
+) -> tuple[float, float]:
+    """Highest data fraction at ``current_res`` and highest quality over ``rows``.
+
+    ``floors`` holds the governor's current (fraction, best quality); the result never
+    falls below it.
+    """
+    max_frac, max_quality = floors
+    for r in rows:
+        try:
+            r_res = int(float(r.get("Res") or current_res))
+            r_frac = float(r.get("Data") or 0.0)
+        except (ValueError, TypeError) as row_err:
+            logger.debug("Skipping malformed metrics.csv row %r: %s", r, row_err)
+            continue
+        if r_res == current_res and r_frac > max_frac:
+            max_frac = r_frac
+        max_quality = max(max_quality, csv_row_quality(r, task_type) or 0.0)
+    return max_frac, max_quality
+
+
 def reconcile_metrics_csv(governor: Any, metrics_csv: Path | None, sample_fraction: float) -> None:
-    """Raise the governor's data fraction and best quality to what ``metrics.csv`` records."""
+    """Raise the governor's data fraction and best quality to what ``metrics.csv`` records.
+
+    Row quality comes from :func:`csv_row_quality`, which rescores restoration rows from
+    their PSNR/SSIM/LPIPS columns so rows written under an older score scale compare.
+    """
     if metrics_csv is None or not metrics_csv.exists():
         return
     try:
@@ -148,20 +237,18 @@ def reconcile_metrics_csv(governor: Any, metrics_csv: Path | None, sample_fracti
         return
     if not rows:
         return
-    curr_res_val = int(getattr(governor, "current_res", 256))
-    max_frac_at_res = float(getattr(governor, "current_fraction", sample_fraction))
-    max_quality_csv = float(getattr(governor, "best_quality", 0.0))
-    for raw_row in rows:
-        r = filter_metrics_row_for_fid_provenance(raw_row, metrics_csv.parent)
-        try:
-            r_res = int(float(r.get("Res") or curr_res_val))
-            r_frac = float(r.get("Data") or 0.0)
-            r_qual = float(r.get("Quality_Score") or 0.0)
-            if r_res == curr_res_val and r_frac > max_frac_at_res:
-                max_frac_at_res = r_frac
-            max_quality_csv = max(max_quality_csv, r_qual)
-        except (ValueError, TypeError) as row_err:
-            logger.debug("Skipping malformed metrics.csv row %r: %s", r, row_err)
+    rows = [filter_metrics_row_for_fid_provenance(r, metrics_csv.parent) for r in rows]
+    targets = getattr(governor, "sota_targets", None) or {}
+    rows = [dict(r) for r in drop_target_echoes(rows, targets, metrics_csv)]
+    max_frac_at_res, max_quality_csv = _csv_maxima(
+        rows,
+        str(getattr(governor, "task_type", "")),
+        int(getattr(governor, "current_res", 256)),
+        (
+            float(getattr(governor, "current_fraction", sample_fraction)),
+            float(getattr(governor, "best_quality", 0.0)),
+        ),
+    )
     if max_frac_at_res > float(getattr(governor, "current_fraction", 0.0)):
         governor.current_fraction = min(1.0, max_frac_at_res)
     if max_quality_csv > float(getattr(governor, "best_quality", 0.0)):
@@ -183,34 +270,7 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
         train_ds.update_strategy(size=rec_res, fraction=rec_frac)
     elif hasattr(train_ds, "sample_fraction") and rec_frac is not None:
         train_ds.sample_fraction = rec_frac
-    # Re-audit the hardware safety limit for the restored resolution.
-    hw_safe_batch = audit_hardware_vram(
-        model_key=spec.model_key,
-        model_info=spec.model_info,
-        config=spec.config,
-        model=train.model,
-        probe=VramProbe(
-            device=spec.device,
-            res_override=rec_res,
-            mode="train",
-            sample_fraction=rec_frac if rec_frac is not None else 1.0,
-            fold=getattr(spec.args, "fold", None),
-            pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
-        ),
-    )
-    restored_batch = int(getattr(governor, "current_batch", data.batch_size))
-    curr_batch = min(restored_batch, hw_safe_batch)
-    if curr_batch != restored_batch:
-        logger.warning(
-            "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent "
-            "OOM on current hardware at res %s",
-            restored_batch,
-            curr_batch,
-            rec_res,
-        )
-        if hasattr(governor, "update_batch_and_accumulation"):
-            governor.update_batch_and_accumulation(curr_batch)
-
+    curr_batch = _clamp_resumed_batch(spec, train, (rec_res, rec_frac), data.batch_size)
     data.train_loader = rebuild_resumed_train_loader(spec, train_ds, data.train_loader, curr_batch)
     total_ds_samples = len(getattr(train_ds, "all_samples", [])) or len(train_ds)
     shown_frac = rec_frac if rec_frac is not None else 1.0
@@ -238,17 +298,68 @@ def _resync_train_loader(spec: RunSpec, train: TrainState, data: LoaderState) ->
     )
 
 
+def _clamp_resumed_batch(
+    spec: RunSpec, train: TrainState, rung: tuple[Any, float | None], fallback_batch: int
+) -> int:
+    """The restored micro-batch, clamped to the device-memory budget of ``rung``.
+
+    ``rung`` is the restored ``(resolution, data fraction)``; ``fallback_batch`` is used
+    when the governor records no batch.
+
+    Every GPU backend is audited through its device-memory adapter; the CPU has no device
+    budget, so the restored batch is kept there. A clamp keeps the effective batch exact
+    (the curriculum's largest-divisor rule, shared with the refit and the OOM throttle).
+    """
+    governor = train.governor
+    rec_res, rec_frac = rung
+    restored_batch = int(getattr(governor, "current_batch", fallback_batch))
+    if device_memory_for(spec.device, spec.config).budget() is None:
+        return restored_batch
+    hw_safe_batch = audit_hardware_vram(
+        model_key=spec.model_key,
+        model_info=spec.model_info,
+        config=spec.config,
+        model=train.model,
+        probe=VramProbe(
+            device=spec.device,
+            res_override=rec_res,
+            mode="train",
+            sample_fraction=rec_frac if rec_frac is not None else 1.0,
+            fold=getattr(spec.args, "fold", None),
+            pairs=getattr(spec.args, "pairs", None) or spec.model_info.get("pairs"),
+        ),
+    )
+    curr_batch = min(restored_batch, hw_safe_batch)
+    curriculum = getattr(governor, "curriculum", None)
+    if curr_batch != restored_batch and curriculum is not None:
+        # Same effective batch as before the resume: largest divisor within the budget.
+        curriculum.fit_batch_to_budget(hw_safe_batch)
+        curr_batch = int(curriculum.current_batch)
+    if curr_batch != restored_batch:
+        logger.warning(
+            "[RESUME CLAMP] Clamped restored batch %d -> %d to prevent "
+            "OOM on current hardware at res %s",
+            restored_batch,
+            curr_batch,
+            rec_res,
+        )
+    return curr_batch
+
+
 def _restore_governor(
     spec: RunSpec, loaded: dict, train: TrainState, data: LoaderState, metrics_csv: Path | None
-) -> None:
-    """Restore the governor's curriculum state and resynchronize the train loader with it."""
+) -> bool:
+    """Restore the governor's curriculum state and resynchronize the train loader with it.
+
+    Returns whether the train dataset and loader were rebuilt.
+    """
     governor = train.governor
     gov_state = dict(loaded.get("governor_state") or {})
     ckpt_epoch = int(loaded.get("epoch", 0) or 0)
     if ckpt_epoch > 0:
         gov_state["epoch_count"] = max(int(gov_state.get("epoch_count", 0) or 0), ckpt_epoch)
     if not hasattr(governor, "load_state"):
-        return
+        return False
     try:
         governor.load_state(gov_state)
         calibrate_quality_anchor(spec, governor)
@@ -256,12 +367,33 @@ def _restore_governor(
         _resync_train_loader(spec, train, data)
     except STATE_RESTORE_ERRORS as gov_err:
         logger.warning("Governor state could not be loaded cleanly: %s", gov_err)
+        return False
+    return True
+
+
+def _rebuild_for_locality(spec: RunSpec, data: LoaderState) -> None:
+    """Rebuild the train subset and loader under the pinned ``data.locality`` settings."""
+    train_ds = data.train_ds
+    if hasattr(train_ds, "update_strategy"):
+        train_ds.update_strategy(fraction=data.sample_fraction)
+    data.train_loader = rebuild_resumed_train_loader(
+        spec, train_ds, data.train_loader, data.batch_size
+    )
+    logger.info("[LOCALITY] Train subset and loader rebuilt under the recorded settings.")
 
 
 def _restore_sota_best(loaded: dict, train: TrainState) -> None:
     """Carry the checkpoint's best quality score into the SOTA tracker."""
     if not hasattr(train.sota_tracker, "best_quality"):
         return
+    task_type = str(getattr(train.governor, "task_type", ""))
+    risk = risk_per_trade(getattr(train.governor, "model_info", None))
+    if not anchor_is_comparable(payload_quality_scheme(loaded), task_type, risk):
+        logger.warning(
+            "Checkpoint best quality is on another score scale; the SOTA tracker starts "
+            "from the restored governor's best instead."
+        )
+        loaded = {}
     saved_best = (
         loaded.get("best_quality_score")
         or loaded.get("best_quality")
@@ -277,13 +409,75 @@ def _restore_sota_best(loaded: dict, train: TrainState) -> None:
         logger.warning("Ignoring non-numeric saved best quality %r: %s", saved_best, best_err)
 
 
+def pin_resumed_emd_form(recorded: str | None, criterion: Any) -> str | None:
+    """Keep the quality loss on the checkpoint's EMD form; return the form now in use.
+
+    The form is fixed for a run (``training.loss_emd``); ``recorded`` is the checkpoint's
+    (``ResumeState.governance.emd_form``). A run-settings record makes a changed form a
+    frozen-setting refusal, so this pin serves checkpoints written before that record; a
+    quality checkpoint without a recorded form trained with :data:`LEGACY_EMD_FORM`.
+    """
+    current = getattr(criterion, "emd_form", None)
+    if current is None or getattr(criterion, "task_type", None) != "quality":
+        return current
+    recorded = recorded or LEGACY_EMD_FORM
+    if recorded != current:
+        logger.warning(
+            "[EMD] Resumed run keeps its EMD form %r (configured %r applies to fresh runs; "
+            "use --clean to switch).",
+            recorded,
+            current,
+        )
+        criterion.emd_form = recorded
+    return recorded
+
+
+def pin_recorded_settings(
+    spec: RunSpec, train: TrainState, loaded: dict, tracker: RunSettingsTracker
+) -> None:
+    """Check the frozen settings and put the checkpoint's epoch settings in effect.
+
+    The recorded settings stay in effect until the epoch after the checkpoint's; then the
+    epoch loop switches to the configured ones (``training.run_settings``). A scheduler
+    of another LR schedule is rebuilt from the recorded one, so the checkpoint's
+    scheduler state is loaded into the schedule it was saved from.
+
+    Raises:
+        FrozenSettingsChanged: a frozen setting changed without ``--override-frozen``.
+    """
+    configured_schedule = tracker.active.get(LR_SCHEDULE)
+    try:
+        pinned = tracker.resume(
+            loaded,
+            int(loaded.get("epoch", 0) or 0),
+            FrozenPolicy.from_args(spec.args),
+            parse_resume_state(loaded).is_intra_epoch,
+        )
+    except FrozenSettingsChanged as refused:
+        logger.error("[SETTINGS] %s", refused)
+        raise
+    pin_config_settings(spec.config, spec.args, pinned)
+    recorded_schedule = pinned.get(LR_SCHEDULE)
+    if recorded_schedule is not None and canonical_json(recorded_schedule) != canonical_json(
+        configured_schedule
+    ):
+        train.scheduler = build_recorded_scheduler(train.optimizer, recorded_schedule)
+
+
 def resume_from_checkpoint(
-    spec: RunSpec, train: TrainState, data: LoaderState, metrics_csv: Path | None
+    spec: RunSpec,
+    train: TrainState,
+    data: LoaderState,
+    metrics_csv: Path | None,
+    tracker: RunSettingsTracker,
 ):
     """Restore the best checkpoint into ``train`` and ``data``; return its resume state.
 
     Returns ``None`` when there is no usable checkpoint. ``data.train_loader`` is replaced
     when the restored curriculum changes the dataset or batch size.
+
+    Raises:
+        FrozenSettingsChanged: a frozen setting changed without ``--override-frozen``.
     """
     ckpt_candidate = select_resume_candidate(spec)
     if not (ckpt_candidate and ckpt_candidate.exists()):
@@ -291,7 +485,13 @@ def resume_from_checkpoint(
     loaded = safe_load_checkpoint(ckpt_candidate, map_location=spec.device)
     if not loaded:
         return None
+    built_with = LocalityConfig.from_config(spec.config)
+    pin_recorded_settings(spec, train, loaded, tracker)
     _restore_weights_and_optimizer(spec, loaded, train)
-    _restore_governor(spec, loaded, train, data, metrics_csv)
+    resynced = _restore_governor(spec, loaded, train, data, metrics_csv)
+    if LocalityConfig.from_config(spec.config) != built_with and not resynced:
+        _rebuild_for_locality(spec, data)
     _restore_sota_best(loaded, train)
+    # Last, so rebuilding the model, optimizer and loaders above cannot advance them.
+    restore_rng_state(loaded)
     return parse_resume_state(loaded)

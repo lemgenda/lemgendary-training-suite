@@ -12,9 +12,10 @@ import random
 import subprocess
 import sys
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog
+from training.data.locality import FRACTION_SEED, LocalityConfig, block_fraction_subset
 from training.data.manifold import ManifoldResolver
 
 logger = logging.getLogger("lemtrain.dataset")
@@ -95,6 +96,31 @@ def _list_images(scan_dir):
     return files
 
 
+def real_manifold_path(path: str) -> str:
+    """Real path of a manifold folder (symlinks resolved); aliases share it."""
+    return os.path.realpath(path)
+
+
+def claim_manifold(loaded: set[str], ds_name: str, ds_path: str) -> bool:
+    """Record ``ds_path`` as loaded; False when its real path is loaded already.
+
+    On Kaggle the data cell links several alias names (``UpnV2``, ``LemGendizedUpnV2``)
+    to one attached folder, and a ``...KaggleReady`` name falls back to the same attached
+    manifold. Each real folder is loaded once, so no sample is counted twice.
+    """
+    real = real_manifold_path(ds_path)
+    if real in loaded:
+        logger.info(
+            "Dataset '%s' (%s) is the already loaded manifold %s; not loading it twice.",
+            ds_name,
+            ds_path,
+            real,
+        )
+        return False
+    loaded.add(real)
+    return True
+
+
 def _has_any(path, subdirs):
     """True when any of ``subdirs`` exists under ``path`` (checked in order)."""
     return any(os.path.exists(os.path.join(path, sub)) for sub in subdirs)
@@ -150,6 +176,7 @@ class DatasetSourcesMixin:
     catalog: SampleCatalog
     # Provided by ``DatasetContainerMixin``.
     load_container_samples: Callable[[set], None]
+    shard_keys_for: Callable[[Sequence[tuple]], list[tuple[str, str | None]]]
 
     def split_path(self, ds_path, folder_name, fname, ext=""):
         """Locate ``fname`` under ``folder_name``, falling back to the split-specific path."""
@@ -183,12 +210,11 @@ class DatasetSourcesMixin:
         dataset_names = _dataset_names(
             self._raw_dataset_names(), _dataset_suffix(self.opts.env, config)
         )
-        loaded_paths = set()
+        loaded_paths: set[str] = set()
         for ds_name in dataset_names:
             ds_path = self.get_dataset_path(ds_name)
-            if ds_path is None or ds_path in loaded_paths:
+            if ds_path is None or not claim_manifold(loaded_paths, ds_name, ds_path):
                 continue
-            loaded_paths.add(ds_path)
             self.catalog.path_cache[ds_name] = ds_path
             scan_dir = self._scan_dir(ds_path)
             if not scan_dir or not os.path.exists(scan_dir):
@@ -246,8 +272,9 @@ class DatasetSourcesMixin:
                 print(f"  -> {m_path}")
         for m_path in attached_manifolds:
             m_str = str(m_path)
-            loaded_paths.add(m_str)
             ds_key = m_path.name
+            if not claim_manifold(loaded_paths, ds_key, m_str):
+                continue
             self.catalog.path_cache[ds_key] = m_str
             for sub in ["images", "targets", "shards", "train", "val"]:
                 sub_dir = (
@@ -263,10 +290,24 @@ class DatasetSourcesMixin:
                         break
 
     def _apply_sample_fraction(self) -> None:
-        """Apply deterministic curriculum sample-fraction slicing to ``all_samples``."""
+        """Apply deterministic curriculum sample-fraction slicing to ``all_samples``.
+
+        Both orders are fixed, so the subsets are nested across fraction steps. With
+        ``data.locality.fraction_block_size`` the subset is made of contiguous blocks
+        inside each shard (``block_fraction_subset``) instead of single samples.
+        """
         self.catalog.samples = list(self.catalog.all_samples)
         if self.opts.is_train and self.opts.sample_fraction < 1.0 and self.catalog.samples:
-            rng = random.Random(42)
+            block_size = LocalityConfig.from_config(self.config).fraction_block_size
+            if block_size > 0:
+                self.catalog.samples = block_fraction_subset(
+                    self.catalog.samples,
+                    self.shard_keys_for(self.catalog.samples),
+                    block_size,
+                    self.opts.sample_fraction,
+                )
+                return
+            rng = random.Random(FRACTION_SEED)
             rng.shuffle(self.catalog.samples)
             target_count = max(1, int(len(self.catalog.samples) * float(self.opts.sample_fraction)))
             self.catalog.samples = self.catalog.samples[:target_count]

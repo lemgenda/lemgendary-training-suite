@@ -15,15 +15,19 @@ from typing import Any
 
 import torch
 
+from training.cloud.session_deadline import SessionDeadlineReached
+from training.config.optimizer_settings import grad_clip_norm
+from training.data.resumable_sampler import resume_start_batch
+from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import GradClip, get_autocast_context, safe_backward
 from training.training.context import TrainingContext
 from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
+    deadline_reached,
     is_main_process,
-    is_oom_error,
     progress_payload,
-    release_cuda_cache,
+    progress_save_agreed,
     resume_iteration,
 )
 from training.utils.tensors import to_device
@@ -99,6 +103,8 @@ class _TrainingPass:
         self.autocast_ctx = get_autocast_context(
             ctx.hardware.policy, ctx.hardware.device_info.device
         )
+        # The epoch's gradient clip (``optimizer.grad_clip``, an epoch setting of the run).
+        self.max_grad_norm = grad_clip_norm(ctx.run.config)
         self.totals = _TrainTotals()
         start_time = time.time()
         ctx.models.optimizer.zero_grad(set_to_none=True)
@@ -170,7 +176,11 @@ class _TrainingPass:
                 loss=scaled_loss,
                 optimizer=ctx.models.optimizer,
                 scaler=ctx.models.scaler,
-                clip=GradClip(model=ctx.models.model, max_norm=1.0, should_unscale=is_update_step),
+                clip=GradClip(
+                    model=ctx.models.model,
+                    max_norm=self.max_grad_norm,
+                    should_unscale=is_update_step,
+                ),
             )
         return raw_loss, grad_norm
 
@@ -184,7 +194,7 @@ class _TrainingPass:
             _, new_acc = ctx.governance.governor.handle_oom(current_batch=curr_b)
             ctx.data.accumulation_steps = new_acc
         else:
-            release_cuda_cache()
+            release_device_memory("train OOM relief")
         print(
             f"\n  [TRAIN WARNING] VRAM OOM intercepted on batch {batch_idx + 1}. Governor "
             "active mitigation applied.",
@@ -203,16 +213,24 @@ class _TrainingPass:
             ctx.models.optimizer.step()
         ctx.models.optimizer.zero_grad(set_to_none=True)
 
-    def save_progress(self, batch_idx: int) -> None:
-        """Offer an intra-epoch progress checkpoint to the lifecycle manager."""
+    def save_progress(self, batch_idx: int, force: bool = False) -> None:
+        """Offer an intra-epoch progress checkpoint to the lifecycle manager (``force``: save)."""
         ctx = self.ctx
         if ctx.governance.lifecycle_manager is None:
             return
         raw_m = ctx.models.raw_model if ctx.models.raw_model is not None else ctx.models.model
-        ctx.governance.lifecycle_manager.check_and_save_progress(
+        manager = ctx.governance.lifecycle_manager
+        step = batch_idx + 1
+        if not force and not progress_save_agreed(
+            manager.progress_due(step, self.clock.num_batches),
+            step,
+            ctx.hardware.device_info.device,
+        ):
+            return
+        manager.save_progress_now(
             epoch=self.epoch,
             phase="train",
-            step=batch_idx + 1,
+            step=step,
             total_steps=self.clock.num_batches,
             payload_builder=partial(
                 progress_payload,
@@ -293,7 +311,8 @@ def train_one_epoch(
     run = _TrainingPass(ctx, epoch)
     run.resume()
 
-    for batch_idx, batch in enumerate(ctx.data.train_loader):
+    first_batch = resume_start_batch(ctx.data.train_loader, run.clock.resume_step)
+    for batch_idx, batch in enumerate(ctx.data.train_loader, start=first_batch):
         if run.clock.skip_resumed(batch_idx, "BATCH", "training"):
             continue
         if cancel_check is not None and cancel_check():
@@ -302,8 +321,8 @@ def train_one_epoch(
         unpacked = _unpack_batch(batch, ctx.hardware.device_info.device)
         try:
             raw_loss, grad_norm = run.step(unpacked, batch_idx)
-        except (torch.cuda.OutOfMemoryError, RuntimeError) as oom_err:
-            if not is_oom_error(oom_err):
+        except (torch.OutOfMemoryError, RuntimeError) as oom_err:
+            if not is_out_of_memory(oom_err):
                 raise
             run.relieve_oom(batch_idx)
             continue
@@ -321,5 +340,8 @@ def train_one_epoch(
 
         run.save_progress(batch_idx)
         run.log(batch_idx, raw_loss)
+        if deadline_reached(ctx, batch_idx + 1):
+            run.save_progress(batch_idx, force=True)
+            raise SessionDeadlineReached(epoch, "train", batch_idx + 1)
 
     return run.finish()

@@ -50,6 +50,8 @@ class ForexTradeTotals:
     total_sl_mae: float = 0.0
     total_mag_samples: int = 0
     trade_returns: list[float] = field(default_factory=list)
+    # Outcome of each trade in units of its stop-loss risk (``training.training.forex_equity``).
+    trade_risk_multiples: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -64,7 +66,7 @@ class QualityTotals:
 
 @dataclass
 class TaskTotals:
-    """Classification, parameter-prediction, segmentation and detection totals."""
+    """Classification, parameter-prediction and segmentation totals."""
 
     total_cls_correct: int = 0
     total_cls_samples: int = 0
@@ -72,7 +74,21 @@ class TaskTotals:
     upn_mae_count: int = 0
     total_miou_inter: float = 0.0
     total_miou_union: float = 0.0
-    detection_ap_scores: list[float] = field(default_factory=list)
+
+
+@dataclass
+class FaceDetectionTotals:
+    """One entry per validation image of the single-box face detector (RetinaFace).
+
+    The confidence and the box IoU of each image, whether it holds a labelled face, and
+    the landmark NME of each face image with labelled landmarks
+    (``training.training.face_detection_metrics``).
+    """
+
+    face_confidences: list[float] = field(default_factory=list)
+    face_ious: list[float] = field(default_factory=list)
+    face_present: list[bool] = field(default_factory=list)
+    face_nme: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -99,8 +115,22 @@ class ForexTotals:
     trades: ForexTradeTotals = field(default_factory=ForexTradeTotals)
 
 
+@dataclass
+class VisionTaskTotals:
+    """Classification / segmentation / parameter totals and the face detection records."""
+
+    scalar: TaskTotals = field(default_factory=TaskTotals)
+    faces: FaceDetectionTotals = field(default_factory=FaceDetectionTotals)
+
+
 _Group = (
-    ImageTotals | ForexDirectionTotals | ForexTradeTotals | QualityTotals | TaskTotals | LlmTotals
+    ImageTotals
+    | ForexDirectionTotals
+    | ForexTradeTotals
+    | QualityTotals
+    | TaskTotals
+    | FaceDetectionTotals
+    | LlmTotals
 )
 
 
@@ -126,9 +156,19 @@ class ValAccumulators:
     image: ImageTotals = field(default_factory=ImageTotals)
     forex: ForexTotals = field(default_factory=ForexTotals)
     quality: QualityTotals = field(default_factory=QualityTotals)
-    tasks: TaskTotals = field(default_factory=TaskTotals)
+    vision_tasks: VisionTaskTotals = field(default_factory=VisionTaskTotals)
     llm: LlmTotals = field(default_factory=LlmTotals)
     modules: ImageMetricModules = field(default_factory=ImageMetricModules)
+
+    @property
+    def tasks(self) -> TaskTotals:
+        """Classification, parameter-prediction and segmentation totals."""
+        return self.vision_tasks.scalar
+
+    @property
+    def faces(self) -> FaceDetectionTotals:
+        """Per-image records of the single-box face detector."""
+        return self.vision_tasks.faces
 
     @property
     def direction(self) -> ForexDirectionTotals:
@@ -147,6 +187,7 @@ class ValAccumulators:
             self.trades,
             self.quality,
             self.tasks,
+            self.faces,
             self.llm,
         )
 

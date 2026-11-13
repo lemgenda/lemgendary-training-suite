@@ -4,8 +4,9 @@ Enforces zero cross-contamination and binary isolation across all 4 variations:
 1. pytorch/default -> Strictly checkpoints/ folder + root files (README.md, metrics.csv).
                        Zero .pt or .onnx binaries. Zero metadata files.
 2. pytorch/fp32    -> Strictly [ModelStem].pt binary. Zero other files.
-3. onnx/fp16       -> Strictly [ModelStem].onnx (self-contained, zero external tensors).
-4. onnx/fp32       -> Strictly [ModelStem]_FP32.onnx and [ModelStem]_FP32.onnx.data.
+3. onnx/fp16       -> Strictly [ModelStem].onnx (self-contained; [ModelStem].onnx.data only
+                       when the weights exceed the 2 GB protobuf limit).
+4. onnx/fp32       -> Strictly [ModelStem]_FP32.onnx and its [ModelStem]_FP32.onnx.data.
 """
 
 from __future__ import annotations
@@ -17,10 +18,15 @@ from typing import ClassVar
 
 from training.cloud.variations import (
     ONNX_FP16,
+    ONNX_FP16_SUFFIX,
     ONNX_FP32,
+    ONNX_FP32_SUFFIX,
+    PT_SUFFIX,
     PYTORCH_DEFAULT,
     PYTORCH_FP32,
+    STAGED_FOLDERS,
     VARIATIONS,
+    onnx_sidecar_name,
 )
 from training.registry import ModelSpecification, get_model_registry
 from training.utils.paths import get_model_hub_dir
@@ -184,7 +190,7 @@ class StrictIsolationValidator:
                 "Multiple .pt files detected in pytorch/fp32 variation: "
                 f"{[f.name for f in pt_files]}"
             )
-        _warn_unexpected_names(report, pt_files, f"{expected_stem}.pt")
+        _warn_unexpected_names(report, pt_files, f"{expected_stem}{PT_SUFFIX}")
 
         return report
 
@@ -225,7 +231,14 @@ class StrictIsolationValidator:
         if not onnx_files:
             report.is_valid = False
             report.errors.append("No .onnx file found in onnx/fp32 variation directory.")
-        _warn_unexpected_names(report, onnx_files, f"{expected_stem}_FP32.onnx")
+        for onnx_file in onnx_files:
+            if not (variation_dir / onnx_sidecar_name(onnx_file.name)).is_file():
+                report.is_valid = False
+                report.errors.append(
+                    f"FP32 graph '{onnx_file.name}' has no "
+                    f"'{onnx_sidecar_name(onnx_file.name)}' weights sidecar."
+                )
+        _warn_unexpected_names(report, onnx_files, f"{expected_stem}{ONNX_FP32_SUFFIX}")
 
         return report
 
@@ -244,7 +257,7 @@ class StrictIsolationValidator:
         files = [p for p in variation_dir.iterdir() if p.is_file()]
         report.files_found = [f.name for f in files]
 
-        expected_data = f"{expected_stem}.onnx.data"
+        expected_data = onnx_sidecar_name(f"{expected_stem}{ONNX_FP16_SUFFIX}")
         for f in files:
             if f.suffix == ".data" or f.name.endswith(".onnx.data"):
                 if f.name != expected_data:
@@ -269,7 +282,7 @@ class StrictIsolationValidator:
             report.errors.append(
                 f"Multiple .onnx files found in onnx/fp16 variation: {[f.name for f in onnx_files]}"
             )
-        _warn_unexpected_names(report, onnx_files, f"{expected_stem}.onnx")
+        _warn_unexpected_names(report, onnx_files, f"{expected_stem}{ONNX_FP16_SUFFIX}")
 
         return report
 
@@ -319,14 +332,9 @@ class StrictIsolationValidator:
                 ):
                     var_dir = model_hub_dir
                 else:
-                    legacy_mapping = {
-                        PYTORCH_FP32.key: dist_kaggle / "pytorch",
-                        ONNX_FP32.key: dist_kaggle / "onnx_fp32",
-                        ONNX_FP16.key: dist_kaggle / "onnx_fp16",
-                    }
-                    fallback_dir = legacy_mapping.get(variation.key)
-                    if fallback_dir and fallback_dir.exists():
-                        var_dir = fallback_dir
+                    staged = STAGED_FOLDERS.get(variation.key)
+                    if staged and (dist_kaggle / staged).exists():
+                        var_dir = dist_kaggle / staged
 
             var_rep = self.validate_variation(variation.key, var_dir, model_key)
             overall_report.variations[variation.key] = var_rep

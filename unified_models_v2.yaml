@@ -4,13 +4,13 @@ _registry_metadata:
   specialization: 2026_Resiliency
   datasets:
     LemGendizedForexUniverse:
-      count: 30810572
+      count: 26818700
   models_count: 23
 forex_predictor:
   status: TRAINING
   name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
   class_name: ForexPredictor
-  parameters_m: 2.75
+  parameters_m: 3.5358
   category: forex
   filename: ForexPredictor
   checkpoint: ForexPredictorWeights_FP32.pth
@@ -30,7 +30,6 @@ forex_predictor:
 
     '
   datasets:
-    - LemGendizedForexUniverse
     - LemGendizedForexUniverse
   curriculum:
     active_folds:
@@ -81,6 +80,8 @@ forex_predictor:
     max_drawdown: 12.0
     tp_mae: 12.5
     sl_mae: 12.5
+  evaluation:
+    risk_per_trade: 0.01
   stabilizers:
     softmax_temp: 1.0
     min_temp: 0.75
@@ -144,7 +145,7 @@ nima_aesthetic_mobile:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
   class_name: NIMA_Model
-  parameters_m: 2.3
+  parameters_m: 1.0773
   category: enhance
   filename: NIMAAestheticMobile
   checkpoint: NIMAAestheticMobileWeights_FP32.pth
@@ -167,11 +168,11 @@ nima_aesthetic_mobile:
     backbone for real-time mobile and edge inference.
   datasets:
     - LemGendizedNimaAesthetic
-    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.65
     srcc: 0.65
   stabilizers:
+    emd_form: nima
     min_temp: 1.0
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -236,7 +237,7 @@ nima_aesthetic_efficientnet:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
-  parameters_m: 21.5
+  parameters_m: 20.5080
   category: enhance
   filename: NIMAAestheticEfficientNet
   checkpoint: NIMAAestheticEfficientNetWeights_FP32.pth
@@ -258,11 +259,11 @@ nima_aesthetic_efficientnet:
     optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
   datasets:
     - LemGendizedNimaAesthetic
-    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.7
     srcc: 0.7
   stabilizers:
+    emd_form: nima
     min_temp: 0.96
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -327,7 +328,7 @@ nima_aesthetic_pro:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   class_name: NIMA_Model
-  parameters_m: 86.8
+  parameters_m: 27.5887
   category: enhance
   filename: NIMAAestheticPro
   checkpoint: NIMAAestheticProWeights_FP32.pth
@@ -348,11 +349,11 @@ nima_aesthetic_pro:
     for high-res global composition.
   datasets:
     - LemGendizedNimaAesthetic
-    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.75
     srcc: 0.75
   stabilizers:
+    emd_form: nima
     softmax_temp: 1.0
     emd_epsilon: 0.0001
     logit_clamp: 15.0
@@ -419,7 +420,7 @@ nima_technical:
   status: VALIDATED
   name: LemGendary NIMA Technical Scorer
   class_name: NIMA_Model
-  parameters_m: 2.3
+  parameters_m: 20.5080
   category: enhance
   filename: NIMATechnical
   checkpoint: NIMATechnicalWeights_FP32.pth
@@ -441,8 +442,8 @@ nima_technical:
     optimized for detecting micro-defects, noise, and artifacts.
   datasets:
     - LemGendizedNimaTechnical
-    - LemGendizedNimaTechnical
   stabilizers:
+    emd_form: nima
     min_temp: 0.96
     softmax_temp: 1.0
     emd_epsilon: 0.0001
@@ -513,7 +514,7 @@ nima_authenticity:
   status: VALIDATED
   name: LemGendary Authenticity Scorer (AI vs Human)
   class_name: NIMA_Model
-  parameters_m: 4.1
+  parameters_m: 20.1903
   category: enhance
   filename: AuthenticityScorer
   checkpoint: AuthenticityScorerWeights_FP32.pth
@@ -533,8 +534,8 @@ nima_authenticity:
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
     - LemGendizedNimaAuthenticity
-    - LemGendizedNimaAuthenticity
   stabilizers:
+    emd_form: nima
     softmax_temp: 1.0
     emd_epsilon: 1.0e-05
     logit_clamp: 15.0
@@ -590,7 +591,7 @@ upn_v2:
   status: VALIDATED
   name: LemGendary UPN v2 Parameter Predictor
   class_name: UPN_v2
-  parameters_m: 88.5
+  parameters_m: 0.9287
   category: enhance
   filename: UPN(v2)Modular
   checkpoint: UPN(v2)ModularWeights_FP32.pth
@@ -634,7 +635,6 @@ upn_v2:
     plateau_priority: data
   datasets:
     - LemGendizedUpnV2
-    - LemGendizedUpnV2
   val_resolution: 256
   kaggle_accelerator: T4
   architecture_type: MobileNetV3-Small Parameter Regressor
@@ -671,7 +671,7 @@ film_restorer:
   status: VALIDATED
   name: LemGendary Universal Film Restorer
   class_name: UniversalFilmRestorer
-  parameters_m: 17.1
+  parameters_m: 0.6321
   category: restoration
   filename: UniversalFilmRestorer
   checkpoint: UniversalFilmRestorerWeights_FP32.pth
@@ -705,7 +705,6 @@ film_restorer:
       - 512
     plateau_priority: resolution
   datasets:
-    - LemGendizedFilmRestorer
     - LemGendizedFilmRestorer
   val_resolution: 512
   kaggle_accelerator: Dual T4
@@ -742,7 +741,7 @@ codeformer:
   status: VALIDATED
   name: LemGendary CodeFormer Face Restoration
   class_name: CodeFormer
-  parameters_m: 38.6
+  parameters_m: 4.4114
   category: face
   filename: CodeFormer-FaceRestoration
   checkpoint: CodeFormer-FaceRestorationWeights_FP32.pth
@@ -771,7 +770,6 @@ codeformer:
   stabilizers:
     logit_clamp: 15.0
   datasets:
-    - LemGendizedCodeFormer
     - LemGendizedCodeFormer
   sota_targets:
     fid: 5.2
@@ -813,7 +811,7 @@ parsenet:
   status: VALIDATED
   name: LemGendary ParseNet Face Parsing
   class_name: ParseNet
-  parameters_m: 12.4
+  parameters_m: 1.1085
   category: face
   task: segmentation
   filename: ParseNet-Parsing
@@ -830,7 +828,6 @@ parsenet:
   optimal_key: parsenet
   description: Face parsing model for segmentation
   datasets:
-    - LemGendizedParseNet
     - LemGendizedParseNet
   optimization:
     high_fidelity_fraction: 0.7
@@ -878,7 +875,7 @@ ffanet_indoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Indoor)
   class_name: BranchedFFANet
-  parameters_m: 4.5
+  parameters_m: 1.8196
   category: restoration
   filename: FFANet-Dehazing(Indoor)
   checkpoint: FFANet-Dehazing(Indoor)Weights_FP32.pth
@@ -894,7 +891,6 @@ ffanet_indoor:
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
-    - LemGendizedFfaNetIndoor
     - LemGendizedFfaNetIndoor
   stabilizers:
     numerical_sentinel:
@@ -952,7 +948,7 @@ ffanet_outdoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Outdoor)
   class_name: BranchedFFANet
-  parameters_m: 4.5
+  parameters_m: 1.8196
   category: restoration
   filename: FFANet-Dehazing(Outdoor)
   checkpoint: FFANet-Dehazing(Outdoor)Weights_FP32.pth
@@ -968,7 +964,6 @@ ffanet_outdoor:
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
-    - LemGendizedFfaNetOutdoor
     - LemGendizedFfaNetOutdoor
   stabilizers:
     numerical_sentinel:
@@ -1026,7 +1021,7 @@ mirnet_lowlight:
   status: VALIDATED
   name: LemGendary MIRNet v2 Low-Light Enhancement
   class_name: MIRNet
-  parameters_m: 31.8
+  parameters_m: 0.0387
   category: restoration
   filename: MIRNet(v2)-LowLight
   checkpoint: MIRNet(v2)-LowLightWeights_FP32.pth
@@ -1041,7 +1036,6 @@ mirnet_lowlight:
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
-    - LemGendizedMirNetLowLight
     - LemGendizedMirNetLowLight
   stabilizers:
     numerical_sentinel:
@@ -1101,7 +1095,7 @@ mirnet_exposure:
   status: VALIDATED
   name: LemGendary MIRNet v2 Exposure Correction
   class_name: MIRNet
-  parameters_m: 31.8
+  parameters_m: 0.0387
   category: restoration
   filename: MIRNet(v2)-Exposure
   checkpoint: MIRNet(v2)-ExposureWeights_FP32.pth
@@ -1116,7 +1110,6 @@ mirnet_exposure:
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
-    - LemGendizedMirNetExposure
     - LemGendizedMirNetExposure
   stabilizers:
     numerical_sentinel:
@@ -1176,7 +1169,7 @@ mprnet_deraining:
   status: VALIDATED
   name: LemGendary MPRNet Deraining
   class_name: MPRNet
-  parameters_m: 20.1
+  parameters_m: 0.0046
   category: restoration
   filename: MPRNet-Deraining
   checkpoint: MPRNet-DerainingWeights_FP32.pth
@@ -1191,7 +1184,6 @@ mprnet_deraining:
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
-    - LemGendizedMprNetDeraining
     - LemGendizedMprNetDeraining
   stabilizers:
     numerical_sentinel:
@@ -1250,7 +1242,7 @@ nafnet_debluring:
   status: VALIDATED
   name: LemGendary NAFNet Debluring
   class_name: NAFNet
-  parameters_m: 17.1
+  parameters_m: 4.4921
   category: restoration
   filename: NAFNet-Debluring
   checkpoint: NAFNet-DebluringWeights_FP32.pth
@@ -1277,7 +1269,6 @@ nafnet_debluring:
       - 384
       - 512
   datasets:
-    - LemGendizedNafNetDebluring
     - LemGendizedNafNetDebluring
   stabilizers:
     numerical_sentinel:
@@ -1323,7 +1314,7 @@ nafnet_denoising:
   status: VALIDATED
   name: LemGendary NAFNet Denoising
   class_name: NAFNet
-  parameters_m: 17.1
+  parameters_m: 4.4921
   category: restoration
   filename: NAFNet-Denoising
   checkpoint: NAFNet-DenoisingWeights_FP32.pth
@@ -1351,7 +1342,6 @@ nafnet_denoising:
       - 384
       - 512
   datasets:
-    - LemGendizedNafNetDenoising
     - LemGendizedNafNetDenoising
   stabilizers:
     numerical_sentinel:
@@ -1397,7 +1387,7 @@ yolov8n:
   status: PRODUCTION
   name: LemGendary YOLOv8n Multi-Task Model
   class_name: YOLO
-  parameters_m: 3.2
+  parameters_m: 3.1572
   category: yolo
   filename: YOLOv8n-Unified
   checkpoint: yolov8n.pt
@@ -1482,7 +1472,7 @@ professional_multitask_restoration:
   status: DATASET_READY
   name: LemGendary Professional Multi-Task Restoration Model
   class_name: MultiTaskRestorer
-  parameters_m: 42.0
+  parameters_m: 0.7277
   category: restoration
   filename: ProfessionalMultiRestorer
   checkpoint: ProfessionalMultiRestorerWeights_FP32.pth
@@ -1516,7 +1506,6 @@ professional_multitask_restoration:
     lpips: 0.07
     fid: 12.0
   datasets:
-    - LemGendizedMultitaskRestorationPro
     - LemGendizedMultitaskRestorationPro
   val_resolution: 512
   kaggle_accelerator: Dual T4
@@ -1553,7 +1542,7 @@ ultrazoom:
   status: VALIDATED
   name: LemGendary UltraZoom Master Model
   class_name: UltraZoomMaster
-  parameters_m: 24.3
+  parameters_m: 0.0268
   category: restoration
   filename: UltraZoom(Master)
   checkpoint: UltraZoom(Master)Weights_FP32.pth
@@ -1568,7 +1557,6 @@ ultrazoom:
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
-    - LemGendizedUltraZoom
     - LemGendizedUltraZoom
   optimization:
     high_fidelity_fraction: 0.7
@@ -1624,7 +1612,7 @@ universal_nsfw_classification:
   status: DATASET_READY
   name: LemGendary Universal NSFW Classifier
   class_name: UniversalClassifier
-  parameters_m: 4.1
+  parameters_m: 20.1839
   category: enhance
   filename: UniversalNSFWClassifier
   checkpoint: UniversalNSFWClassifierWeights_FP32.pth
@@ -1640,8 +1628,15 @@ universal_nsfw_classification:
   architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
   description: Universal safety filter and NSFW classifier for realistic and anime
     content.
+  class_names:
+    - drawings
+    - hentai
+    - neutral
+    - porn
+    - sexy
+  preprocessing:
+    normalization: unit
   datasets:
-    - LemGendizedClassificationMaster
     - LemGendizedClassificationMaster
   sota_targets:
     accuracy: 0.98
@@ -1659,6 +1654,7 @@ universal_nsfw_classification:
   kaggle_accelerator: T4
   kwargs:
     backbone: efficientnet_v2_s
+    num_classes: 5
   canonical_format: webdataset
   kaggle_metadata:
     slug: universal-nsfw-classification
@@ -1688,7 +1684,7 @@ retinaface:
   status: DATASET_READY
   name: LemGendary RetinaFace Detection
   class_name: RetinaFace
-  parameters_m: 27.2
+  parameters_m: 0.9357
   category: face
   filename: RetinaFace-Detection
   checkpoint: RetinaFaceWeights_FP32.pth
@@ -1709,7 +1705,6 @@ retinaface:
     backbone for real-time edge deployment.
   datasets:
     - LemGendizedRetinaFace
-    - LemGendizedRetinaFace
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -1721,9 +1716,15 @@ retinaface:
       - 640
   val_resolution: 640
   sota_targets:
-    map_easy: 0.915
-    map_medium: 0.89
-    map_hard: 0.75
+    box_iou: 0.8
+    ap50: 0.95
+    ap50_95: 0.6
+    landmark_nme: 0.1
+  sota_targets_provisional: true
+  sota_targets_note: Provisional targets set by the training suite (v16.9.208), not
+    published SOTA. The model regresses one box per image and is validated on
+    LemGendizedRetinaFace (one face per image), so WIDER FACE easy/medium/hard AP
+    does not apply; no cited source backs these values yet.
   architecture_type: MobileNetV3-Small Backbone
   kwargs:
     backbone: mobilenet_v3_small

@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from training.server.app import create_app
-from training.utils.paths import WORKSPACE_ROOT_ENV, get_project_root
+from training.utils.paths import WORKSPACE_ROOT_ENV
 
 _UNKNOWN = "nosuchmodel"
 _DETAIL = f"Model '{_UNKNOWN}' not found in registry"
@@ -41,10 +41,6 @@ class TestKaggleRoutesUnknownModel(unittest.TestCase):
             self.assertEqual(client.get("/api/jobs").json(), [])
             self.assertEqual(_tree(self.root), before)
         self.assertEqual(_tree(self.workspace), [])
-        # The Kaggle kernel bundle (``KaggleHubManager.create_cloud_kernel_bundle``) would land
-        # in the project's cloud_jobs folder.
-        bundle = get_project_root() / "cloud_jobs" / f"{_UNKNOWN}_cloud_job"
-        self.assertFalse(bundle.exists())
 
     def test_push_model_unknown_is_404(self) -> None:
         """``/kaggle/push-model`` validates the key instead of failing with 500."""

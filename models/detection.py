@@ -11,6 +11,9 @@ class RetinaFaceMobileNet(nn.Module):
     Outputs: [B, 4] Bboxes, [B, 1] Confidence, [B, 10] Landmarks.
     """
 
+    head_param_prefixes: tuple[str, ...] = ("bbox_head.", "conf_head.", "landmark_head.")
+    """Box, face-score and five-landmark prediction heads."""
+
     def __init__(self, backbone="mobilenet_v3_small", **kwargs):
         super().__init__()
         if backbone == "mobilenet_v2":

@@ -9,6 +9,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 
 import torch
 from torch import nn
@@ -71,9 +72,11 @@ class TestTrainingEngine(unittest.TestCase):
             "scheduler": {"type": "cosine", "min_lr": 1e-6},
         }
         optimizer = build_optimizer(model, config)
-        self.assertEqual(len(optimizer.param_groups), 2)
-        self.assertEqual(optimizer.param_groups[0]["weight_decay"], 0.05)
-        self.assertEqual(optimizer.param_groups[1]["weight_decay"], 0.0)
+        # Backbone decay/no-decay, then head decay/no-decay (the last child is the head).
+        self.assertEqual(
+            [(g["group"], g["weight_decay"]) for g in optimizer.param_groups],
+            [("backbone", 0.05), ("backbone", 0.0), ("head", 0.05), ("head", 0.0)],
+        )
 
         scheduler = build_scheduler(optimizer, config, total_epochs=10)
         self.assertIsNotNone(scheduler)
@@ -161,8 +164,10 @@ class TestTrainingEngine(unittest.TestCase):
             summary = run_training(ctx)
 
             # Assertions
-            self.assertTrue(ctx.governance.lifecycle_manager.best_path.exists())
-            self.assertTrue(ctx.governance.lifecycle_manager.metrics_csv_path.exists())
+            manager = ctx.governance.lifecycle_manager
+            assert manager is not None
+            self.assertTrue(manager.best_path.exists())
+            self.assertTrue(manager.metrics_csv_path.exists())
             self.assertTrue(len(summary.best_metrics) > 0)
 
     def test_validate_one_epoch_forex(self) -> None:
@@ -216,8 +221,8 @@ class TestTrainingEngine(unittest.TestCase):
                 criterion=criterion,
             ),
             data=DataComponents(
-                train_loader=None,
-                val_loader=val_loader,
+                train_loader=_tensor_loader(4),
+                val_loader=cast(DataLoader, val_loader),
             ),
             hardware=HardwareComponents(
                 device_info=self.device_info,
@@ -251,7 +256,8 @@ class TestTrainingEngine(unittest.TestCase):
         self.assertIn("tp_mae", val_metrics)
         self.assertIn("sl_mae", val_metrics)
         self.assertIn("dir_entropy", val_metrics)
-        self.assertIn("quality_score", val_metrics)
+        # The epoch score comes from the single score definition in the engine (R2-T10).
+        self.assertNotIn("quality_score", val_metrics)
         self.assertEqual(val_metrics["dir_acc"], 50.0)
 
 

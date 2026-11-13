@@ -14,3 +14,14 @@ def fresh_governance(model_info: dict[str, Any]) -> GovernanceComponents:
         sota_tracker=SotaTracker(),
         vault=MetricVault(),
     )
+
+
+BUDGET_MODEL_INFO: dict[str, Any] = {
+    "name": "budget_model",
+    "dataset_type": "quality",
+    "input_size": 256,
+    "batch_size": 12,
+    "accumulation_steps": 2,
+    "optimization": {"res_ladder": [256, 384], "initial_fraction": 0.2},
+}
+"""A quality model at micro-batch 12 x accumulation 2 on a 256/384 ladder (batch refits)."""

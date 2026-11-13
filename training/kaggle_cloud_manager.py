@@ -3,108 +3,61 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import logging
-import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
+from training.cli_args import add_kaggle_launch_arguments, add_override_frozen_argument
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
-from training.cloud.kaggle_hub import KaggleHubManager
+from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_api
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+from training.cloud.kernel_bundle import BundleRequest, model_kernel_handle
+from training.cloud.kernel_launch import KernelLaunch, launch_kernel
+from training.cloud.kernel_status import status_name
+from training.cloud.variations import ALL_VARIATIONS, VARIATION_BY_KEY
+from training.ecosystem import kaggle_accelerators
+from training.kaggle_stream import stream_kernel_logs
+from training.notebooks.launch_options import DEFAULT_LAUNCH, LaunchOptions
 
 logger = logging.getLogger("lemtrain.kaggle_cloud_manager")
 
 
-def get_kernel_slug(model_name: str, username: str) -> str:
-    """Generate standardized Kaggle kernel slug."""
-    mgr = KaggleHubManager(username=username)
-    return mgr.get_kernel_slug(model_name)
-
-
-def create_cloud_kernel_bundle(model_name: str, username: str, gpu: str = "T4") -> Path:
-    """Package a standalone Kaggle kernel bundle containing metadata and execution script."""
-    mgr = KaggleHubManager(username=username)
-    return mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
+def _authenticated_api(username: str | None, key: str | None) -> tuple[Any, str]:
+    """The authenticated Kaggle API and its username (one credential resolver)."""
+    user, token = resolve_kaggle_credentials(override_user=username, override_key=key)
+    return authenticated_kaggle_api(user, token), user
 
 
 def launch_kaggle_training(
     model_name: str,
-    config: dict[str, Any] | None = None,
     username: str | None = None,
     key: str | None = None,
-    gpu: str = "T4",
-) -> bool:
-    """Pushes and launches a training kernel to Kaggle GPU Cloud headlessly."""
-    user, _ = resolve_kaggle_credentials(override_user=username, override_key=key)
-    mgr = KaggleHubManager(username=user, key=key, config=config)
-    kernel_dir = mgr.create_cloud_kernel_bundle(model_name, gpu=gpu)
-    slug = mgr.get_kernel_slug(model_name)
+    accelerator: str | None = None,
+    options: LaunchOptions = DEFAULT_LAUNCH,
+) -> KernelLaunch:
+    """Push the model's generated kernel bundle (notebook plus metadata) to Kaggle.
 
-    logger.info("Deploying kernel bundle %s to Kaggle with GPU %s...", slug, gpu)
+    ``options`` are the notebook launch options (clone refs, ``--override-frozen``, session
+    window); the defaults clone ``main`` and keep ``config.yaml``'s ``kaggle_session``.
+    """
+    api, user = _authenticated_api(username, key)
+    request = BundleRequest(
+        model_name, kernel_owner=user, accelerator_id=accelerator, launch=options
+    )
+    launch = launch_kernel(api, request)
+    logger.info("Kernel %s pushed (version %s)", launch.handle, launch.version_number)
+    return launch
 
-    return _push_via_sdk(kernel_dir) or _push_via_cli(kernel_dir)
 
-
-def _push_via_sdk(kernel_dir: Path) -> bool:
-    """Push the kernel bundle with the Kaggle Python SDK; False when it is unavailable/fails."""
+def monitor_kaggle_training(model_name: str, username: str | None = None) -> None:
+    """Stream status and logs of the model's kernel to the terminal."""
     try:
-        kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
-        api_cls = kaggle_mod.KaggleApi
-        api = api_cls()
-        api.authenticate()
-        api.kernels_push(str(kernel_dir))
-        logger.info("Kernel successfully pushed to Kaggle!")
-        return True
-    except (ImportError, AttributeError, *KAGGLE_API_ERRORS) as err:
-        logger.warning("Kaggle Python SDK push notice: %s. Trying CLI fallback...", err)
-        return False
-
-
-def _push_via_cli(kernel_dir: Path) -> bool:
-    """Push the kernel bundle with the ``kaggle`` CLI."""
-    try:
-        cflags = (
-            getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) if sys.platform == "win32" else 0
-        )
-        res = subprocess.run(
-            ["kaggle", "kernels", "push", "-p", str(kernel_dir)],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-            creationflags=cflags,
-        )
-        if res.returncode == 0:
-            logger.info("CLI push successful: %s", res.stdout.strip())
-            return True
-        logger.error("CLI push failed: %s", res.stderr.strip())
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        logger.error("CLI fallback failed: %s", exc)
-
-    return False
-
-
-def monitor_kaggle_training(
-    model_name: str, username: str | None = None, poll_interval: int = 5
-) -> None:
-    """Stream status and logs from Kaggle for specified model kernel."""
-    user, _ = resolve_kaggle_credentials(override_user=username)
-    mgr = KaggleHubManager(username=user)
-    slug = mgr.get_kernel_slug(model_name)
-
-    logger.info("Connecting to telemetry stream for %s...", slug)
-    try:
-        km = importlib.import_module("training.kaggle_stream")
-        kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
-        api_cls = kaggle_mod.KaggleApi
-        api = api_cls()
-        api.authenticate()
-        km.stream_kernel_logs(api, slug, poll_interval=poll_interval)
-    except (ImportError, AttributeError, *KAGGLE_API_ERRORS) as exc:
-        logger.error("Kaggle monitoring stream error: %s", exc)
+        api, user = _authenticated_api(username, None)
+    except KaggleAuthError as exc:
+        logger.error("Kaggle monitoring needs credentials: %s", exc)
+        return
+    stream_kernel_logs(api, model_kernel_handle(user, model_name))
 
 
 def pull_kaggle_artifacts(
@@ -129,13 +82,13 @@ def pull_kaggle_artifacts(
 def push_kaggle_artifacts(model_name: str, username: str | None = None) -> bool:
     """Stage and upload multi-variation model to Kaggle Models Hub via unified sync pipeline."""
     sync_mgr = KaggleModelSyncManager(username=username)
-    res = sync_mgr.push_model(model_key=model_name, variation="all")
+    res = sync_mgr.push_model(model_key=model_name, variation=ALL_VARIATIONS)
     return res.success
 
 
 def push_kaggle_model(
     model_name: str,
-    variation: str = "all",
+    variation: str = ALL_VARIATIONS,
     dry_run: bool = False,
     username: str | None = None,
     key: str | None = None,
@@ -149,6 +102,22 @@ def push_kaggle_model(
     )
     logger.info("Kaggle model push result for %s: %s", model_name, res)
     return res.success
+
+
+def _launch_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> LaunchOptions:
+    """The launch options of the parsed arguments; invalid values end in a usage error."""
+    try:
+        return LaunchOptions.from_values(
+            args.override_frozen,
+            args.git_ref,
+            args.env_manager_ref,
+            args.limit_hours,
+            args.margin_minutes,
+        )
+    except ValueError as exc:
+        parser.print_usage(sys.stderr)
+        sys.stderr.write(f"{parser.prog}: error: {exc}\n")
+        raise SystemExit(2) from exc
 
 
 def main() -> None:
@@ -174,8 +143,8 @@ def main() -> None:
     parser.add_argument(
         "--variation",
         type=str,
-        default="all",
-        choices=["all", "pytorch", "onnx_fp32", "onnx_fp16"],
+        default=ALL_VARIATIONS,
+        choices=[ALL_VARIATIONS, *VARIATION_BY_KEY],
         help="Variation to push",
     )
     parser.add_argument(
@@ -184,11 +153,11 @@ def main() -> None:
     parser.add_argument("--username", type=str, default=None, help="Kaggle Username override")
     parser.add_argument("--key", type=str, default=None, help="Kaggle API Key override")
     parser.add_argument(
-        "--gpu",
+        "--accelerator",
         type=str,
-        default="T4",
-        choices=["P100", "T4", "T4x2"],
-        help="Kaggle GPU accelerator",
+        default=None,
+        choices=[acc.id for acc in kaggle_accelerators()],
+        help="Kaggle accelerator id from the ecosystem file (default: its default)",
     )
     parser.add_argument(
         "--output_dir",
@@ -196,6 +165,8 @@ def main() -> None:
         default=None,
         help="Hub root for pulled artifacts (pull only; default: sibling LemGendaryModels)",
     )
+    add_override_frozen_argument(parser)
+    add_kaggle_launch_arguments(parser)
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -206,7 +177,13 @@ def main() -> None:
         u, _ = resolve_kaggle_credentials()
         logger.info("Authentication verified for Kaggle user: %s", u)
     elif args.action == "launch":
-        launch_kaggle_training(args.model, username=args.username, key=args.key, gpu=args.gpu)
+        launch_kaggle_training(
+            args.model,
+            username=args.username,
+            key=args.key,
+            accelerator=args.accelerator,
+            options=_launch_options(parser, args),
+        )
     elif args.action in ("monitor", "monitor_interactive"):
         monitor_kaggle_training(args.model, username=args.username)
     elif args.action == "pull":
@@ -222,16 +199,11 @@ def main() -> None:
             key=args.key,
         )
     elif args.action == "status":
-        u, _ = resolve_kaggle_credentials(override_user=args.username)
-        slug = get_kernel_slug(args.model, u)
         try:
-            kaggle_mod = importlib.import_module("kaggle.api.kaggle_api_extended")
-            api_cls = kaggle_mod.KaggleApi
-            api = api_cls()
-            api.authenticate()
-            st = api.kernels_status(slug)
-            logger.info("Status for %s: %s", slug, st)
-        except (ImportError, AttributeError, *KAGGLE_API_ERRORS) as exc:
+            api, user = _authenticated_api(args.username, args.key)
+            handle = model_kernel_handle(user, args.model)
+            logger.info("Status for %s: %s", handle, status_name(api.kernels_status(handle)))
+        except (KaggleAuthError, *KAGGLE_API_ERRORS) as exc:
             logger.error("Status check failed: %s", exc)
 
 

@@ -10,7 +10,9 @@ from training.governance.epoch_signals import (
     AuditResult,
     EpochSignalsMixin,
 )
+from training.governance.governor_setup import rung_entry_fraction
 from training.governance.propulsion import PropulsionMixin
+from training.governance.quality_score import target_quality_score
 
 __all__ = ["AuditDirectives", "AuditResult", "EpochAuditMixin", "EpochSignals"]
 
@@ -96,6 +98,11 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
         if self.cooldown_remaining > 0:
             self.sota.cooldown_remaining -= 1
         self.sota.record_epoch(signals.current_quality, signals.current_loss, signals.train_loss)
+        if signals.metrics_dict is not None:
+            # Aim at the targets this epoch measured (R2-T7).
+            self.sota.target_quality_score = target_quality_score(
+                self.sota_targets, self.task_type, signals.metrics_dict
+            )
 
         d = AuditDirectives()
         held = self._held_status(signals, d)
@@ -335,7 +342,7 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
         )
         if 0 <= current_idx < len(self.res_ladder) - 1:
             next_res = self.res_ladder[current_idx + 1]
-            self._commit_rung(next_res, 0.5)
+            self._commit_rung(next_res, rung_entry_fraction(self.model_info, self.config))
             self.runtime.counters.last_res_jump_epoch = self.epoch_count
             self.runtime.counters.spatial_lock_remaining = self.stabilization_lock
             self.sota.stabilization_epochs = self.stabilization_lock

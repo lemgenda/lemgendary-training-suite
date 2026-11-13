@@ -1,12 +1,11 @@
 """Shared per-batch helpers for the training and validation loops.
 
-Out-of-memory detection and relief, rank-0 detection, the intra-epoch progress checkpoint
+Rank-0 detection, the intra-epoch progress checkpoint
 payload and the batch telemetry line are the same for both loops.
 """
 
 from __future__ import annotations
 
-import gc
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -14,7 +13,10 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
+from training.loss_emd import EMD_FORM_KEY
+from training.run_settings.record import PAYLOAD_KEY as RUN_SETTINGS_KEY
 from training.training.context import TrainingContext
+from training.utils.rng_state import rng_payload
 
 
 @dataclass
@@ -67,21 +69,44 @@ def resume_iteration(resume_state: Any, phase: str, handled: bool) -> int:
     return 0
 
 
-def is_oom_error(err: BaseException) -> bool:
-    """Return True when ``err`` is a CUDA out-of-memory failure."""
-    return "out of memory" in str(err).lower() or isinstance(err, torch.cuda.OutOfMemoryError)
-
-
-def release_cuda_cache() -> None:
-    """Collect garbage and empty the CUDA cache when a GPU is present."""
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-
 def is_main_process() -> bool:
     """Return True unless this is a non-zero rank of an initialised process group."""
     return not (dist.is_available() and dist.is_initialized() and dist.get_rank() != 0)
+
+
+DDP_DECISION_EVERY = 25
+"""Under DDP the ranks agree on a stop or save decision only every this many steps."""
+
+
+def world_size() -> int:
+    """Processes of the initialised process group (1 without one)."""
+    return dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
+
+
+def any_rank(flag: bool, device: torch.device) -> bool:
+    """True when ``flag`` is true on any rank (a collective call under DDP)."""
+    if world_size() <= 1:
+        return flag
+    agreed = torch.tensor([1 if flag else 0], device=device)
+    dist.all_reduce(agreed, op=dist.ReduceOp.MAX)
+    return bool(agreed.item())
+
+
+def decision_step(step: int) -> bool:
+    """Whether ``step`` is a step the ranks agree on (every step without DDP)."""
+    return world_size() <= 1 or step % DDP_DECISION_EVERY == 0
+
+
+def deadline_reached(ctx: TrainingContext, step: int) -> bool:
+    """Whether the Kaggle session deadline passed, agreed by all ranks at ``step``.
+
+    Every rank calls this on every step; under DDP only decision steps make the collective
+    call, so no rank stops alone.
+    """
+    deadline = ctx.state.session_deadline
+    if deadline is None or not decision_step(step):
+        return False
+    return any_rank(deadline.expired(), ctx.hardware.device_info.device)
 
 
 def progress_payload(
@@ -106,9 +131,34 @@ def progress_payload(
         "governor_state": ctx.governance.governor.get_state()
         if hasattr(ctx.governance.governor, "get_state")
         else None,
+        # AMP loss scale; without it a resumed fp16 run restarts at 65536 and skips steps.
+        "scaler_state_dict": ctx.models.scaler.state_dict()
+        if ctx.models.scaler is not None
+        else None,
+        # EMD form of the quality loss, fixed for the run (a resume keeps it).
+        EMD_FORM_KEY: getattr(ctx.models.criterion, "emd_form", None),
+        # Python, NumPy, torch CPU and device generators of every rank (collective under
+        # DDP); a resume continues from them.
+        **rng_payload(),
     }
+    tracker = ctx.state.run_settings
+    if tracker is not None:
+        # Frozen settings (+ hash) and the epoch settings this epoch trains with; a resume
+        # finishes the epoch on them and switches to the configured ones next epoch.
+        payload[RUN_SETTINGS_KEY] = tracker.record(epoch).to_payload()
     payload.update(extra)
     return payload
+
+
+def progress_save_agreed(due: bool, step: int, device: torch.device) -> bool:
+    """Whether all ranks save intra-epoch progress at ``step`` (``due``: this rank's guardrails).
+
+    The payload gathers every rank's generator state, so all ranks must build it together:
+    under DDP the ranks agree only on decision steps (one collective call there).
+    """
+    if not decision_step(step):
+        return False
+    return any_rank(due, device)
 
 
 def format_rate(rate: float) -> str:

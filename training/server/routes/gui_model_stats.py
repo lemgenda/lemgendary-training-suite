@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_FP32, variation_ready
+from training.export.validation import resolve_model_stem
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.curriculum import (
     DEFAULT_FOREX_LADDER,
@@ -41,9 +43,11 @@ METRIC_REGISTRY: dict[str, tuple[str, bool, str, bool]] = {
     "miou": ("mIoU", False, "mIoU", False),
     "map50": ("mAP50", False, "mAP50", False),
     "map50_95": ("mAP50-95", False, "mAP50-95", False),
-    "map_easy": ("mAP_Easy", False, "mAP Easy", False),
-    "map_medium": ("mAP_Medium", False, "mAP Medium", False),
-    "map_hard": ("mAP_Hard", False, "mAP Hard", False),
+    # Single-box face detection (RetinaFace)
+    "box_iou": ("Box_IoU", False, "Box IoU", False),
+    "ap50": ("AP50", False, "AP50", False),
+    "ap50_95": ("AP50_95", False, "AP50:95", False),
+    "landmark_nme": ("Landmark_NME", True, "Landmark NME", False),
     # Forex Trading Telemetry
     "dir_acc": ("DirAcc", False, "Dir Acc (%)", True),
     "win_rate": ("WinRate", False, "Win Rate (%)", True),
@@ -79,7 +83,7 @@ _VISION_PRIORITY: tuple[tuple[str, str, bool], ...] = (
     ("mae", "MAE", True),
     ("auc", "AUC-ROC", False),
     ("ssim", "SSIM", False),
-    ("map_easy", "mAP Easy", False),
+    ("ap50", "AP50", False),
     ("eval_loss", "Eval Loss", True),
     ("perplexity", "Perplexity", True),
 )
@@ -362,6 +366,16 @@ def _has_checkpoint(
     return best_ckpt is not None or len(model_ckpts) > 0 or weights_exist
 
 
+def _readiness_fields(model_key: str, hub_dir: Path) -> dict[str, bool]:
+    """Per-format flags: whether the model hub holds each exported binary."""
+    stem = resolve_model_stem(model_key)
+    return {
+        "pytorch_ready": variation_ready(hub_dir, PYTORCH_FP32, stem),
+        "onnx_fp32_ready": variation_ready(hub_dir, ONNX_FP32, stem),
+        "onnx_fp16_ready": variation_ready(hub_dir, ONNX_FP16, stem),
+    }
+
+
 def _metric_meta(ykey: str) -> tuple[bool, str]:
     """Return ``(lower_is_better, label)`` of one SOTA target key."""
     reg_entry = METRIC_REGISTRY.get(ykey)
@@ -480,6 +494,7 @@ def _sota_fields(
         "sota_targets_met": met,
         "sota_all_met": reached,
         "sota_details": details,
+        "sota_targets_provisional": info.get("sota_targets_provisional") is True,
         "best_metrics_details": _best_metrics_details(details, history, is_forex),
         "sota_reached": reached,
     }
@@ -659,6 +674,7 @@ def model_with_stats(
         {
             **_identity_fields(model_key, info),
             **_checkpoint_fields(model_ckpts, has_checkpoint),
+            **_readiness_fields(model_key, hub_dir),
             **_ladder_fields(kind, ladder, stats, progress),
             **sota,
             **_training_defaults(model_key, info, kind.is_forex),

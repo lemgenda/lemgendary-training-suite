@@ -30,6 +30,9 @@ class QuickTrainRequest(BaseModel):
     model_key: str = Field(..., description="Target model key")
     preset: str = Field("quick-sota", description="Preset name from presets.yaml")
     clean: bool = Field(False, description="Wipe checkpoints and start fresh")
+    override_frozen: bool = Field(
+        False, description="Resume although a frozen run setting changed (logged and recorded)"
+    )
     epochs: int | None = Field(None, description="Optional override for training epochs")
     batch_size: int | None = Field(None, description="Optional override for batch size")
     learning_rate: float | None = Field(None, description="Optional override for learning rate")
@@ -181,6 +184,7 @@ def quick_train(payload: QuickTrainRequest, request: Request) -> dict[str, Any]:
         "batch_size": resolved_batch,
         "learning_rate": resolved_lr,
         "clean": payload.clean,
+        "override_frozen": payload.override_frozen,
         "env": payload.env,
         "resolution": payload.ladder_stage,
         "enable_sawtooth": payload.enable_sawtooth if payload.enable_sawtooth is not None else True,

@@ -11,32 +11,19 @@ import logging
 import numpy as np
 import pandas as pd
 
+from data.mt5_feature_spec import (
+    EPSILON,
+    FEATURE_NAMES,
+    FEATURE_WINDOWS,
+)
 from training.utils.lazy_imports import load_pandas_ta
 
 logger = logging.getLogger("lemtrain.data.mt5_pipeline")
 
 
-# OHLCV (5) + indicators (5): the per-bar columns the live signal path also feeds the model.
-PRICE_INDICATOR_FEATURES = [
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "rsi",
-    "macd",
-    "macd_signal",
-    "atr",
-    "bb_width",
-]
-
-FEATURES = [
-    *PRICE_INDICATOR_FEATURES,
-    "session_sin",
-    "session_cos",  # Session encoding (2)
-    "atr_percentile",
-    "bar_range_ratio",  # Volatility regime (2)
-]  # Total: 14 features
+# Model input columns of the shared specification (data.mt5_feature_spec).
+FEATURES = list(FEATURE_NAMES)  # Total: 14 features
+_W = FEATURE_WINDOWS
 
 # Label generation: forward-looking window to measure price movement
 LABEL_HORIZON_BARS = 20  # Look N bars ahead for TP/SL determination
@@ -142,10 +129,10 @@ def _ta_indicators(df: pd.DataFrame, close: np.ndarray) -> bool:
         df_ta = pd.concat(
             [
                 df,
-                ta.rsi(df["close"], length=14),
-                ta.macd(df["close"], fast=12, slow=26, signal=9),
-                ta.atr(df["high"], df["low"], df["close"], length=14),
-                ta.bbands(df["close"], length=20, std=2),
+                ta.rsi(df["close"], length=_W.rsi),
+                ta.macd(df["close"], fast=_W.macd.fast, slow=_W.macd.slow, signal=_W.macd.signal),
+                ta.atr(df["high"], df["low"], df["close"], length=_W.atr),
+                ta.bbands(df["close"], length=_W.bollinger.period, std=_W.bollinger.std),
             ],
             axis=1,
         )
@@ -154,17 +141,19 @@ def _ta_indicators(df: pd.DataFrame, close: np.ndarray) -> bool:
         if all(cols):
             rsi_col, macd_col, macds_col, atr_col, bbu_col, bbl_col = cols
             df["rsi"] = (np.asarray(df_ta[rsi_col], dtype=np.float64) / 100.0).tolist()
-            df["macd"] = (np.asarray(df_ta[macd_col], dtype=np.float64) / (close + 1e-8)).tolist()
-            df["macd_signal"] = (
-                np.asarray(df_ta[macds_col], dtype=np.float64) / (close + 1e-8)
+            df["macd"] = (
+                np.asarray(df_ta[macd_col], dtype=np.float64) / (close + EPSILON)
             ).tolist()
-            df["atr"] = (np.asarray(df_ta[atr_col], dtype=np.float64) / (close + 1e-8)).tolist()
+            df["macd_signal"] = (
+                np.asarray(df_ta[macds_col], dtype=np.float64) / (close + EPSILON)
+            ).tolist()
+            df["atr"] = (np.asarray(df_ta[atr_col], dtype=np.float64) / (close + EPSILON)).tolist()
             df["bb_width"] = (
                 (
                     np.asarray(df_ta[bbu_col], dtype=np.float64)
                     - np.asarray(df_ta[bbl_col], dtype=np.float64)
                 )
-                / (close + 1e-8)
+                / (close + EPSILON)
             ).tolist()
             return True
     except ImportError as exc:
@@ -181,12 +170,14 @@ def _manual_indicators(
     df: pd.DataFrame, close: np.ndarray, high: np.ndarray, low: np.ndarray
 ) -> None:
     """Write the five indicator columns with the NumPy fallbacks."""
-    df["rsi"] = _rsi_manual(close, 14).tolist()
-    macd_line, sig = _macd_manual(close, 12, 26, 9)
-    df["macd"] = (macd_line / (close + 1e-8)).tolist()
-    df["macd_signal"] = (sig / (close + 1e-8)).tolist()
-    df["atr"] = (_atr_manual(high, low, close, 14) / (close + 1e-8)).tolist()
-    df["bb_width"] = (_bbwidth_manual(close, 20, 2) / (close + 1e-8)).tolist()
+    df["rsi"] = _rsi_manual(close, _W.rsi).tolist()
+    macd_line, sig = _macd_manual(close, _W.macd.fast, _W.macd.slow, _W.macd.signal)
+    df["macd"] = (macd_line / (close + EPSILON)).tolist()
+    df["macd_signal"] = (sig / (close + EPSILON)).tolist()
+    df["atr"] = (_atr_manual(high, low, close, _W.atr) / (close + EPSILON)).tolist()
+    df["bb_width"] = (
+        _bbwidth_manual(close, _W.bollinger.period, _W.bollinger.std) / (close + EPSILON)
+    ).tolist()
 
 
 def _bar_hours(df: pd.DataFrame) -> list:
@@ -206,11 +197,11 @@ def _add_regime_features(df: pd.DataFrame) -> None:
         np.asarray(df["high"], dtype=np.float64),
         np.asarray(df["low"], dtype=np.float64),
         np.asarray(df["close"], dtype=np.float64),
-        14,
+        _W.atr,
     )
     # ATR percentile: rolling 100-bar rank normalized to [0, 1]
     atr_series = pd.Series(raw_atr.tolist())
-    atr_pct = atr_series.rolling(100, min_periods=1).apply(
+    atr_pct = atr_series.rolling(_W.atr_rank, min_periods=1).apply(
         lambda x: float(np.sum(x <= x[-1])) / float(len(x)), raw=True
     )
     df["atr_percentile"] = np.asarray(atr_pct, dtype=np.float32).tolist()
@@ -218,7 +209,7 @@ def _add_regime_features(df: pd.DataFrame) -> None:
     # Bar range ratio: (high - low) / (ATR + 1e-8) — intrabar volatility relative to trend
     high_arr = np.asarray(df["high"], dtype=np.float64)
     low_arr = np.asarray(df["low"], dtype=np.float64)
-    df["bar_range_ratio"] = ((high_arr - low_arr) / (raw_atr + 1e-8)).astype(np.float32).tolist()
+    df["bar_range_ratio"] = ((high_arr - low_arr) / (raw_atr + EPSILON)).astype(np.float32).tolist()
 
 
 def _rsi_manual(close: np.ndarray, period: int = 14) -> np.ndarray:
@@ -231,7 +222,7 @@ def _rsi_manual(close: np.ndarray, period: int = 14) -> np.ndarray:
     avg_l = np.asarray(
         pd.Series(loss.tolist()).ewm(alpha=1 / period, min_periods=period).mean(), dtype=np.float64
     )
-    rs = avg_g / (avg_l + 1e-8)
+    rs = avg_g / (avg_l + EPSILON)
     return np.asarray(1.0 - 1.0 / (1.0 + rs), dtype=np.float64)
 
 
@@ -288,7 +279,7 @@ def generate_labels(
         US500/USTEC/GER40/USOIL: index-specific pip sizes
         Others: 0.0001 pip size
     """
-    pip_size = _pip_size(pair)
+    pip_size = pair_pip_size(pair)
 
     # Per-pair average spread in pips for realistic label economics
     spread_pips = PAIR_SPREADS_PIPS.get(pair, 2.0)
@@ -324,7 +315,7 @@ def generate_labels(
     return df
 
 
-def _pip_size(pair: str) -> float:
+def pair_pip_size(pair: str) -> float:
     """Price change of one pip for ``pair``."""
     if any(x in pair for x in ["JPY"]):
         return 0.01
@@ -362,12 +353,14 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     prev[0] = close[0]
 
     for col in ["open", "high", "low", "close"]:
-        df[col] = np.log(np.asarray(df[col], dtype=np.float64) / (prev + 1e-8)).tolist()
+        df[col] = np.log(np.asarray(df[col], dtype=np.float64) / (prev + EPSILON)).tolist()
 
     vol = np.asarray(df["volume"], dtype=np.float64)
     vol_s = pd.Series(vol.tolist())
     df["volume"] = np.asarray(
-        (vol_s - vol_s.rolling(50).mean()) / (vol_s.rolling(50).std() + 1e-8), dtype=np.float64
+        (vol_s - vol_s.rolling(_W.volume_zscore).mean())
+        / (vol_s.rolling(_W.volume_zscore).std() + EPSILON),
+        dtype=np.float64,
     ).tolist()
 
     df.fillna(0.0, inplace=True)

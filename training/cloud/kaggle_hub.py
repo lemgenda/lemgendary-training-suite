@@ -1,67 +1,29 @@
-"""Kaggle Hub model, dataset, and kernel execution manager."""
+"""Kaggle Hub model uploads (per-epoch auto-sync) and artifact downloads.
+
+Kernel bundles are built by :mod:`training.cloud.kernel_bundle`.
+"""
 
 from __future__ import annotations
 
 import importlib
-import json
 import logging
-import os
 import shutil
 from pathlib import Path
 from typing import Any
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import kagglehub_errors
+from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.manager import CloudSyncError
-from training.utils.fs import remove_tree
-from training.utils.paths import get_project_root
+from training.cloud.sync_manifest import SyncManifest
+from training.cloud.variations import PYTORCH_DEFAULT
+from training.cloud.version_notes import build_version_notes, release_facts
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_hub")
 
 
-def _link_checkpoint_files(src: Path, dst: Path) -> None:
-    """Hard-link each file of ``src`` into ``dst`` (copy when linking fails)."""
-    dst.mkdir(parents=True, exist_ok=True)
-    for f in src.iterdir():
-        if f.is_file():
-            try:
-                os.link(f, dst / f.name)
-            except OSError:
-                shutil.copy2(f, dst / f.name)
-
-
-def _stage_model_dir(src_dir: Path, staging_dir: Path) -> None:
-    """Copy ``src_dir`` into ``staging_dir`` (checkpoints hard-linked) plus key metadata."""
-    for item in src_dir.iterdir():
-        if item.name == ".kaggle_upload_stage":
-            continue
-        dst = staging_dir / item.name
-        if item.name.lower() == "checkpoints" and item.is_dir():
-            _link_checkpoint_files(item, dst)
-        elif item.is_dir():
-            shutil.copytree(item, dst)
-        elif item.is_file():
-            shutil.copy2(item, dst)
-
-    # Defensive validation: ensure essential checkpoints and metrics are staged if available
-    checkpoints_staging = staging_dir / "checkpoints"
-    if not checkpoints_staging.exists():
-        src_ckpts = src_dir / "checkpoints"
-        if src_ckpts.exists() and src_ckpts.is_dir():
-            checkpoints_staging.mkdir(parents=True, exist_ok=True)
-            for f in src_ckpts.glob("*.pth"):
-                if f.is_file():
-                    shutil.copy2(f, checkpoints_staging / f.name)
-
-    for meta_file in ("README.md", "metrics.csv", "history.csv"):
-        src_meta = src_dir / meta_file
-        dst_meta = staging_dir / meta_file
-        if src_meta.exists() and src_meta.is_file() and not dst_meta.exists():
-            shutil.copy2(src_meta, dst_meta)
-
-
 class KaggleHubManager:
-    """Manages Kaggle Model Hub uploads, artifact downloads, and headless kernel bundles."""
+    """Manages Kaggle Model Hub uploads and artifact downloads."""
 
     def __init__(
         self,
@@ -74,120 +36,53 @@ class KaggleHubManager:
         self.username = resolved_user
         self.key = resolved_key
 
-    def get_handle(self, model_name: str) -> str:
-        """Construct standard Kaggle model handle: <user>/<model_slug>/pytorch/default."""
-        model_slug = model_name.replace("_", "-").lower()
-        if "nima-aesthetic" in model_slug and "nima-aesthetics" not in model_slug:
-            model_slug = model_slug.replace("nima-aesthetic", "nima-aesthetics")
-
-        # Allow explicit prefix/suffix overrides if configured, defaulting to canonical model slug
-        slug_prefix = self.config.get("kaggle_slug_prefix", "")
-        slug_suffix = self.config.get("kaggle_slug_suffix", "")
-        return f"{self.username}/{slug_prefix}{model_slug}{slug_suffix}/pytorch/default"
-
-    def get_kernel_slug(self, model_name: str) -> str:
-        """Generate standardized Kaggle kernel slug."""
-        clean_model = model_name.replace("_", "-")
-        return f"{self.username}/lemgendary-{clean_model}-training"
-
-    def create_cloud_kernel_bundle(self, model_name: str, gpu: str = "T4") -> Path:
-        """Package a standalone Kaggle kernel bundle containing metadata and execution script."""
-        project_root = get_project_root()
-        kernel_dir = project_root / "cloud_jobs" / f"{model_name}_cloud_job"
-        kernel_dir.mkdir(parents=True, exist_ok=True)
-
-        slug = f"lemgendary-{model_name.replace('_', '-')}-training"
-        title = f"LemGendary {model_name.replace('_', ' ').title()} Training"
-
-        gpu_shape_map = {
-            "T4": "NvidiaTeslaT4",
-            "P100": "NvidiaTeslaP100",
-            "V100": "NvidiaTeslaV100",
-        }
-        accelerator = gpu_shape_map.get(gpu.upper(), "NvidiaTeslaT4")
-
-        metadata = {
-            "id": f"{self.username}/{slug}",
-            "title": title,
-            "code_file": "train_cloud.py",
-            "language": "python",
-            "kernel_type": "script",
-            "is_private": "true",
-            "enable_gpu": "true",
-            "enable_internet": "true",
-            "accelerator": accelerator,
-        }
-
-        (kernel_dir / "kernel-metadata.json").write_text(
-            json.dumps(metadata, indent=2), encoding="utf-8"
-        )
-
-        script_content = (
-            f'"""Automated Headless Kaggle Cloud Training Job for {model_name}."""\n'
-            "import os\n"
-            "import subprocess\n"
-            "import sys\n"
-            "\n"
-            f'print("Initializing LemGendary Cloud Worker for {model_name}...")\n'
-            'res = subprocess.run([sys.executable, "-m", "training.core_loop", "--model", '
-            f'"{model_name}"], check=False)\n'
-            "sys.exit(res.returncode)\n"
-        )
-        (kernel_dir / "train_cloud.py").write_text(script_content, encoding="utf-8")
-        logger.info("Created Kaggle cloud kernel bundle at %s", kernel_dir)
-        return kernel_dir
-
     def sync(
         self,
         model_name: str,
         epoch: int,
         src_dir: Path,
     ) -> bool:
-        """Stage artifacts and upload model version to Kaggle Model Hub."""
-        handle = self.get_handle(model_name)
-        staging_dir = (
-            Path("/kaggle/working/.kaggle_upload_stage")
-            if os.name != "nt"
-            else (src_dir / ".kaggle_upload_stage")
+        """Upload the isolated ``pytorch/default`` payload of ``src_dir`` (per-epoch auto-sync).
+
+        Goes through :meth:`KaggleModelSyncManager.push_variation`, so the handle uses the
+        registry slug and only ``checkpoints/*.pth``, ``README.md`` and ``metrics.csv`` are
+        uploaded. ``src_dir`` is ``<hub root>/<model_name>``.
+        """
+        publisher = KaggleModelSyncManager(
+            username=self.username, key=self.key, hub_root=src_dir.parent
         )
-
-        try:
-            if staging_dir.exists():
-                shutil.rmtree(staging_dir)
-            staging_dir.mkdir(parents=True, exist_ok=True)
-
-            _stage_model_dir(src_dir, staging_dir)
-
-            # Dynamic import of kagglehub
-            try:
-                kagglehub = importlib.import_module("kagglehub")
-            except ImportError as exc:
+        if not SyncManifest(src_dir).pushed_hashes(PYTORCH_DEFAULT.key):
+            # First upload from this folder (a new model or a fresh Kaggle session): set the
+            # model page first, so a new model never starts with Kaggle's defaults.
+            page = publisher.sync_model_page(model_name)
+            if page.get("model") is None:
                 raise CloudSyncError(
-                    code="KAGGLEHUB_MISSING",
-                    message="kagglehub library is not installed",
-                    retryable=False,
-                ) from exc
-
-            logger.info("Uploading model to Kaggle Hub (%s)...", handle)
-            kagglehub.model_upload(
-                handle=handle,
-                local_model_dir=str(staging_dir),
-                version_notes=f"SOTA Update: {model_name} | Epoch {epoch}",
-            )
-            logger.info("Successfully uploaded %s to Kaggle Hub.", handle)
+                    code="KAGGLE_METADATA_FAILED",
+                    message=f"Model page sync failed for {model_name}: {page.get('errors')}",
+                    retryable=True,
+                )
+        result = publisher.push_variation(
+            model_name,
+            PYTORCH_DEFAULT.key,
+            version_notes=build_version_notes(
+                model_name,
+                release_facts(src_dir, epoch=epoch),
+                label=PYTORCH_DEFAULT.label,
+                reason="Auto-sync",
+            ),
+        )
+        if result.skipped:
+            logger.info("Kaggle Hub already holds this payload of %s; no new version", model_name)
             return True
-        except CloudSyncError:
-            raise
-        except kagglehub_errors() as exc:
-            logger.error("Kaggle Hub upload failed for %s: %s", model_name, exc)
+        if not result.success:
             raise CloudSyncError(
                 code="KAGGLE_UPLOAD_FAILED",
-                message=f"Failed to upload {model_name} to Kaggle Hub: {exc}",
+                message=f"Failed to upload {model_name} epoch {epoch} to Kaggle Hub: "
+                f"{result.error}",
                 retryable=True,
-            ) from exc
-        finally:
-            if staging_dir.exists():
-                remove_tree(staging_dir, purpose="Kaggle staging cleanup")
+            )
+        logger.info("Uploaded %s epoch %d to %s", model_name, epoch, result.handle)
+        return True
 
     def pull(self, remote_identifier: str, dest_dir: Path) -> bool:
         """Download model artifacts or dataset from Kaggle Hub."""

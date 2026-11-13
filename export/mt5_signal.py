@@ -16,25 +16,27 @@ Usage (run as a module from the project root):
     python -m export.mt5_signal --mode signal \
         --onnx LemGendaryModels/forex_predictor/forex_predictor.onnx --pair EURUSD
 
-TODO (requires MT5 demo account):
-    - Validate ONNX inference matches PyTorch output on real bars
-    - Wire MT5 live bar pull into signal() function
-    - Test MQL5 EA stub in MT5 Strategy Tester
+    # Write the MQL5 Expert Advisor (rendered from the registry):
+    python -m export.mt5_signal --mode mql5_ea --out export/LemGendaryForexEA.mq5
+
+The MT5 model is the FP16 ``<Stem>.onnx`` (FP32 inputs/outputs, embedded weights, IR 9 for
+the ONNX Runtime 1.17 bundled with MT5). Check it under that runtime with
+``tools/mt5_ort_check.py`` and in the MT5 Strategy Tester before live use.
 """
 
 import argparse
 import json
 import logging
 import os
-import shutil
 import sys
+from pathlib import Path
 
 import numpy as np
-import torch
 
 from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK
+from data.mt5_feature_spec import WARMUP_BARS
 from data.mt5_features import (
-    PRICE_INDICATOR_FEATURES,
+    FEATURES,
     compute_indicators,
     normalize_ohlcv,
 )
@@ -44,40 +46,28 @@ from data.mt5_terminal import (
     disconnect_mt5,
     download_bars,
 )
-from models.forex_predictor import (
-    ForexPredictor,
+from training.cloud.variations import ONNX_FP16_SUFFIX
+from training.export.common import DEFAULT_ONNX_OPSET
+from training.export.mql5_ea import ea_spec, render_mql5_ea
+from training.export.mt5_signal import (
+    DEFAULT_TIMEFRAMES,
+    DIRECTION_LABELS,
+    forex_variant_writer,
+    load_forex_checkpoint,
 )
-from training.export.mt5_signal import export_forex_onnx_from_model
-from training.utils.lazy_imports import load_onnx, load_onnx_float16, load_onnxruntime, load_onnxsim
+from training.export.onnx_variants import ONNX_FP16_VARIANT, ONNX_FP32_VARIANT
+from training.export.torch_standalone import export_torch_standalone
+from training.export.validation import resolve_model_stem
+from training.registry import get_model_registry
+from training.utils.lazy_imports import load_onnxruntime
 
 # [LemGendary Forex Suite v1.0 - SYNC_ID: FOREX_03]
 
 logger = logging.getLogger("lemtrain.export.mt5_signal")
 
-DIRECTION_LABELS = {0: "SELL", 1: "HOLD", 2: "BUY"}
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # ONNX Export
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def _load_forex_model(checkpoint_path: str, active_timeframes: list) -> ForexPredictor:
-    """Rebuild a ForexPredictor from a checkpoint (DataParallel prefixes stripped)."""
-    print(f" [ONNX Export] Loading checkpoint: {checkpoint_path}")
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-
-    # Reconstruct model from checkpoint kwargs or defaults
-    model_kwargs = ckpt.get("model_kwargs", {})
-    model_kwargs["active_timeframes"] = active_timeframes
-    model = ForexPredictor(**model_kwargs)
-
-    state_dict = ckpt.get("model_state", ckpt.get("model_state_dict", ckpt))
-    # Strip DataParallel prefix if present
-    state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
-    model.load_state_dict(state_dict, strict=False)
-    model.eval()
-    return model
 
 
 def _export_paths(out_path: str) -> tuple[str, str, str]:
@@ -98,88 +88,11 @@ def _export_paths(out_path: str) -> tuple[str, str, str]:
     return fp32_onnx_path, fp16_onnx_path, pt_path
 
 
-def _simplify_onnx(fp32_onnx_path: str) -> None:
-    """Simplify the FP32 model in place with onnxsim when it is installed."""
-    try:
-        onnx = load_onnx()
-        onnxsim = load_onnxsim()
-    except ImportError as e:
-        logger.info("onnxsim simplification skipped (dependency missing): %s", e)
-        print(f" [ONNX Export] onnxsim skipped: {e}")
-    else:
-        try:
-            model_onnx = onnx.load(fp32_onnx_path)
-            model_simplified, check = onnxsim.simplify(model_onnx)
-            if check:
-                onnx.save(model_simplified, fp32_onnx_path)
-                print(" [ONNX Export] Model simplified successfully via onnxsim.")
-        except (OSError, RuntimeError, ValueError, onnx.checker.ValidationError) as e:
-            logger.warning(
-                "onnxsim simplification of %s failed; keeping unsimplified model: %s",
-                fp32_onnx_path,
-                e,
-            )
-            print(f" [ONNX Export] onnxsim skipped: {e}")
-
-
-def _save_fp16(fp32_onnx_path: str, fp16_onnx_path: str) -> None:
-    """Convert to FP16 with embedded weights; copy the FP32 model when that fails."""
-    fp16_error: Exception | None = None
-    try:
-        onnx = load_onnx()
-        float16 = load_onnx_float16()
-    except ImportError as e:
-        fp16_error = e
-    else:
-        try:
-            model_fp32 = onnx.load(fp32_onnx_path)
-            model_fp16 = float16.convert_float_to_float16(model_fp32, keep_io_types=True)
-            onnx.save(model_fp16, fp16_onnx_path)
-            print(" [ONNX Export] [OK] FP16 embedded weights ONNX model saved.")
-        except (OSError, RuntimeError, ValueError, TypeError) as e:
-            fp16_error = e
-    if fp16_error is not None:
-        logger.warning(
-            "FP16 conversion failed; copying FP32 model to %s: %s", fp16_onnx_path, fp16_error
-        )
-        print(f" [ONNX Export] FP16 conversion fallback: copying FP32 -> {fp16_onnx_path}")
-        shutil.copy2(fp32_onnx_path, fp16_onnx_path)
-
-
-def _detach_fp32_weights(fp32_onnx_path: str) -> None:
-    """Detach FP32 weights into external sidecar file (.onnx.data)."""
-    base_dir = os.path.dirname(fp32_onnx_path)
-    try:
-        onnx = load_onnx()
-
-        fp32_filename = os.path.basename(fp32_onnx_path)
-        sidecar_filename = f"{fp32_filename}.data"
-        sidecar_path = os.path.join(base_dir, sidecar_filename)
-        if os.path.exists(sidecar_path):
-            os.remove(sidecar_path)
-
-        onnx_model_fp32 = onnx.load(fp32_onnx_path)
-        onnx.external_data_helper.convert_model_to_external_data(
-            onnx_model_fp32,
-            all_tensors_to_one_file=True,
-            location=sidecar_filename,
-            size_threshold=1024,
-        )
-        onnx.save(onnx_model_fp32, fp32_onnx_path)
-        print(f" [ONNX Export] [OK] Detached FP32 weights to external sidecar: {sidecar_filename}")
-    except ImportError as e:
-        logger.info("External data detachment skipped (onnx missing): %s", e)
-        print(f" [ONNX Export] External data detachment skipped: {e}")
-    except (OSError, ValueError, RuntimeError) as e:
-        logger.warning("External data detachment for %s failed: %s", fp32_onnx_path, e)
-        print(f" [ONNX Export] External data detachment skipped: {e}")
-
-
 def export_onnx(
     checkpoint_path: str,
     out_path: str | None = None,
     active_timeframes: list | None = None,
-    opset: int = 17,
+    opset: int = DEFAULT_ONNX_OPSET,
 ):
     """
     Export a trained ForexPredictor to ONNX format.
@@ -191,42 +104,33 @@ def export_onnx(
         checkpoint_path:    Path to .pth checkpoint (best or latest).
         out_path:           Output .onnx file path. Defaults to same dir as checkpoint.
         active_timeframes:  Timeframe rungs to include (default: [60]).
-        opset:              ONNX opset version (17 recommended).
+        opset:              ONNX opset version (18, the torch.export exporter minimum).
 
     Returns:
         Path to the exported .onnx file.
     """
     if active_timeframes is None:
-        active_timeframes = [1, 5, 15, 60, 240, 1440]
+        active_timeframes = list(DEFAULT_TIMEFRAMES)
 
     if out_path is None:
         base = os.path.splitext(checkpoint_path)[0]
         out_path = base + ".onnx"
 
-    model = _load_forex_model(checkpoint_path, active_timeframes)
-
-    # Export 1: FP32 ONNX (delegated to training.export.mt5_signal SSOT)
+    model = load_forex_checkpoint(checkpoint_path, active_timeframes)
     fp32_onnx_path, fp16_onnx_path, pt_path = _export_paths(out_path)
+    writer = forex_variant_writer(model, active_timeframes, opset)
 
+    # Export 1: FP32 ONNX with its .onnx.data weights sidecar
     print(f" [ONNX Export] Synthesizing FP32 ONNX model to: {fp32_onnx_path} (opset {opset})")
-    export_forex_onnx_from_model(
-        model=model,
-        out_path=fp32_onnx_path,
-        active_timeframes=active_timeframes,
-        opset=opset,
-    )
+    writer.write(ONNX_FP32_VARIANT, Path(fp32_onnx_path))
 
-    _simplify_onnx(fp32_onnx_path)
-
-    # Export 2: FP16 ONNX with embedded weights
+    # Export 2: FP16 ONNX for the EA: FP32 inputs/outputs, one file, IR 9 (MT5 ORT 1.17)
     print(f" [ONNX Export] Synthesizing production FP16 ONNX model to: {fp16_onnx_path}")
-    _save_fp16(fp32_onnx_path, fp16_onnx_path)
+    writer.write(ONNX_FP16_VARIANT, Path(fp16_onnx_path))
 
-    _detach_fp32_weights(fp32_onnx_path)
-
-    # Export 3: Standalone PyTorch FP32 model object (.pt)
+    # Export 3: Standalone PyTorch FP32 model (.pt)
     print(f" [ONNX Export] Saving standalone PyTorch FP32 model to: {pt_path}")
-    torch.save(model, pt_path)
+    export_torch_standalone(model, pt_path, metadata={"model_key": "forex_predictor"})
 
     print(" [ONNX Export] [OK] Export Matrix Complete:")
     print(f"   -> FP32 ONNX:  {fp32_onnx_path}")
@@ -330,7 +234,7 @@ def generate_signal(
         Signal dict: {direction, confidence, tp_pips, sl_pips, probs}
     """
     if active_timeframes is None:
-        active_timeframes = [1, 5, 15, 60, 240, 1440]
+        active_timeframes = list(DEFAULT_TIMEFRAMES)
 
     creds = credentials or MT5Credentials()
     if not connect_mt5(login=creds.login, password=creds.password, server=creds.server):
@@ -349,15 +253,15 @@ def generate_signal(
 
         for tf in active_timeframes:
             seq_len = TIMEFRAME_LOOKBACK[tf]
-            # Pull enough bars to compute indicators + window
-            n_bars = seq_len + 300  # Extra for indicator warmup
+            # Pull enough bars to compute indicators + window (same warm-up as the EA)
+            n_bars = seq_len + WARMUP_BARS
 
             df = download_bars(pair, tf, n_bars=n_bars)
             df = compute_indicators(df)
             df = normalize_ohlcv(df)
 
-            avail = [c for c in PRICE_INDICATOR_FEATURES if c in df.columns]
-            arr = df[avail].values.astype(np.float32)
+            # Every model input column in specification order (data.mt5_feature_spec).
+            arr = df[FEATURES].to_numpy(dtype=np.float32)
 
             # Take last seq_len bars
             if len(arr) < seq_len:
@@ -375,70 +279,33 @@ def generate_signal(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MQL5 EA Stub Generator
+# MQL5 Expert Advisor
 # ─────────────────────────────────────────────────────────────────────────────
 
-MQL5_EA_STUB = """
-//+------------------------------------------------------------------+
-//| LemGendary Forex EA Stub                                         |
-//| Generated by export/mt5_signal.py                               |
-//| TODO: Wire to Python signal bridge before live deployment        |
-//+------------------------------------------------------------------+
-#property copyright "LemGendary AI"
-#property version   "1.00"
-
-// ── Safety Parameters ────────────────────────────────────────────────
-input double   RiskPct        = 1.0;    // Risk per trade (% of balance)
-input double   MinConfidence  = 0.65;   // Minimum model confidence to trade
-input int      MagicNumber    = 20260724;
-input string   PythonScript   = "lemgendary_signal.py"; // Signal bridge script
-
-// ── Internal State ────────────────────────────────────────────────────
-int    lastBar = 0;
-double tp_pips, sl_pips;
-string direction;
-double confidence;
-
-//+------------------------------------------------------------------+
-void OnTick() {
-    int currentBar = (int)(TimeCurrent() / PeriodSeconds());
-    if (currentBar == lastBar) return;   // Only act on new bars
-    lastBar = currentBar;
-
-    // ── Call Python Signal Bridge ──────────────────────────────────
-    // TODO: Implement IPC or named pipe bridge to mt5_signal.py
-    // The bridge returns JSON: {"direction":"BUY","confidence":0.72,"tp_pips":35.0,"sl_pips":18.0}
-    //
-    // Example bridge call (pseudo-code):
-    //   string json = CallPythonBridge(PythonScript, Symbol());
-    //   ParseSignal(json, direction, confidence, tp_pips, sl_pips);
-
-    // ── Safety Gate ───────────────────────────────────────────────
-    // if (confidence < MinConfidence) return;   // Model not confident — skip bar
-
-    // ── Position Sizing ───────────────────────────────────────────
-    // double lots = CalcLotSize(RiskPct, sl_pips);  // Risk-based lot sizing
-
-    // ── Execute ───────────────────────────────────────────────────
-    // if (direction == "BUY")  OrderSend(Symbol(), OP_BUY,  lots, Ask, 3, Ask-sl_pips*Point, Ask+tp_pips*Point, "", MagicNumber);
-    // if (direction == "SELL") OrderSend(Symbol(), OP_SELL, lots, Bid, 3, Bid+sl_pips*Point, Bid-tp_pips*Point, "", MagicNumber);
-}
-//+------------------------------------------------------------------+
-"""
+FOREX_MODEL_KEY = "forex_predictor"
 
 
-def generate_mql5_ea(out_path: str):
+def generate_mql5_ea(out_path: str, model_key: str = FOREX_MODEL_KEY) -> Path:
     """
-    Write the MQL5 EA stub to disk.
+    Write the MQL5 Expert Advisor for ``model_key`` (rendered from its registry entry).
+
+    The EA loads the single-file FP16 release model (FP32 I/O, IR 9) with ``OnnxCreate``;
+    ``RiskPct`` defaults to the registry ``evaluation.risk_per_trade``.
 
     Args:
         out_path: Path to write the .mq5 file.
+        model_key: Registry key of the Forex model.
     """
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(MQL5_EA_STUB)
-    print(f" [MQL5] EA stub written: {out_path}")
-    print(" [MQL5] TODO: Implement Python bridge IPC before live deployment.")
+    spec = get_model_registry().get_model(model_key)
+    if spec is None:
+        raise KeyError(f"Model {model_key!r} is not in the registry")
+    model_file = f"{resolve_model_stem(model_key, spec)}{ONNX_FP16_SUFFIX}"
+    target = Path(out_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(render_mql5_ea(ea_spec(spec.raw_config, model_file)), encoding="utf-8")
+    print(f" [MQL5] Expert Advisor written: {target}")
+    print(" [MQL5] Compile it in MetaEditor and run the Strategy Tester before live trading.")
+    return target
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -447,14 +314,14 @@ def generate_mql5_ea(out_path: str):
 
 
 def main():
-    """CLI entrypoint: ONNX export, live signal generation or MQL5 EA stub writing."""
+    """CLI entrypoint: ONNX export, live signal generation or MQL5 Expert Advisor writing."""
     parser = argparse.ArgumentParser(description="LemGendary MT5 Signal Generator & ONNX Exporter")
     parser.add_argument(
         "--mode",
-        choices=["export", "signal", "mql5_stub"],
+        choices=["export", "signal", "mql5_ea"],
         default="export",
         help=(
-            "export: convert to ONNX | signal: generate live signal | mql5_stub: write EA template"
+            "export: convert to ONNX | signal: generate live signal | mql5_ea: write the MQL5 EA"
         ),
     )
     parser.add_argument("--checkpoint", default=None, help="Path to .pth checkpoint for export")
@@ -464,7 +331,7 @@ def main():
         parser, "Active timeframe rungs in minutes (default: 1 5 15 60 240 1440)"
     )
     parser.add_argument("--out", default=None, help="Output path for ONNX or MQL5 file")
-    parser.add_argument("--opset", type=int, default=17, help="ONNX opset version")
+    parser.add_argument("--opset", type=int, default=DEFAULT_ONNX_OPSET, help="ONNX opset version")
     parser.add_argument("--login", type=int, default=None, help="MT5 demo account login ID")
     parser.add_argument("--password", type=str, default=None, help="MT5 demo account password")
     parser.add_argument("--server", type=str, default=None, help="MT5 demo account server name")
@@ -499,7 +366,7 @@ def main():
         print("\n [Signal] Result:")
         print(json.dumps(result, indent=2))
 
-    elif args.mode == "mql5_stub":
+    elif args.mode == "mql5_ea":
         out = args.out or "export/LemGendaryForexEA.mq5"
         generate_mql5_ea(out)
 

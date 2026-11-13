@@ -4,7 +4,7 @@ Enforces uniform model export across all architectures and training methods:
 1. [ModelName].pt: FP32 PyTorch model weights (isolated in dist/kaggle/pytorch/)
 2. [ModelName]_FP32.onnx + [ModelName]_FP32.onnx.data: FP32 with external binary weights sidecar
    (isolated in dist/kaggle/onnx_fp32/)
-3. [ModelName].onnx: FP16 precision with integrated self-contained weights
+3. [ModelName].onnx: FP16 precision with embedded weights (sidecar only above 2 GB)
    (isolated in dist/kaggle/onnx_fp16/)
 
 All exports persist exclusively to LemGendaryModels/[ModelName]/ and NEVER to
@@ -50,7 +50,7 @@ def export_tri_format_pytorch(
 ) -> dict[str, Path]:
     """Export standard PyTorch model into all 3 required formats with automatic variation staging.
 
-    ``onnx_options`` (``dynamic_axes``, ``input_names``, ``output_names``, ``opset``) go to
+    ``onnx_options`` (``dynamic_axes``, ``input_names``, ``output_names``) go to
     :meth:`PyTorchModelExporter.export` unchanged.
 
     Returns dict with keys: 'onnx_fp16', 'onnx_fp32', 'onnx_fp32_data', 'pt'
@@ -110,6 +110,14 @@ def export_tri_format_yolo(
             exported = st_res.staged_files
 
     return exported
+
+
+def export_summary(model_key: str, exported: dict[str, Path]) -> str:
+    """One run-log line naming the release files an export wrote (or that it wrote none)."""
+    if not exported:
+        return f"[EXPORT] {model_key}: no release files were written."
+    names = ", ".join(f"{key}={path.name}" for key, path in sorted(exported.items()))
+    return f"[EXPORT] {model_key}: {len(exported)} release file(s) written: {names}"
 
 
 def export_universal_model(

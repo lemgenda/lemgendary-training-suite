@@ -12,12 +12,22 @@ import yaml
 from training.cli.option_groups import option_group
 from training.cloud.errors import kagglehub_errors
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-from training.cloud.variations import VARIATION_BY_KEY
-from training.export.staging import VariationStagingService
+from training.cloud.variations import ALL_VARIATIONS, VARIATION_BY_KEY, selected_variations
 from training.registry import get_model_registry
 from training.services.sync_service import CloudSyncService
 
 logger = logging.getLogger("lemtrain.cli.lemtrain")
+
+
+VARIATION_CHOICES: list[str] = [ALL_VARIATIONS, *VARIATION_BY_KEY]
+"""Accepted ``--variation`` values (the variation keys from ``training.cloud.variations``)."""
+
+
+def checked_variation(value: str) -> str:
+    """``--variation`` callback: accept only :data:`VARIATION_CHOICES` (a usage error else)."""
+    if value not in VARIATION_CHOICES:
+        raise typer.BadParameter(f"'{value}' is not one of {VARIATION_CHOICES}")
+    return value
 
 
 sync_app = typer.Typer(name="sync", help="Cloud storage synchronization and provider telemetry.")
@@ -57,22 +67,30 @@ def sync_run(
         typer.echo(f"[ERROR] Cloud sync failed: {res.get('message', '')}")
 
 
+def push_all_help() -> str:
+    """``--all`` help naming the registry's current model count (never a fixed number)."""
+    return (
+        f"Push all {len(get_model_registry().list_keys())} registered models to Kaggle Models Hub."
+    )
+
+
 @dataclass(frozen=True)
 class PushOptions:
     """Options of ``lemtrain sync push``."""
 
     all_models: Annotated[
         bool,
-        typer.Option("--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."),
+        typer.Option("--all", "-a", help=push_all_help()),
     ] = False
     variation: Annotated[
         str,
         typer.Option(
             "--variation",
             "-v",
-            help="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16').",
+            callback=checked_variation,
+            help=f"Variation to push: {', '.join(VARIATION_CHOICES)}.",
         ),
-    ] = "all"
+    ] = ALL_VARIATIONS
     version_notes: Annotated[
         str | None, typer.Option("--notes", "-n", help="Optional release version notes.")
     ] = None
@@ -146,14 +164,12 @@ def sync_push(
 
 
 def _stage_and_push(sync_mgr: KaggleModelSyncManager, model_key: str, push_opts: dict):
-    """Ensure metadata, stage isolated variations, then push (``push_opts`` -> ``push_model``)."""
-    sync_mgr.ensure_model_metadata(model_key)
-    staged = VariationStagingService().stage_variations(
-        model_key, base_dir=sync_mgr.get_model_dir(model_key)
-    )
-    if staged.staged_files:
-        typer.echo(f"  * Staged {len(staged.staged_files)} isolated variation files.")
-    return sync_mgr.push_model(model_key=model_key, **push_opts)
+    """Run the one push policy (stage, model page, uploads, metadata) for ``model_key``."""
+    res = sync_mgr.push_model(model_key=model_key, **push_opts)
+    unchanged = [key for key, v in res.variations.items() if v.skipped]
+    if unchanged:
+        typer.echo(f"  * Unchanged since the last upload (no new version): {unchanged}")
+    return res
 
 
 def _push_fleet(sync_mgr: KaggleModelSyncManager, push_opts: dict) -> None:
@@ -199,7 +215,7 @@ def _pull_variation(
     sync_mgr: KaggleModelSyncManager, model: str, var_key: str, force_download: bool
 ) -> bool:
     """Pull one variation and report its outcome; True on success."""
-    target_dir = sync_mgr.get_variation_dir(model, var_key)
+    target_dir = sync_mgr.pull_destination(model, var_key)
     # Kaggle/transport/file errors, plus RuntimeError raised when kagglehub is not installed.
     pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
     try:
@@ -223,13 +239,11 @@ def _pull_variation(
 def sync_pull(
     model: str = typer.Argument(..., help="Target model key to download from Kaggle Models Hub."),
     variation: str = typer.Option(
-        "all",
+        ALL_VARIATIONS,
         "--variation",
         "-v",
-        help=(
-            "Variation to pull ('all', 'pytorch/default', 'pytorch/fp32', 'onnx/fp16', "
-            "'onnx/fp32')."
-        ),
+        callback=checked_variation,
+        help=f"Variation to pull: {', '.join(VARIATION_CHOICES)}.",
     ),
     force_download: bool = typer.Option(
         False, "--force", "-f", help="Force re-download even if already present locally."
@@ -240,7 +254,7 @@ def sync_pull(
 ) -> None:
     """Download model variation(s) from Kaggle Models Hub into canonical directories."""
     sync_mgr = KaggleModelSyncManager(username=username)
-    vars_to_pull = list(VARIATION_BY_KEY.keys()) if variation == "all" else [variation]
+    vars_to_pull = selected_variations(variation)
     total = len(vars_to_pull)
 
     typer.echo(f"[START] Pulling {total} variation(s) for '{model}' from Kaggle Models Hub...")

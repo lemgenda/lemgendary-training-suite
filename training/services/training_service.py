@@ -44,6 +44,19 @@ class TrainHyperparams:
 
 
 @dataclass(frozen=True)
+class ResumeOptions:
+    """How a run treats the checkpoints of an earlier run of the model.
+
+    Attributes:
+        clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
+        override_frozen: Resume although a frozen run setting changed (logged).
+    """
+
+    clean: bool = False
+    override_frozen: bool = False
+
+
+@dataclass(frozen=True)
 class TrainRequest:
     """One in-process training run.
 
@@ -51,7 +64,7 @@ class TrainRequest:
         model_key: Target model key registered in unified_models.yaml.
         hyper: Epochs, batch size, learning rate, preset and resolution overrides.
         env: Execution environment ('local', 'kaggle', 'colab').
-        clean: Whether to ignore prior checkpoints and start fresh from epoch 1.
+        resume: ``--clean`` and ``--override-frozen``.
         auto_sync: Enable automated cloud synchronization.
         parallel: Parallel strategy ('auto', 'single', 'dp', 'ddp').
         enable_sawtooth: Enable Sawtooth VRAM Governor memory protection.
@@ -60,7 +73,7 @@ class TrainRequest:
     model_key: str
     hyper: TrainHyperparams = TrainHyperparams()
     env: str = "local"
-    clean: bool = False
+    resume: ResumeOptions = ResumeOptions()
     auto_sync: bool = False
     parallel: str = "auto"
     enable_sawtooth: bool = True
@@ -69,9 +82,11 @@ class TrainRequest:
     def from_options(cls, model_key: str, **options: Any) -> TrainRequest:
         """Build a request from flat keyword options (hyperparameters and run flags mixed)."""
         hyper_names = {f.name for f in fields(TrainHyperparams)}
+        resume_names = {f.name for f in fields(ResumeOptions)}
         hyper = TrainHyperparams(**{k: v for k, v in options.items() if k in hyper_names})
-        flags = {k: v for k, v in options.items() if k not in hyper_names}
-        return cls(model_key=model_key, hyper=hyper, **flags)
+        resume = ResumeOptions(**{k: v for k, v in options.items() if k in resume_names})
+        flags = {k: v for k, v in options.items() if k not in hyper_names and k not in resume_names}
+        return cls(model_key=model_key, hyper=hyper, resume=resume, **flags)
 
 
 class TrainingService:
@@ -163,7 +178,8 @@ class TrainingService:
             hub_repo=None,
             auto_sync=request.auto_sync,
             reset_scheduler=False,
-            clean=request.clean,
+            clean=request.resume.clean,
+            override_frozen=request.resume.override_frozen,
             phase=1,
             fold=1,
             pairs=None,

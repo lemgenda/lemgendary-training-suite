@@ -32,6 +32,7 @@ from training.governance.yolo_run import YoloModelSpec, YoloRunHooks, YoloRunMix
 from training.telemetry import TelemetryEngine
 from training.training.summary import TrainingSummary
 from training.utils.lazy_imports import load_ultralytics
+from training.utils.paths import get_model_hub_dir
 
 __all__ = [
     "BatchBudget",
@@ -114,7 +115,7 @@ class YOLOCurriculumGovernor(YoloRunMixin):
 
         # All training artifacts are stored exclusively under LemGendaryModels — the training
         # suite project root is for code only, never for generated model files.
-        models_hub_dir = (project_root.parent / "LemGendaryModels" / "yolov8n").resolve()
+        models_hub_dir = get_model_hub_dir("yolov8n", project_root)
         models_hub_ckpt_dir = models_hub_dir / "checkpoints"
         # Curriculum stage outputs go under local checkpoints directory to keep LemGendaryModels
         # pristine

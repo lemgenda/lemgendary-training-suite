@@ -11,10 +11,12 @@ import torch
 import yaml
 
 from models.factory import get_model
+from training.cloud.variations import PT_SUFFIX
 from training.export.base import BaseModelExporter
 from training.export.common import (
     ExportError,
     OnnxGraphSpec,
+    default_graph_spec,
     extract_input_dimensions,
     load_checkpoint_weights,
     resolve_checkpoint_file,
@@ -26,7 +28,8 @@ from training.export.forex_exporter import ForexModelExporter
 from training.export.llm_exporter import LLMModelExporter, export_llm_tri_format
 from training.export.mt5_signal import export_forex_onnx
 from training.export.onnx import export_onnx
-from training.export.pytorch_exporter import PyTorchModelExporter
+from training.export.onnx_variants import ONNX_VARIANTS, OnnxVariantWriter
+from training.export.pytorch_exporter import EXPORT_SAMPLE_BATCH, PyTorchModelExporter
 from training.export.staging import StagingResult, VariationStagingService
 from training.export.torch_standalone import export_torch_standalone
 from training.export.universal_exporter import (
@@ -43,6 +46,7 @@ from training.export.validation import (
 from training.export.webgpu import export_webgpu_onnx
 from training.export.yolo_exporter import YOLOModelExporter
 from training.utils.fs import remove_tree
+from training.utils.model_payload import load_model_payload
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.export")
@@ -98,8 +102,9 @@ def _load_export_model(
 
     if ckpt_file and ckpt_file.exists():
         logger.info("Loading weights from checkpoint: %s", ckpt_file)
-        ckpt = torch.load(str(ckpt_file), map_location="cpu", weights_only=False)
-        load_checkpoint_weights(model, ckpt)
+        # The suite's own checkpoint or release file: trusted for full unpickling.
+        payload = load_model_payload(ckpt_file, map_location="cpu", trust_pickle=True)
+        load_checkpoint_weights(model, payload.state_dict)
 
     model.eval()
     return wrap_quality_model(model, model_info)
@@ -118,21 +123,14 @@ def _export_model_targets(
     """
     base_name, dummy_shape = names
     results: dict[str, Path] = {}
-    if "onnx_fp32" in export_targets:
-        fp32_path = staging_dir / f"{base_name}_FP32.onnx"
-        export_onnx(
-            model, fp32_path, dummy_shape=dummy_shape, graph=OnnxGraphSpec(external_data=True)
-        )
-        results["onnx_fp32"] = fp32_path
-        results["onnx_fp32_data"] = staging_dir / f"{base_name}_FP32.onnx.data"
-
-    if "onnx_fp16" in export_targets:
-        fp16_path = staging_dir / f"{base_name}.onnx"
-        export_onnx(model, fp16_path, dummy_shape=dummy_shape, half=True)
-        results["onnx_fp16"] = fp16_path
+    sample = torch.randn(dummy_shape)
+    writer = OnnxVariantWriter(model, (sample,), default_graph_spec(sample))
+    for variant in ONNX_VARIANTS:
+        if variant.key in export_targets:
+            results.update(writer.write(variant, staging_dir / variant.file_name(base_name)))
 
     if "torch_pt" in export_targets:
-        pt_path = staging_dir / f"{base_name}.pt"
+        pt_path = staging_dir / f"{base_name}{PT_SUFFIX}"
         export_torch_standalone(model, pt_path, metadata={"model_key": model_key})
         results["torch_pt"] = pt_path
         results["pt"] = pt_path
@@ -152,13 +150,19 @@ def _export_targets(model_key: str, model_info: dict[str, Any], plan: ExportPlan
 
 
 def _export_forex_checkpoint(
-    model_key: str, model_info: dict[str, Any], ckpt_file: Path | None, out_path: Path
-) -> Path:
-    """Export a Forex checkpoint to ONNX over the model's active timeframes."""
+    model_key: str, model_info: dict[str, Any], ckpt_file: Path | None, out_dir: Path
+) -> dict[str, Path]:
+    """Export a Forex checkpoint to the three release variants over its active timeframes."""
     if not ckpt_file:
         raise ExportError("CKPT_MISSING", f"No checkpoint found for forex model {model_key}")
-    active_tfs = model_info.get("kwargs", {}).get("active_timeframes", [1, 5, 15, 60, 240, 1440])
-    return export_forex_onnx(ckpt_file, out_path, active_timeframes=active_tfs)
+    active_tfs = model_info.get("kwargs", {}).get("active_timeframes")
+    return ForexModelExporter().export(
+        None,
+        model_key,
+        output_dir=out_dir,
+        checkpoint_path=ckpt_file,
+        active_timeframes=active_tfs,
+    )
 
 
 def _stage_dist(
@@ -197,26 +201,19 @@ def export_all(
     )
 
     export_targets = _export_targets(model_key, model_info, plan)
-    if "forex" in export_targets:
-        results = {
-            "forex": _export_forex_checkpoint(
-                model_key, model_info, ckpt_file, destination_dir / f"{base_name}.onnx"
-            )
-        }
-        if plan.stage_dist:
-            VariationStagingService().stage_variations(model_key, results, destination_dir)
-        return results
-
-    model = _load_export_model(model_key, cfg, ckpt_file, model_info)
     staging_dir = (destination_dir / ".export_staging") if plan.stage_dist else destination_dir
     staging_dir.mkdir(parents=True, exist_ok=True)
-    results = _export_model_targets(
-        model,
-        model_key,
-        export_targets,
-        staging_dir,
-        (base_name, (1, 3, *extract_input_dimensions(model_info))),
-    )
+    if "forex" in export_targets:
+        results = _export_forex_checkpoint(model_key, model_info, ckpt_file, staging_dir)
+    else:
+        model = _load_export_model(model_key, cfg, ckpt_file, model_info)
+        results = _export_model_targets(
+            model,
+            model_key,
+            export_targets,
+            staging_dir,
+            (base_name, (EXPORT_SAMPLE_BATCH, 3, *extract_input_dimensions(model_info))),
+        )
 
     if plan.stage_dist:
         _stage_dist(model_key, results, destination_dir, staging_dir)

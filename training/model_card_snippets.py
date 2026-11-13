@@ -2,13 +2,42 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 
-def _quality_usage(model_key: str, h: int, w: int) -> str:
+from training.registry.preprocessing import UNIT, ImagePreprocessing
+from training.registry.preprocessing_source import torch_input_source
+from training.utils.model_payload import pt_load_source
+
+_PT_LOAD = "".join(pt_load_source("model_path", "device"))
+"""Generated loader: release payload, checkpoint or bare state dict (one policy)."""
+_PT_LOAD_INDENTED = "".join("    " + line for line in pt_load_source("model_path", "device"))
+
+
+@dataclass(frozen=True)
+class SnippetInput:
+    """The model input a usage snippet feeds: size, class names and image preprocessing.
+
+    ``classes`` are the registry class names of a classifier (``()`` otherwise) and
+    ``preprocessing`` the model's image preprocessing (training/registry/preprocessing.py).
+    """
+
+    height: int
+    width: int
+    classes: tuple[str, ...] = ()
+    preprocessing: ImagePreprocessing = UNIT
+
+    def input_source(self) -> str:
+        """``img`` to ``input_tensor`` with the model's preprocessing."""
+        return "".join(torch_input_source(self.preprocessing))
+
+
+def _quality_usage(model_key: str, inp: SnippetInput) -> str:
     """Return the NIMA quality-scoring usage snippet."""
     return (
         "```"
         + f"""python
-import torch, base64
+import numpy as np
+import torch
 from PIL import Image
 
 # 1. Hardware-Agnostic Setup
@@ -16,22 +45,18 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 2. Stealth Load (v16.0)
 model_path = "{model_key}_latest.pth"
-ckpt = torch.load(model_path, map_location=device, weights_only=False)
-state = ckpt.get('model_state', ckpt) if isinstance(ckpt, dict) else ckpt
-
+{_PT_LOAD}
 # 3. Initialization
-from models.nima import NIMAModel
-model = NIMAModel().to(device)
+from models.factory import get_model
+model = get_model("{model_key}").to(device)
+model.load_state_dict(state)
 if device.type == 'cuda' and torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
-model.load_state_dict(state)
 model.eval()
 
 # 4. Forward Pass
-img = Image.open("photo.jpg").convert('RGB').resize(({h}, {w}))
-arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
-input_tensor = arr.unsqueeze(0).to(device) / 255.0
-with torch.no_grad():
+img = Image.open("photo.jpg").convert('RGB').resize(({inp.width}, {inp.height}))
+{inp.input_source()}with torch.no_grad():
     probs = model(input_tensor)
 
 # 5. Score Calculation
@@ -42,12 +67,13 @@ print(f"Quality Score: {{mean_score:.2f}}")
     )
 
 
-def _restoration_usage(model_key: str) -> str:
+def _restoration_usage(model_key: str, inp: SnippetInput) -> str:
     """Return the image restoration usage snippet."""
     return (
         "```"
         + f"""python
-import torch, base64
+import numpy as np
+import torch
 from PIL import Image
 
 # 1. Hardware-Agnostic Setup
@@ -55,22 +81,18 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 2. Stealth Load (v16.0)
 model_path = "{model_key}_latest.pth"
-ckpt = torch.load(model_path, map_location=device, weights_only=False)
-state = ckpt.get('model_state', ckpt) if isinstance(ckpt, dict) else ckpt
-
+{_PT_LOAD}
 # 3. Initialization
-from models.factory import create_model
-model = create_model("{model_key}").to(device)
+from models.factory import get_model
+model = get_model("{model_key}").to(device)
+model.load_state_dict(state)
 if device.type == 'cuda' and torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
-model.load_state_dict(state)
 model.eval()
 
 # 4. Restoration Pass
 img = Image.open("degraded.jpg").convert('RGB')
-arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
-input_tensor = arr.unsqueeze(0).to(device) / 255.0
-with torch.no_grad():
+{inp.input_source()}with torch.no_grad():
     restored = model(input_tensor)
 
 # 5. Ejection
@@ -96,9 +118,7 @@ from models.forex_predictor import ForexPredictor
 model = ForexPredictor().to(device)
 model_path = "{model_key}_latest.pth"
 if os.path.exists(model_path):
-    ckpt = torch.load(model_path, map_location=device, weights_only=False)
-    state = ckpt.get('model_state', ckpt) if isinstance(ckpt, dict) else ckpt
-    model.load_state_dict(state)
+{_PT_LOAD_INDENTED}    model.load_state_dict(state)
 model.eval()
 
 # 3. Multi-Timeframe Sequence Inference [B, 168, 14]
@@ -124,17 +144,55 @@ with torch.no_grad():
     )
 
 
+def _classification_usage(model_key: str, inp: SnippetInput) -> str:
+    """Return the classifier usage snippet with the registry class names."""
+    names = repr(list(inp.classes)) if inp.classes else "None  # class ids only"
+    return (
+        "```"
+        + f"""python
+import numpy as np
+import torch
+from PIL import Image
+
+# 1. Hardware-Agnostic Setup
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# 2. Stealth Load (v16.0)
+model_path = "{model_key}_latest.pth"
+{_PT_LOAD}
+# 3. Initialization (the registry sizes the head: one logit per class)
+from models.factory import get_model
+model = get_model("{model_key}").to(device)
+model.load_state_dict(state)
+model.eval()
+
+# 4. Forward Pass (the preprocessing of training)
+CLASS_NAMES = {names}
+img = Image.open("photo.jpg").convert('RGB').resize(({inp.width}, {inp.height}))
+{inp.input_source()}with torch.no_grad():
+    probs = torch.softmax(model(input_tensor), dim=-1)[0]
+
+# 5. Top-1 Class
+top = int(torch.argmax(probs))
+label = CLASS_NAMES[top] if CLASS_NAMES else top
+print(f"Class: {{label}} ({{probs[top].item():.2%}})")
+```"""
+    )
+
+
 _GENERIC_USAGE = "```python\n# Premium CLI Integration provided for generative/VLM tasks.\n```"
 
 
-def usage_snippet(task: str, model_key: str, h: int, w: int) -> str:
-    """Return the fenced usage snippet of ``task`` for ``model_key`` at ``h`` x ``w``."""
+def usage_snippet(task: str, model_key: str, inp: SnippetInput) -> str:
+    """Return the fenced usage snippet of ``task`` for ``model_key`` fed ``inp``."""
     if task == "quality":
-        return _quality_usage(model_key, h, w)
+        return _quality_usage(model_key, inp)
     if task in ["restoration", "enhancement"]:
-        return _restoration_usage(model_key)
+        return _restoration_usage(model_key, inp)
     if task == "forex":
         return _forex_usage(model_key)
+    if task == "classification":
+        return _classification_usage(model_key, inp)
     return _GENERIC_USAGE
 
 

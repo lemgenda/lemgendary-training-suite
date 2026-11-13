@@ -10,13 +10,26 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from training.cloud.credentials import resolve_kaggle_credentials
-from training.cloud.errors import KAGGLE_API_ERRORS
+from training.cloud.kaggle_client import (
+    KaggleAuthError,
+    authenticated_kaggle_api,
+    probe_kaggle_auth,
+)
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
-from training.kaggle_accounts import authenticate_kaggle_user, fetch_user_kernels
+from training.cloud.kernel_bundle import KernelBundleError, checked_accelerator
+from training.cloud.session_deadline import load_session_config
+from training.cloud.variations import ALL_VARIATIONS, VariationChoice, VariationKey
+from training.ecosystem import kaggle_accelerator, kaggle_accelerators
+from training.kaggle_accounts import fetch_user_kernels
+from training.notebooks.launch_options import LaunchOptions
 from training.registry.model_specs import get_model_registry
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.training")
+
+_VARIATION_HELP = "Kaggle Model Instance: 'all' or one of " + ", ".join(
+    f"'{key.value}'" for key in VariationKey
+)
 
 router = APIRouter(prefix="/training", tags=["training"])
 
@@ -31,6 +44,9 @@ class TrainRequest(BaseModel):
     preset: str | None = Field(None, description="Preset configuration name")
     env: str = Field("local", description="Target environment ('local', 'kaggle', 'colab')")
     clean: bool = Field(False, description="Wipe local checkpoints and start fresh")
+    override_frozen: bool = Field(
+        False, description="Resume although a frozen run setting changed (logged and recorded)"
+    )
     auto_sync: bool = Field(False, description="Auto sync checkpoints to cloud")
     parallel: str = Field("auto", description="Parallel strategy ('auto', 'single', 'dp', 'ddp')")
 
@@ -120,6 +136,15 @@ _UNKNOWN_MODEL: dict[int | str, dict[str, Any]] = {
 }
 
 
+_BAD_ACCELERATOR: dict[int | str, dict[str, Any]] = {
+    422: {
+        "description": (
+            "Unknown or retired Kaggle accelerator, invalid git ref or invalid session window"
+        )
+    }
+}
+
+
 def _require_registered_model(model_key: str) -> None:
     """Reject a model key the registry does not know (404) before any job or file is created."""
     if get_model_registry().get_model(model_key) is None:
@@ -130,9 +155,67 @@ class KaggleTrainRequest(BaseModel):
     """Payload for launching Kaggle cloud training."""
 
     model: str = Field(..., description="Target model key")
-    gpu: str = Field("T4", description="Kaggle accelerator ('T4', 'P100', 'None')")
-    auto_pull: bool = Field(True, description="Auto-pull checkpoints to LemGendaryModels per epoch")
-    poll_interval: int = Field(5, description="Telemetry poll interval in seconds")
+    override_frozen: bool = Field(
+        False,
+        description=(
+            "Pass --override-frozen to the kernel's trainer: resume although a frozen run "
+            "setting changed (logged and recorded)"
+        ),
+    )
+    git_ref: str | None = Field(
+        None,
+        description=(
+            "Branch, tag or full commit SHA the kernel clones the training suite at (default: main)"
+        ),
+    )
+    env_manager_ref: str | None = Field(
+        None,
+        description="Ref the kernel clones the env-manager at (default: the git_ref value)",
+    )
+    limit_hours: float | None = Field(
+        None,
+        gt=0,
+        description="Session limit in hours for this kernel (default: kaggle_session.limit_hours)",
+    )
+    margin_minutes: float | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Minutes before the limit the trainer stops (default: kaggle_session.margin_minutes)"
+        ),
+    )
+    accelerator: str | None = Field(
+        None,
+        description=(
+            "Kaggle accelerator id from GET /api/training/kaggle/accelerators "
+            "(default: the ecosystem default accelerator)"
+        ),
+    )
+    auto_pull: bool = Field(
+        True,
+        description=(
+            "Pull pytorch/default whenever the Hub has a newer version, and merge the "
+            "kernel output when the session completes"
+        ),
+    )
+    poll_interval: int = Field(
+        30, ge=5, description="First status poll interval in seconds (backs off to 300 s)"
+    )
+    auto_resume: bool | None = Field(
+        None,
+        description=(
+            "Push a new kernel version when a session stops at its Kaggle deadline "
+            "(default: kaggle_session.auto_resume of config.yaml)"
+        ),
+    )
+    max_resumes: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Most resume sessions this job pushes (default: kaggle_session.max_resumes of "
+            "config.yaml)"
+        ),
+    )
 
 
 class KaggleMonitorRequest(BaseModel):
@@ -140,20 +223,19 @@ class KaggleMonitorRequest(BaseModel):
 
     kernel_slug: str = Field(..., description="Kaggle kernel slug (e.g. username/kernel-slug)")
     model: str | None = Field(None, description="Optional associated model key for auto-pull")
-    auto_pull: bool = Field(False, description="Enable auto-pull on epoch completion")
-    poll_interval: int = Field(5, description="Telemetry poll interval in seconds")
+    auto_pull: bool = Field(
+        False, description="Pull pytorch/default whenever the Hub has a newer version"
+    )
+    poll_interval: int = Field(
+        30, ge=5, description="First status poll interval in seconds (backs off to 300 s)"
+    )
 
 
 class KagglePullRequest(BaseModel):
     """Payload for downloading model variations from Kaggle Models Hub."""
 
     model: str = Field(..., description="Target model key")
-    variation: str = Field(
-        "all",
-        description=(
-            "Variation to pull ('all', 'pytorch', 'pytorch_fp32', 'onnx_fp16', 'onnx_fp32')"
-        ),
-    )
+    variation: VariationChoice = Field(ALL_VARIATIONS, description=_VARIATION_HELP)
     force_download: bool = Field(
         False, description="Force re-download even if cached version is current"
     )
@@ -170,22 +252,17 @@ class KagglePushRequest(BaseModel):
 
 @router.get("/kaggle/status")
 def get_kaggle_status() -> dict[str, Any]:
-    """Check Kaggle credentials configuration and authentication status."""
-    user, token = resolve_kaggle_credentials()
-    authenticated = False
-    if user and token:
-        try:
-            api = authenticate_kaggle_user(user, token)
-            authenticated = api is not None
-        except (ImportError, *KAGGLE_API_ERRORS) as exc:
-            logger.warning("Kaggle authentication check failed for %s: %s", user, exc)
-            authenticated = False
+    """Report whether the resolved Kaggle credentials really work.
 
-    return {
-        "authenticated": authenticated,
-        "username": user or "",
-        "token_configured": bool(token),
-    }
+    Makes one cheap authenticated call (list the user's own kernels, page size 1) and returns
+    its outcome: ``authenticated``, ``username``, ``token_configured``, ``auth_method``
+    (``access_token`` or ``legacy_api_key``), ``http_status`` and ``error``.
+    """
+    user, token = resolve_kaggle_credentials()
+    status = probe_kaggle_auth(user, token)
+    if not status.authenticated:
+        logger.warning("Kaggle authentication check failed for %s: %s", user, status.error)
+    return status.to_dict()
 
 
 @router.get("/kaggle/kernels")
@@ -194,25 +271,62 @@ def list_kaggle_kernels(limit: int = 20) -> list[dict[str, Any]]:
     user, token = resolve_kaggle_credentials()
     if not user or not token:
         return []
-
-    api = authenticate_kaggle_user(user, token)
-    if not api:
+    try:
+        api = authenticated_kaggle_api(user, token)
+    except KaggleAuthError as exc:
+        logger.warning("Kaggle kernel listing skipped: %s", exc)
         return []
-
     return fetch_user_kernels(api, user, limit=limit)
 
 
-@router.post("/kaggle/train", responses=_UNKNOWN_MODEL)
+@router.get("/kaggle/accelerators")
+def list_kaggle_accelerators() -> dict[str, Any]:
+    """Kaggle session types from the ecosystem file (SSOT), without retired machine shapes.
+
+    ``id`` is what ``POST /kaggle/train`` takes as ``accelerator``; ``label`` is the picker
+    text; ``machine_shape`` is null for CPU.
+    """
+    usable = []
+    for acc in kaggle_accelerators():
+        try:
+            checked_accelerator(acc.id)
+        except KernelBundleError as exc:
+            logger.info("Kaggle accelerator %s not offered: %s", acc.id, exc)
+            continue
+        usable.append(
+            {"id": acc.id, "label": acc.label, "kind": acc.kind, "machine_shape": acc.machine_shape}
+        )
+    return {"default": kaggle_accelerator().id, "accelerators": usable}
+
+
+@router.post("/kaggle/train", responses=_UNKNOWN_MODEL | _BAD_ACCELERATOR)
 def launch_kaggle_train(payload: KaggleTrainRequest, request: Request) -> dict[str, Any]:
-    """Enqueue and launch Kaggle cloud training with live WebSocket telemetry."""
+    """Enqueue Kaggle cloud training: push the generated notebook kernel and watch it.
+
+    ``auto_resume`` / ``max_resumes`` default to ``kaggle_session`` of ``config.yaml``; the job
+    records the effective values. ``git_ref`` / ``env_manager_ref`` (default ``main``) and
+    ``limit_hours`` / ``margin_minutes`` (default ``kaggle_session``) are written into the
+    pushed notebook; invalid values are refused with 422 before any job is created.
+    """
     _require_registered_model(payload.model)
+    try:
+        accelerator = checked_accelerator(payload.accelerator)
+        LaunchOptions.from_params(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     manager = request.app.state.job_manager
+    chain = load_session_config(manager.project_root).with_chain(
+        payload.auto_resume, payload.max_resumes
+    )
     params = payload.model_dump()
+    params.update(auto_resume=chain.auto_resume, max_resumes=chain.max_resumes)
     job_id = manager.submit_job(job_type="kaggle_train", model_key=payload.model, params=params)
     return {
         "job_id": job_id,
         "status": "pending",
-        "message": f"Kaggle Cloud training queued for {payload.model} (GPU: {payload.gpu})",
+        "message": (
+            f"Kaggle Cloud training queued for {payload.model} (accelerator: {accelerator.label})"
+        ),
         "model": payload.model,
     }
 
@@ -278,9 +392,7 @@ class KagglePushModelRequest(BaseModel):
     """Payload for pushing validated isolated variations to Kaggle Models Hub."""
 
     model: str = Field(..., description="Target model key")
-    variation: str = Field(
-        "all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')"
-    )
+    variation: VariationChoice = Field(ALL_VARIATIONS, description=_VARIATION_HELP)
     version_notes: str | None = Field(None, description="Optional release version notes")
     dry_run: bool = Field(
         False, description="Validate payload and isolation without publishing to Kaggle"
@@ -304,9 +416,7 @@ def push_kaggle_model_variations(payload: KagglePushModelRequest) -> dict[str, A
 class KagglePushAllRequest(BaseModel):
     """Payload for staging and pushing all registered models to Kaggle Models Hub."""
 
-    variation: str = Field(
-        "all", description="Variation to push ('all', 'pytorch', 'onnx_fp32', 'onnx_fp16')"
-    )
+    variation: VariationChoice = Field(ALL_VARIATIONS, description=_VARIATION_HELP)
     version_notes: str | None = Field(None, description="Optional release version notes")
     dry_run: bool = Field(
         False, description="Validate payload and isolation without publishing to Kaggle"

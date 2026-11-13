@@ -19,6 +19,9 @@ hardware:
   # Override here ONLY if you need to force a specific cap on this machine.
   # cudnn_workspace_cap_val: 4
   # cudnn_workspace_cap_train: 16
+  # directml_assumed_free_gb: 2.0  # DirectML free memory override. Unset (default): the
+  #   DXGI per-process budget minus usage (integrated GPUs capped by host RAM), else 0.8 x
+  #   dedicated VRAM, else 2.0 GB (training/hardware/device_memory.py). Set wins over all.
   enable_expandable_segments: true
   num_workers: auto  # Dynamically managed by train.py: 0 on Windows, 4 on Kaggle/Colab
   val_num_workers: auto  # Independent validation workers: 0 on Windows, 1-2 on Kaggle/Colab
@@ -48,11 +51,25 @@ governor:
     above: 600.0
     reset_to: 555.0
 
+# --- Kaggle session deadline (training/cloud/session_deadline.py) ---
+# A Kaggle session ends after limit_hours. Training stops margin_minutes earlier,
+# saves progress.pth (generator states included), syncs pytorch/default to the Hub
+# and writes LemGendaryModels/<model>/session_deadline.json. auto_resume lets the
+# GUI job push a new kernel version after such a stop (at most max_resumes times).
+kaggle_session:
+  limit_hours: 12
+  margin_minutes: 30
+  auto_resume: false
+  max_resumes: 3
+
 # --- Fleet & Synchronization (Task 12.3) ---
 fleet:
   auto_sync: true
-  kaggle_slug_prefix: ""  # Default prefix for Kaggle Model slugs
-  kaggle_slug_suffix: ""  # Standardized suffix for model checkpoints
+  # Per-epoch Kaggle auto-sync throttle (training/cloud/sync_policy.py): upload the
+  # isolated pytorch/default payload every N epochs (0: never on cadence) and on a
+  # new best epoch. The final sync at the end of a run always uploads.
+  kaggle_sync_every_epochs: 5
+  kaggle_sync_on_best: true
   force_kaggle_sync: false  # Trigger Kaggle Model upload even on local machine
   retry_attempts: 3
   model_hub_repo: "https://github.com/lemgenda/lemgendary-pretrained-models.git"
@@ -61,12 +78,17 @@ fleet:
   google_drive_folder_url: "https://drive.google.com/drive/folders/142G7B9ONfUkXAhVkPeN4NeJ3YXU0UmJX?usp=drive_link"
   google_drive_sync: true
   google_drive_token_file: ".GOOGLE_DRIVE"
+  # Seconds a finished or interrupted run waits at exit for pending background
+  # uploads before abandoning them (logged); see training/cloud/sync_threads.py.
+  sync_exit_timeout_sec: 300
 
 # --- Orchestration Paths ---
+# The models hub (LemGendaryModels) has one resolver, training.utils.paths.
+# get_models_hub_root: LEMGENDARY_WORKSPACE_ROOT (set by the Kaggle notebook to the
+# kernel output) or the suite's parent folder. paths.checkpoints_root / export_root
+# override it only when set here.
 paths:
   datasets_root: "../LemGendaryDatasets"
-  checkpoints_root: "../LemGendaryModels"
-  export_root: "../LemGendaryModels"
 
 # --- Training Defaults ---
 defaults:
@@ -103,6 +125,24 @@ swa:
   update_every: 1
   eval_every: 0
   bn_update_batches: null
+
+# --- Shard Locality (training/data/locality.py) ---
+# On by default (owner decision; defaults in training/data/locality.py).
+# `window_shards`: the train sampler shuffles the shards each epoch and the
+# samples inside windows of this many shards, so workers read a few
+# WebDataset shards at a time (page cache, readahead) instead of seeking
+# across all of them; 4 x 1 GB shards fit a Kaggle/Colab page cache.
+# `fraction_block_size`: a curriculum fraction takes shuffled contiguous
+# blocks of this many samples inside each shard instead of single samples;
+# 256 samples are one 25-75 MB sequential read and a shard still splits into
+# 12-40 blocks. 0 turns either off. Both stay deterministic, resumable and
+# nested. A resumed run finishes the interrupted epoch on the settings recorded
+# in its checkpoint and takes over changed ones from the next epoch
+# (training/run_settings, logged to settings_changes.jsonl).
+data:
+  locality:
+    window_shards: 4
+    fraction_block_size: 256
 
 # --- Execution Matrix ---
 execution:

@@ -11,7 +11,9 @@ from typing import Any
 
 from training.cloud.errors import kagglehub_errors
 from training.ecosystem import kaggle_owner
+from training.platform_paths import kaggle_paths, on_kaggle
 from training.utils.paths import (
+    MODELS_FOLDER,
     get_models_hub_root,
     get_project_root,
     get_workspace_root,
@@ -142,7 +144,7 @@ class CheckpointRecoveryEngine:
         roots = self._local_roots(model_name, config or {})
 
         # Kaggle input mounts and working directory
-        if self.env == "kaggle" or Path("/kaggle/input").exists():
+        if self.env == "kaggle" or on_kaggle():
             self._add_kaggle_roots(roots, model_name)
 
         return unique_resolved(roots)
@@ -154,19 +156,16 @@ class CheckpointRecoveryEngine:
 
         # Local Hub & Checkpoints in LemGendaryModels
         hub_candidates = [
-            (self.workspace_root / "LemGendaryModels" / model_name / "checkpoints").resolve(),
-            (self.workspace_root / "LemGendaryModels" / model_name).resolve(),
+            (self.workspace_root / MODELS_FOLDER / model_name / "checkpoints").resolve(),
+            (self.workspace_root / MODELS_FOLDER / model_name).resolve(),
             (hub_root / model_name / "checkpoints").resolve(),
             (hub_root / model_name).resolve(),
         ]
-        p_paths = cfg.get("paths", {})
-        export_root = p_paths.get("export_root", "../LemGendaryModels")
-        hub_candidates.append(
-            (self.project_root / export_root / model_name / "checkpoints").resolve()
-        )
-        hub_candidates.append(
-            (self.workspace_root / export_root / model_name / "checkpoints").resolve()
-        )
+        export_root = cfg.get("paths", {}).get("export_root")
+        if export_root:
+            hub_candidates.append(
+                (self.project_root / export_root / model_name / "checkpoints").resolve()
+            )
         hub_candidates.extend(
             [
                 (self.project_root / "checkpoints" / model_name).resolve(),
@@ -182,11 +181,12 @@ class CheckpointRecoveryEngine:
 
     def _add_kaggle_roots(self, roots: list[Path], model_name: str) -> None:
         """Add the Kaggle working dir, matching input mounts and a KaggleHub download (first)."""
-        kaggle_working = Path("/kaggle/working/LemGendaryModels") / model_name / "checkpoints"
+        kaggle = kaggle_paths()
+        kaggle_working = Path(kaggle.hub_root) / model_name / "checkpoints"
         if kaggle_working.exists():
             roots.append(kaggle_working)
 
-        kaggle_input = Path("/kaggle/input")
+        kaggle_input = Path(kaggle.input_dir)
         if kaggle_input.exists():
             _append_kaggle_mounts(roots, kaggle_input, model_name)
 

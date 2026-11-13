@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from training.ignored_targets import UnlabeledLog
+from training.registry.preprocessing import UNIT, ImagePreprocessing
+
 
 @dataclass
 class DatasetOptions:
@@ -27,6 +30,10 @@ class ModelSpec:
     model_key: str
     model_info: dict
     task_type: str
+    # Registry ``class_names`` of a classifier in id order (``()`` when none are declared).
+    class_names: tuple[str, ...] = ()
+    # Image preprocessing of the model (training/registry/preprocessing.py).
+    preprocessing: ImagePreprocessing = UNIT
 
 
 @dataclass
@@ -38,6 +45,10 @@ class SampleCatalog:
     path_cache: dict[str, str | None] = field(default_factory=dict)
     container_readers: dict[str, Any] = field(default_factory=dict)
     nima_scores: dict[str, float] = field(default_factory=dict)
+    # Manifold ``dataset_info.yaml`` ``classes`` per dataset (read on first use).
+    dataset_classes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # Unlabeled classification samples per dataset (target IGNORE_TARGET, logged count).
+    unlabeled: UnlabeledLog = field(default_factory=UnlabeledLog)
 
 
 @dataclass

@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 from training.cloud.gdrive import GDriveSyncManager
 from training.cloud.git_hub import GitHubSyncManager
 from training.cloud.kaggle_hub import KaggleHubManager
-from training.utils.paths import get_project_root
+from training.utils.paths import get_model_hub_dir, get_project_root
 
 
 class CloudSyncService:
@@ -63,7 +63,7 @@ class CloudSyncService:
         src_dir = self.project_root / "checkpoints" / model_key
         if not src_dir.exists():
             # Check LemGendaryModels root folder fallback
-            fallback_dir = self.project_root.parent / "LemGendaryModels" / model_key
+            fallback_dir = get_model_hub_dir(model_key, self.project_root, create=False)
             if fallback_dir.exists():
                 src_dir = fallback_dir
             else:

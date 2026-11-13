@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -13,6 +12,7 @@ from typing import Any
 
 from training.cloud.credentials import mask_secret, resolve_github_credentials
 from training.cloud.manager import CloudSyncError
+from training.platform_paths import on_kaggle
 from training.utils.paths import get_models_hub_root
 
 logger = logging.getLogger("lemtrain.cloud.git_hub")
@@ -45,14 +45,7 @@ class GitHubSyncManager:
         self.hub_repo = hub_repo
         self.pat = resolve_github_credentials(pat)
 
-        if hub_root is not None:
-            self.hub_root = hub_root.resolve()
-        else:
-            is_cloud = os.environ.get("KAGGLE_WORKING_DIR") or "/kaggle/working" in str(Path.cwd())
-            if is_cloud:
-                self.hub_root = Path("/kaggle/working/LemGendaryModels").resolve()
-            else:
-                self.hub_root = get_models_hub_root()
+        self.hub_root = hub_root.resolve() if hub_root is not None else get_models_hub_root()
 
     def run_git(self, args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
         """Run git command safely with masked secret logging.
@@ -107,10 +100,7 @@ class GitHubSyncManager:
             )
             return False
 
-        is_cloud = bool(
-            os.environ.get("KAGGLE_WORKING_DIR") or "/kaggle/working" in str(self.hub_root)
-        )
-        if not self.pat and is_cloud:
+        if not self.pat and on_kaggle():
             logger.warning("GITHUB_PAT missing in cloud environment. Skipping push.")
             return False
         return True

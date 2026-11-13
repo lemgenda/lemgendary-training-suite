@@ -8,11 +8,14 @@ rewritten. ``metrics.csv`` is read, never written.
 from __future__ import annotations
 
 import csv
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("lemtrain.fid_reeval.ledger")
 
 LEDGER_NAME = "fid_provenance.csv"
 METRICS_NAME = "metrics.csv"
@@ -193,14 +196,10 @@ def unverified_fid_epochs(hub_dir: Path) -> set[str]:
     """Epochs marked ``unverified`` without a ``reevaluated`` row in ``fid_provenance.csv``."""
     rows = _safe_read_ledger(hub_dir)
     unv = {
-        r["epoch"].strip()
-        for r in rows
-        if r.get("status") == STATUS_UNVERIFIED and r.get("epoch")
+        r["epoch"].strip() for r in rows if r.get("status") == STATUS_UNVERIFIED and r.get("epoch")
     }
     reeval = {
-        r["epoch"].strip()
-        for r in rows
-        if r.get("status") == STATUS_REEVALUATED and r.get("epoch")
+        r["epoch"].strip() for r in rows if r.get("status") == STATUS_REEVALUATED and r.get("epoch")
     }
     return unv - reeval
 
@@ -218,7 +217,12 @@ def reevaluated_fid_by_epoch(hub_dir: Path) -> dict[str, float]:
         try:
             out[ep] = float(val_str)
         except ValueError:
-            continue
+            logger.warning(
+                "FID ledger in %s: epoch %s value %r is not a number; row ignored.",
+                hub_dir,
+                ep,
+                val_str,
+            )
     return out
 
 
@@ -240,8 +244,7 @@ def filter_metrics_row_for_fid_provenance(row: Mapping[str, Any], hub_dir: Path)
     if not rows:
         return filtered
     was_unverified = any(
-        (r.get("epoch") or "").strip() == ep and r.get("status") == STATUS_UNVERIFIED
-        for r in rows
+        (r.get("epoch") or "").strip() == ep and r.get("status") == STATUS_UNVERIFIED for r in rows
     )
     reeval = reevaluated_fid_by_epoch(hub_dir)
     if ep in reeval:

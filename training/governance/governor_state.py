@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from training.governance.governor_host import GovernorHost
+from training.governance.quality_score import (
+    QUALITY_SCHEME_KEY,
+    anchor_is_comparable,
+    quality_scheme,
+)
 from training.ratchet import (
     FRACTION_STATE_KEY,
     RESOLUTION_STATE_KEY,
 )
+from training.registry.forex_risk import risk_per_trade
+
+logger = logging.getLogger("lemtrain.governance.governor")
 
 # Checkpoint key -> governor attribute of the loss weights restored only when saved.
 _OPTIONAL_WEIGHT_KEYS: dict[str, str] = {
@@ -27,6 +36,11 @@ _OPTIONAL_WEIGHT_KEYS: dict[str, str] = {
 
 class GovernorStateMixin(GovernorHost):
     """Checkpoint serialisation of the governor's curriculum, thermal and SOTA state."""
+
+    @property
+    def risk_per_trade(self) -> float:
+        """The model's Forex ``evaluation.risk_per_trade`` (part of the quality scheme id)."""
+        return risk_per_trade(self.model_info)
 
     def get_state(self) -> dict[str, Any]:
         """Serialize complete governor state for checkpoint persistence."""
@@ -50,6 +64,7 @@ class GovernorStateMixin(GovernorHost):
             "last_action_epoch": self.last_action_epoch,
             "epoch_count": self.epoch_count,
             "best_quality": self.best_quality,
+            QUALITY_SCHEME_KEY: quality_scheme(self.task_type, self.risk_per_trade),
             "stress": self.current_stress,
             "last_jolt_epoch": self.last_jolt_epoch,
             "max_stress_stuck_epochs": self.max_stress_stuck_epochs,
@@ -85,7 +100,10 @@ class GovernorStateMixin(GovernorHost):
         counters.last_action_epoch = int(
             state.get("last_action_epoch", counters.last_res_jump_epoch)
         )
-        self.sota.history = list(state.get("history", []))
+        comparable = anchor_is_comparable(
+            state.get(QUALITY_SCHEME_KEY), self.task_type, self.risk_per_trade
+        )
+        self.sota.history = list(state.get("history", [])) if comparable else []
 
         if not preserve_curriculum:
             self._restore_rung(state)
@@ -96,7 +114,15 @@ class GovernorStateMixin(GovernorHost):
 
         self._restore_loss_shaping(state)
         self._restore_windows(state)
-        self._restore_sota(state)
+        self._restore_sota(state, restore_best=comparable)
+        if not comparable:
+            logger.warning(
+                "Checkpoint quality scores use another scheme (%s, now %s); the best quality "
+                "%.2f and the quality history are not reused and are rebuilt from new epochs.",
+                state.get(QUALITY_SCHEME_KEY, "untagged"),
+                quality_scheme(self.task_type, self.risk_per_trade),
+                float(state.get("best_quality", 0.0) or 0.0),
+            )
 
     def _restore_rung(self, state: dict[str, Any]) -> None:
         """Restore the saved (resolution, fraction) rung and keep it on the ladder."""
@@ -156,15 +182,19 @@ class GovernorStateMixin(GovernorHost):
         counters.last_jolt_epoch = int(state.get("last_jolt_epoch", -10))
         counters.spatial_lock_remaining = int(state.get("spatial_lock_remaining", 0))
 
-    def _restore_sota(self, state: dict[str, Any]) -> None:
-        """Restore stress, cooldown, best quality and the loop-breaker rollback state."""
+    def _restore_sota(self, state: dict[str, Any], restore_best: bool = True) -> None:
+        """Restore stress, cooldown, best quality and the loop-breaker rollback state.
+
+        ``restore_best`` is False when the saved best quality is on another score scale.
+        """
         stress = self.sota.stress
         stress.stabilization_epochs = int(state.get("stabilization_epochs", 0))
         stress.failure_log = dict(state.get("failure_log", {}))
         stress.cooldown_remaining = int(state.get("cooldown_remaining", 0))
         stress.current_stress = float(state.get("stress", 0.0))
         stress.max_stress_stuck_epochs = int(state.get("max_stress_stuck_epochs", 0))
-        self.sota.quality.best_quality = float(state.get("best_quality", self.best_quality))
+        if restore_best:
+            self.sota.quality.best_quality = float(state.get("best_quality", self.best_quality))
 
         rollback = self.sota.rollback
         rollback.consecutive_rollbacks = int(state.get("consecutive_rollbacks", 0))

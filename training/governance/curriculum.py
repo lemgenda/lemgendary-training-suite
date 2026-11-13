@@ -101,14 +101,16 @@ class CurriculumState:
         return False
 
     def throttle_on_oom(self, min_batch: int = 1) -> tuple[int, int]:
-        """Halve physical batch size and double gradient accumulation on OOM.
+        """Halve the micro-batch budget on OOM, keeping the effective batch exactly.
 
-        Preserves target effective batch while drastically dropping peak activation memory.
-        Returns (new_batch, new_acc).
+        Uses the same exact-divisor rule as the resolution-jump refit and the resume
+        clamp (:meth:`fit_batch_to_budget`): the new micro-batch is the largest divisor
+        of ``current_batch * current_acc`` within half the old micro-batch (never below
+        ``min_batch``), so ``batch * accumulation`` is unchanged. Returns
+        ``(new_batch, new_acc)``.
         """
         old_batch = self.current_batch
-        new_batch = max(min_batch, self.current_batch // 2)
-        self.update_batch_and_accumulation(new_batch)
+        self.fit_batch_to_budget(max(min_batch, self.current_batch // 2))
         logger.warning(
             "Curriculum OOM Throttling: batch size reduced %d -> %d, accumulation adjusted to %d "
             "(effective batch=%d)",
@@ -131,6 +133,32 @@ class CurriculumState:
             self.current_acc,
             self.current_batch * self.current_acc,
         )
+
+    def fit_batch_to_budget(self, safe_batch: int) -> bool:
+        """Shrink the micro-batch to at most ``safe_batch`` with the same effective batch.
+
+        The effective batch ``E = current_batch * current_acc`` stays exactly equal: the
+        new micro-batch is the largest divisor of ``E`` that is at most ``safe_batch`` and
+        the accumulation becomes ``E // batch``. A micro-batch already within the budget
+        is kept (growth goes through ``suggest_batch_growth``). Returns True on a change.
+        """
+        if self.current_batch <= max(1, safe_batch):
+            return False
+        effective = self.current_batch * self.current_acc
+        new_batch = max(d for d in range(1, max(1, safe_batch) + 1) if effective % d == 0)
+        logger.info(
+            "Curriculum batch fitted to VRAM budget %d: batch %d -> %d, accum %d -> %d "
+            "(effective=%d)",
+            safe_batch,
+            self.current_batch,
+            new_batch,
+            self.current_acc,
+            effective // new_batch,
+            effective,
+        )
+        self.current_batch = new_batch
+        self.current_acc = effective // new_batch
+        return True
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize state for checkpointing."""

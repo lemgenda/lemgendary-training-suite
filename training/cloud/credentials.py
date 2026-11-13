@@ -5,15 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from training.config import secrets as secrets_vault
 from training.config.secrets import get_secret
 from training.ecosystem import kaggle_owner
-from training.utils.paths import get_project_root, get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.credentials")
 
@@ -30,7 +27,7 @@ def resolve_github_credentials(override_pat: str | None = None) -> str | None:
 
     1. Explicit override parameter
     2. Environment variables: GITHUB_PAT, SUITE_PAT
-    3. Structured secrets loaded from dotfiles
+    3. The default ``github`` record of the ``.secrets.yaml`` vault (``get_secret``)
     """
     if override_pat and override_pat.strip():
         return override_pat.strip()
@@ -43,48 +40,17 @@ def resolve_github_credentials(override_pat: str | None = None) -> str | None:
 
 
 def load_secrets_yaml_registry() -> list[dict[str, Any]]:
-    """Load secrets registry from workspace .secrets.yaml."""
-    candidates = [
-        get_workspace_root() / ".secrets.yaml",
-        get_project_root() / ".secrets.yaml",
-        get_project_root().parent / ".secrets.yaml",
-        Path.cwd() / ".secrets.yaml",
-    ]
-    for p in candidates:
-        if p.exists() and p.is_file():
-            try:
-                data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-                return data.get("secrets", [])
-            except (OSError, UnicodeDecodeError, yaml.YAMLError, AttributeError) as e:
-                logger.warning("Failed parsing .secrets.yaml at %s: %s", p, e)
-    return []
+    """Records of the workspace ``.secrets.yaml`` vault (the one vault reader, SSOT)."""
+    return secrets_vault.load_secrets_records()
 
 
-def find_kaggle_users_file(explicit_path: Path | None = None) -> Path | None:
-    """Locate the .kaggle_users registry file across project hierarchies."""
-    if explicit_path and explicit_path.exists() and explicit_path.is_file():
-        return explicit_path
+def load_kaggle_users() -> list[dict[str, Any]]:
+    """Kaggle accounts of the ``.secrets.yaml`` vault (default account first).
 
-    project_root = get_project_root()
-    candidates = [
-        Path.cwd() / ".kaggle_users",
-        project_root / ".kaggle_users",
-        project_root.parent / ".kaggle_users",
-    ]
-
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return candidate
-
-    default_target = project_root / ".kaggle_users"
-    return default_target if default_target.exists() else None
-
-
-def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
-    """Parse configured Kaggle user accounts from .secrets.yaml."""
+    The vault is the only account registry; the legacy ``.kaggle_users`` and ``.kaggle_token``
+    files are no longer read (K-AUTH-4).
+    """
     accounts: list[dict[str, Any]] = []
-
-    # 1. Primary: load from .secrets.yaml
     secrets = load_secrets_yaml_registry()
     if secrets:
         kaggle_secrets = [s for s in secrets if str(s.get("service", "")).lower() == "kaggle"]
@@ -106,39 +72,7 @@ def load_kaggle_users(users_file: Path | None = None) -> list[dict[str, Any]]:
             if accounts:
                 return accounts
 
-    # 2. Fallback: parse .kaggle_users dotfile if provided or present
-    target_file = find_kaggle_users_file(users_file)
-    if target_file and target_file.exists():
-        try:
-            content = target_file.read_text(encoding="utf-8")
-            owner = kaggle_owner()
-            accounts.extend(
-                {"username": user, "token": token, "is_default": user == owner}
-                for user, token in parse_kaggle_users_text(content)
-            )
-            accounts.sort(key=lambda a: not a.get("is_default", False))
-        except OSError as e:
-            logger.warning("Could not read .kaggle_users at %s: %s", target_file, e)
-
     return accounts
-
-
-def parse_kaggle_users_text(content: str) -> list[tuple[str, str]]:
-    """Parse ``.kaggle_users`` text into (username, token) pairs.
-
-    Expected format per line: ``KAGGLE_USERNAME=<user>, KAGGLE_API_TOKEN=<token>;``.
-    Blank lines and ``#`` comments are skipped.
-    """
-    pairs: list[tuple[str, str]] = []
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        m_user = re.search(r"KAGGLE_USERNAME=([^,;\s]+)", line)
-        m_token = re.search(r"KAGGLE_API_TOKEN=([^,;\s]+)", line)
-        if m_user and m_token:
-            pairs.append((m_user.group(1).strip(), m_token.group(1).strip()))
-    return pairs
 
 
 def _fill_from_kaggle_json(k_user: str, k_key: str) -> tuple[str, str]:
@@ -163,84 +97,114 @@ def _fill_from_kaggle_json(k_user: str, k_key: str) -> tuple[str, str]:
     return k_user, k_key
 
 
-def _token_file_key(k_key: str) -> str:
-    """Fall back to ~/.kaggle/access_token, then the project ``.kaggle_token`` (KGAT_ removed)."""
-    access_token_file = Path.home() / ".kaggle" / "access_token"
-    if not k_key and access_token_file.exists():
-        try:
-            tok = access_token_file.read_text(encoding="utf-8").strip()
-            if tok:
-                k_key = tok
-        except OSError as e:
-            logger.debug("Could not read ~/.kaggle/access_token: %s", e)
+KAGGLE_ACCESS_TOKEN_PREFIX = "KGAT_"
+"""Prefix of Kaggle access tokens (sent unchanged through ``KAGGLE_API_TOKEN``)."""
 
-    token_file = get_project_root() / ".kaggle_token"
-    if not k_key and token_file.exists():
-        try:
-            raw = token_file.read_text(encoding="utf-8").strip()
-            if raw.startswith("KGAT_"):
-                raw = raw.replace("KGAT_", "")
-            k_key = raw
-        except OSError as e:
-            logger.debug("Failed reading .kaggle_token: %s", e)
+_ACCESS_TOKEN_FILES = ("access_token", "access_token.txt")
+"""Files under ``~/.kaggle`` the Kaggle SDK reads an access token from, in its order."""
+
+
+def is_kaggle_access_token(token: str) -> bool:
+    """True for a ``KGAT_`` access token, False for a legacy API key."""
+    return token.strip().startswith(KAGGLE_ACCESS_TOKEN_PREFIX)
+
+
+def _read_token_file(path: Path) -> str:
+    """Return the stripped token in ``path`` ('' when absent or unreadable)."""
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError as e:
+        logger.debug("Could not read Kaggle token file %s: %s", path, e)
+        return ""
+
+
+def _env_token() -> str:
+    """``KAGGLE_API_TOKEN`` (a token, or a path to a token file, as the SDK accepts)."""
+    raw = os.environ.get("KAGGLE_API_TOKEN", "").strip()
+    if raw and Path(raw).is_file():
+        return _read_token_file(Path(raw))
+    return raw
+
+
+def _token_file_key(k_key: str) -> str:
+    """Fall back to ``~/.kaggle/access_token`` (or ``access_token.txt``).
+
+    Tokens are returned unchanged: a ``KGAT_`` token is an access token, never a legacy key.
+    """
+    candidates = [Path.home() / ".kaggle" / name for name in _ACCESS_TOKEN_FILES]
+    for candidate in candidates:
+        if k_key:
+            break
+        k_key = _read_token_file(candidate)
     return k_key
 
 
-def _export_kaggle_env(k_user: str, k_key: str) -> None:
-    """Export the credentials for the Kaggle Python SDK and child processes."""
+def export_kaggle_credentials(k_user: str, k_key: str) -> None:
+    """Export the credentials the Kaggle SDK, kagglehub and child processes read.
+
+    A ``KGAT_`` access token goes unchanged into ``KAGGLE_API_TOKEN`` (read first by the SDK);
+    a stale ``KGAT_`` value in ``KAGGLE_KEY`` is removed because the SDK would send it as a
+    legacy key. A legacy key goes into ``KAGGLE_KEY`` and clears ``KAGGLE_API_TOKEN``, which
+    would otherwise win over it. No credential file is written.
+    """
     if k_user:
         os.environ["KAGGLE_USERNAME"] = k_user
-    if k_key:
+    if not k_key:
+        return
+    if is_kaggle_access_token(k_key):
+        os.environ["KAGGLE_API_TOKEN"] = k_key.strip()
+        if is_kaggle_access_token(os.environ.get("KAGGLE_KEY", "")):
+            os.environ.pop("KAGGLE_KEY", None)
+    else:
         os.environ["KAGGLE_KEY"] = k_key
-        if k_key.startswith("KGAT_"):
-            os.environ["KAGGLE_API_TOKEN"] = k_key
-        else:
-            # If a legacy key is active, clear any conflicting access token in env
-            os.environ.pop("KAGGLE_API_TOKEN", None)
+        os.environ.pop("KAGGLE_API_TOKEN", None)
 
 
-def _sync_kaggle_json(k_user: str, k_key: str) -> None:
-    """Write ~/.kaggle/kaggle.json in clean UTF-8 so the Kaggle CLI works seamlessly."""
-    try:
-        k_json = Path.home() / ".kaggle" / "kaggle.json"
-        k_json.parent.mkdir(parents=True, exist_ok=True)
-        k_content = json.dumps({"username": k_user, "key": k_key}, indent=2)
-        k_json.write_text(k_content, encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Could not sync Kaggle CLI credentials file %s: %s", k_json, exc)
+def _vault_account(accounts: list[dict[str, Any]], user: str) -> dict[str, Any] | None:
+    """The vault entry of ``user`` (the default account when ``user`` is empty)."""
+    if not accounts:
+        return None
+    if user:
+        return next((a for a in accounts if a.get("username") == user), None)
+    return next((a for a in accounts if a.get("is_default")), accounts[0])
 
 
 def resolve_kaggle_credentials(
     override_user: str | None = None,
     override_key: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve Kaggle credentials with senior fallback hierarchy.
+    """Resolve Kaggle credentials (the one resolver of the suite) and export them.
 
     1. Explicit parameters
     2. Ecosystem .secrets.yaml vault (default active Kaggle secret)
-    3. Environment variables (KAGGLE_USERNAME, KAGGLE_KEY)
-    4. User home ~/.kaggle/kaggle.json
-    5. Sibling/project .kaggle_token or .kaggle_users
+    3. Environment variables (``KAGGLE_USERNAME``; ``KAGGLE_API_TOKEN``, then ``KAGGLE_KEY``)
+    4. User home ``~/.kaggle/kaggle.json``
+    5. ``~/.kaggle/access_token`` (or ``access_token.txt``)
     6. The ecosystem Kaggle owner (``identity.kaggle_owner`` in ``ecosystem.json``)
+
+    A vault token is taken only together with its own account: an ``override_user`` without a
+    key uses that user's vault entry, never the default account's token (K-AUTH-4).
+
+    The token is returned exactly as stored (``KGAT_`` prefix kept). Nothing is written to
+    disk; see :func:`export_kaggle_credentials` for the environment variables set.
     """
     k_user = override_user or ""
     k_key = override_key or ""
 
     # Ecosystem .secrets.yaml registry check
-    if not (k_user and k_key):
-        accounts = load_kaggle_users()
-        if accounts:
-            default_acc = next((a for a in accounts if a.get("is_default")), accounts[0])
-            if not k_user:
-                k_user = default_acc.get("username", "")
-            if not k_key:
-                k_key = default_acc.get("token", "")
+    if not k_key:
+        account = _vault_account(load_kaggle_users(), k_user)
+        if account is not None:
+            k_user = k_user or str(account.get("username", ""))
+            k_key = str(account.get("token", ""))
 
     # Environment variables fallback
     if not k_user:
         k_user = os.environ.get("KAGGLE_USERNAME", "")
     if not k_key:
-        k_key = os.environ.get("KAGGLE_KEY", "")
+        k_key = _env_token() or os.environ.get("KAGGLE_KEY", "")
 
     if not (k_user and k_key):
         k_user, k_key = _fill_from_kaggle_json(k_user, k_key)
@@ -249,10 +213,7 @@ def resolve_kaggle_credentials(
     if not k_user:
         k_user = kaggle_owner()
 
-    _export_kaggle_env(k_user, k_key)
-    if k_user and k_key:
-        _sync_kaggle_json(k_user, k_key)
-
+    export_kaggle_credentials(k_user, k_key)
     return k_user, k_key
 
 
@@ -260,9 +221,8 @@ def resolve_gdrive_credentials(override_token: str | None = None) -> str | None:
     """Resolve Google Drive access credentials using precedence.
 
     1. Explicit override token
-    2. Local file .GOOGLE_DRIVE or .GOOGLE_DRIVE_JSON
-    3. Environment variable GOOGLE_DRIVE or GOOGLE_DRIVE_JSON
-    4. Structured secrets from config loader
+    2. Environment variable GOOGLE_DRIVE or GOOGLE_DRIVE_JSON
+    3. The default ``google_drive`` record of the ``.secrets.yaml`` vault (``get_secret``)
     """
     if override_token and override_token.strip():
         return override_token.strip()

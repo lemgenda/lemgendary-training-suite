@@ -12,11 +12,21 @@ import torch.nn.functional as F
 from torch import nn
 
 from data.dataset_targets import multitask_head
+from data.sample_labels import FACE_BOX_SLICE, FACE_LANDMARK_SLICE, LANDMARK_ABSENT
+from training.governance.quality_score import RESTORATION_QS_TASKS
+from training.ignored_targets import IGNORE_TARGET, labelled
+from training.loss_emd import emd_loss, registry_emd_form
 from training.utils.lazy_imports import load_lpips_metric, load_optional
 
 LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
 
 logger = logging.getLogger("lemtrain.losses")
+
+PERCEPTUAL_TASKS = RESTORATION_QS_TASKS
+"""Image-to-image dataset types that can carry the LPIPS loss term (restoration,
+enhancement, face): the tasks scored with ``PSNR + 20*SSIM - 20*LPIPS``."""
+
+_AUTOCAST_DEVICE_TYPES = ("cuda", "mps", "cpu", "xpu")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Forex Dual Loss
@@ -28,17 +38,17 @@ logger = logging.getLogger("lemtrain.losses")
 # ─────────────────────────────────────────────────────────────────────────────
 
 MULTITASK_HEAD_NAMES: tuple[str, ...] = (
-    "denoise",        # 0
-    "deblur",         # 1
-    "derain",         # 2
+    "denoise",  # 0
+    "deblur",  # 1
+    "derain",  # 2
     "dehaze_indoor",  # 3
-    "dehaze_outdoor", # 4
-    "lowlight",       # 5
-    "exposure",       # 6
-    "superres",       # 7
-    "vintage",        # 8
+    "dehaze_outdoor",  # 4
+    "lowlight",  # 5
+    "exposure",  # 6
+    "superres",  # 7
+    "vintage",  # 8
     "face_restorer",  # 9
-    "face_parser",    # 10
+    "face_parser",  # 10
 )
 
 MULTITASK_HEAD_TO_INDEX: dict[str, int] = {
@@ -353,22 +363,48 @@ def _pairwise_rank_loss(p_eval: torch.Tensor, t_eval: torch.Tensor, margin: floa
     return (rank_loss * mask).sum() / torch.clamp(mask.sum(), min=1.0)
 
 
+def autocast_device_type(device: torch.device) -> str:
+    """``torch.autocast`` device type of ``device`` (``cpu`` for unsupported backends)."""
+    return device.type if device.type in _AUTOCAST_DEVICE_TYPES else "cpu"
+
+
+def _classification_loss(
+    criterion: nn.CrossEntropyLoss, pred: torch.Tensor, target: torch.Tensor
+) -> torch.Tensor:
+    """Cross-entropy over the labelled samples; a zero (graph-connected) loss without any.
+
+    Unlabeled samples carry ``IGNORE_TARGET``; a batch of only those would make the mean
+    cross-entropy NaN.
+    """
+    if not bool(labelled(target).any()):
+        return pred.sum() * 0.0
+    return criterion(pred, target)
+
+
 def _face_detection_loss(pred: Any, target: torch.Tensor) -> torch.Tensor:
-    """Confidence BCE plus bbox (x2) and landmark Huber losses on positive anchors."""
+    """Confidence BCE plus bbox (x2) and landmark Huber losses on positive samples.
+
+    The model regresses one normalized box per image (no priors), so a positive sample
+    is an image whose target confidence is 1; there is no anchor IoU matching.
+
+    Landmark coordinates marked ``LANDMARK_ABSENT`` (box-only labels) are left out of the
+    landmark loss instead of pulling predictions towards made-up points.
+    """
     p_bbox, p_conf, p_landm = pred
     t_conf = target[:, 0:1]
 
-    with torch.autocast(device_type="cuda", enabled=False):
+    with torch.autocast(device_type=autocast_device_type(p_conf.device), enabled=False):
         loss_conf = F.binary_cross_entropy(p_conf.float(), t_conf.float())
 
-    pos_mask = t_conf > 0.5
-    if pos_mask.sum() > 0:
-        pos = pos_mask.squeeze(-1)
-        loss_bbox = F.smooth_l1_loss(p_bbox[pos], target[:, 1:5][pos])
-        loss_landm = F.smooth_l1_loss(p_landm[pos], target[:, 5:15][pos])
-    else:
-        loss_bbox = torch.tensor(0.0, device=p_bbox.device)
-        loss_landm = torch.tensor(0.0, device=p_landm.device)
+    pos = (t_conf > 0.5).squeeze(-1)
+    loss_bbox = torch.tensor(0.0, device=p_bbox.device)
+    loss_landm = torch.tensor(0.0, device=p_landm.device)
+    if pos.any():
+        loss_bbox = F.smooth_l1_loss(p_bbox[pos], target[:, FACE_BOX_SLICE][pos])
+        t_landm = target[:, FACE_LANDMARK_SLICE][pos]
+        present = t_landm > LANDMARK_ABSENT / 2.0
+        if present.any():
+            loss_landm = F.smooth_l1_loss(p_landm[pos][present], t_landm[present])
 
     return loss_conf + loss_bbox * 2.0 + loss_landm * 1.0
 
@@ -394,7 +430,9 @@ class _BaseCriteria:
     l1: nn.L1Loss = field(default_factory=lambda: nn.L1Loss(reduction="mean"))
     # Legacy fallback for face and segmentation topology
     mse: nn.MSELoss = field(default_factory=lambda: nn.MSELoss(reduction="mean"))
-    ce: nn.CrossEntropyLoss = field(default_factory=lambda: nn.CrossEntropyLoss(ignore_index=255))
+    ce: nn.CrossEntropyLoss = field(
+        default_factory=lambda: nn.CrossEntropyLoss(ignore_index=IGNORE_TARGET)
+    )
     focal: FocalLoss = field(default_factory=lambda: FocalLoss(gamma=2.0, label_smoothing=0.05))
     soft_spearman: SoftSpearmanLoss = field(
         default_factory=lambda: SoftSpearmanLoss(temperature=0.1)
@@ -416,14 +454,16 @@ class CombinedLoss(nn.Module):
         super().__init__()
         self.task_type = task_type
         # 2026 Resilience: Dynamic injection from config hierarchy
-        self.stab = stabilizers or {"softmax_temp": 0.1, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
+        self.stab = stabilizers or {"softmax_temp": 1.0, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
+        # EMD form of quality models; a resume from an older checkpoint may pin another one.
+        self.emd_form = registry_emd_form(self.stab)
         self.criteria = _BaseCriteria()
         self.forex_dual = ForexDualLoss(stabilizers=self.stab)
         self.memory_bank = None
         if self.stab.get("rank_memory_bank_size", 0) > 0 or self.stab.get("use_memory_bank", False):
             mb_size = int(self.stab.get("rank_memory_bank_size", 32))
             self.memory_bank = RankMemoryBank(capacity=mb_size)
-        self.perc = None
+        self.perc: nn.Module | None = None
 
         # 2026: SOTA Rank-Boost Weights (Standard 10..1 mapping)
         self.register_buffer("rank_weights", torch.arange(1, 11).float())
@@ -451,7 +491,7 @@ class CombinedLoss(nn.Module):
             ),
         )
 
-        if self.task_type in ["restoration", "enhancement"] and use_perc:
+        if self.task_type in PERCEPTUAL_TASKS and use_perc:
             try:
                 # Reclaim memory before loading the heavy perceptual engine
                 gc.collect()
@@ -471,7 +511,9 @@ class CombinedLoss(nn.Module):
 
                     def forward(self, x, y):
                         """Return the LPIPS distance between ``x`` and ``y`` under autocast."""
-                        with torch.autocast(device_type="cuda", enabled=True):
+                        with torch.autocast(
+                            device_type=autocast_device_type(x.device), enabled=x.is_cuda
+                        ):
                             return self.perc(x, y)
 
                 if LearnedPerceptualImagePatchSimilarity is None:
@@ -553,14 +595,13 @@ class CombinedLoss(nn.Module):
 
     def _compute_quality_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         """Compute multi-objective distribution, rank, and Spearman loss for quality assessment."""
-        p_probs = F.softmax(pred.float() / float(self.stab.get("softmax_temp", 1.0)), dim=-1)
+        # Plain softmax (temperature 1): NIMA calibrates temperature post hoc, never in training.
+        p_probs = F.softmax(pred.float(), dim=-1)
         tgt_f = target.float()
         t_probs = tgt_f / torch.clamp(
             tgt_f.sum(dim=-1, keepdim=True), min=float(self.stab.get("emd_epsilon", 1e-6))
         )
-        emd = torch.sum(
-            (torch.cumsum(p_probs, dim=-1) - torch.cumsum(t_probs, dim=-1)) ** 2, dim=-1
-        ).mean()
+        emd = emd_loss(p_probs, t_probs, self.emd_form)
 
         p_eval, t_eval = self._mean_scores(p_probs, t_probs)
 
@@ -610,7 +651,7 @@ class CombinedLoss(nn.Module):
             return F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
 
         if self.task_type == "classification":
-            return self.criteria.ce(pred, target)
+            return _classification_loss(self.criteria.ce, pred, target)
 
         if self.task_type == "segmentation":
             if target.dim() == 4:
@@ -628,4 +669,7 @@ class CombinedLoss(nn.Module):
         ):
             return _face_detection_loss(pred, target)
 
+        if self.perc is not None and isinstance(pred, torch.Tensor):
+            # Image-to-image face restoration: pixel MSE plus the LPIPS term.
+            return self.criteria.mse(pred, target) + self._perceptual_loss(pred, target, None)
         return self.criteria.mse(pred, target)

@@ -4,6 +4,7 @@ Handles JSON encoding, validation, atomic file persistence, and automatic distri
 to sibling LemGendaryDatasets manifolds and workspace training directories.
 """
 
+import errno
 import json
 import logging
 import os
@@ -21,7 +22,8 @@ from ..cells.env import build_sentinel_cell
 from ..cells.inference import build_onnx_fp16_cell, build_onnx_fp32_cell, build_pth_cell
 from ..cells.model import build_hub_prep_cell
 from ..cells.repo import build_clone_cell
-from ..cells.sync import build_secrets_cell
+from ..cells.secrets import build_secrets_cell
+from ..git_ref import DEFAULT_GIT_REFS, GitRefs
 from ..registry import (
     ModelNotebookMeta,
     load_registry,
@@ -119,7 +121,10 @@ def sync_manifold_notebooks(
             ds_dir = datasets_hub_root / m_folder
             if ds_dir.exists() and ds_dir not in synced_dirs:
                 synced_dirs.add(ds_dir)
-                _write_notebook(ds_dir / filename, json_str)
+                if os.access(ds_dir, os.W_OK):
+                    _write_notebook(ds_dir / filename, json_str)
+                else:
+                    _report_read_only(ds_dir)
 
 
 def _target_candidates(model_key: str, ds_list: list[str]) -> list[str]:
@@ -153,13 +158,36 @@ def _manifold_folder_names(target_folder: str) -> list[str]:
     ]
 
 
+_REPORTED_READ_ONLY: set[Path] = set()
+"""Read-only manifold folders already reported by this process (one notice per folder)."""
+
+
+def _report_read_only(ds_dir: Path) -> None:
+    """Say once per folder that a read-only manifold (a Kaggle input) gets no notebooks."""
+    real = ds_dir.resolve()
+    if real in _REPORTED_READ_ONLY:
+        return
+    _REPORTED_READ_ONLY.add(real)
+    logger.info(
+        "Dataset folder %s is read-only (an attached input); its notebooks are not synced.",
+        ds_dir,
+    )
+
+
 def _write_notebook(ds_output_path: Path, json_str: str) -> None:
-    """Write the notebook JSON into a manifold directory (failures are logged)."""
+    """Write the notebook JSON into a manifold directory (failures are logged).
+
+    A read-only file system (a folder ``os.access`` could not tell apart) is reported once
+    per folder, like a folder found read-only beforehand.
+    """
     try:
         with open(ds_output_path, "w", encoding="utf-8") as f:
             f.write(json_str)
         print(f"[OK] Synchronized Dataset Manifold Notebook: {ds_output_path}")
     except OSError as exc:
+        if exc.errno == errno.EROFS:
+            _report_read_only(ds_output_path.parent)
+            return
         logger.warning("Failed syncing manifold notebook to %s: %s", ds_output_path, exc)
 
 
@@ -237,9 +265,12 @@ def resolve_training_target(
 
 
 def training_preamble_cells(
-    meta: ModelNotebookMeta, platform: str, edition: str
+    meta: ModelNotebookMeta, platform: str, edition: str, refs: GitRefs = DEFAULT_GIT_REFS
 ) -> list[dict[str, Any]]:
-    """Return the title and sections 1-5 (sentinel, secrets, clone, install, hub pull)."""
+    """Return the title and sections 1-5 (sentinel, secrets, clone, install, hub pull).
+
+    ``refs`` are the git refs the clone cell checks out (default ``main``).
+    """
     return [
         make_markdown_cell(
             [
@@ -263,7 +294,7 @@ def training_preamble_cells(
         make_markdown_cell(["## 2. Cloud Auth & Secrets\n"]),
         build_secrets_cell(platform),
         make_markdown_cell(["## 3. Repository Synchronization\n"]),
-        build_clone_cell(platform),
+        build_clone_cell(platform, refs),
         make_markdown_cell(["## 4. Environment & Dependency Installation\n"]),
         build_install_cell(platform),
         make_markdown_cell(["## 5. SOTA Hub Synchronization (Pull)\n"]),

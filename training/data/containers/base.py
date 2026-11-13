@@ -7,6 +7,12 @@ from typing import Any, NamedTuple, Protocol, runtime_checkable
 # Shared read-only empty mapping used as the default ``Sample.metadata``.
 _EMPTY_METADATA: Mapping[str, Any] = MappingProxyType({})
 
+JSON_METADATA_KEY = "json"
+"""``Sample.metadata`` key of the sample's parsed ``.json`` label document."""
+
+JSON_ERROR_KEY = "json_error"
+"""``Sample.metadata`` key set instead when the ``.json`` member is unreadable (the reason)."""
+
 
 class Sample(NamedTuple):
     """Immutable representation of an ingested dataset sample."""

@@ -4,6 +4,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from training.loss_emd import EMD_FORM_KEY
+
 logger = logging.getLogger("lemtrain.checkpoint.resume")
 
 
@@ -33,6 +35,8 @@ class ResumeGovernance:
     sota_achieved: bool = False
     best_score: float | None = None
     metric_history: list[dict[str, Any]] = field(default_factory=list)
+    emd_form: str | None = None
+    """EMD form of the quality loss the run trained with (``None``: not recorded)."""
 
 
 @dataclass
@@ -163,6 +167,12 @@ def _dict_copy(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _emd_form(payload: dict[str, Any]) -> str | None:
+    """The recorded EMD form (``training.loss_emd.EMD_FORM_KEY``), if any."""
+    form = payload.get(EMD_FORM_KEY)
+    return str(form) if form else None
+
+
 def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
     """Parse a checkpoint dictionary into a structured ResumeState object."""
     phase, is_intra, iteration = _progress(
@@ -195,6 +205,7 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
             sota_achieved=bool(payload.get("sota_achieved", False)),
             best_score=float(best_score) if isinstance(best_score, (int, float)) else None,
             metric_history=history,
+            emd_form=_emd_form(payload),
         ),
         accumulators=ResumeAccumulators(
             train_metrics=_dict_copy(_first(payload, "train_metrics", "current_metrics")),

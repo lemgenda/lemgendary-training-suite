@@ -1,135 +1,130 @@
 """Git clone and repository synchronization cell generator.
 
-Handles authenticated repository cloning, shallow fetches, origin tracking,
-and sibling environment manager synchronization on Kaggle and Colab.
+Clones the training suite and the environment manager on Kaggle and Colab without ever
+writing the GitHub token to a file or a remote URL:
+
+* the clone URLs are the plain ``<identity.github_url>/<folder>.git`` of the ecosystem file;
+* the token reaches git only through ``GIT_ASKPASS`` (a helper script under the system temp
+  folder that prints ``$LEMGENDARY_GIT_TOKEN``) and the environment of the git processes;
+* the origin URL is reset to the plain URL on every run (older notebooks stored the token
+  in it), and the helper folder is deleted afterwards;
+* on Kaggle the checkouts live in ``/kaggle/temp``, outside ``/kaggle/working``, so no
+  ``.git`` folder is ever saved as kernel output;
+* each repository is fetched at one ref (:class:`~training.notebooks.git_ref.GitRefs`,
+  default ``main``): ``git fetch --depth 1 origin <ref>`` then ``git reset --hard
+  FETCH_HEAD``, which works for a branch, a tag and a full commit SHA alike. The refs are
+  validated before they are written into the cell, and git gets them as list arguments.
 """
 
 from typing import Any
 
+from training.ecosystem import ENV_MANAGER_FOLDER, github_repo_url
+from training.platform_paths import SUITE_FOLDER, platform_paths
+
+from ..git_ref import DEFAULT_GIT_REFS, GitRefs
 from .base import make_code_cell
 
+_ASKPASS_SCRIPT = (
+    '#!/bin/sh\\ncase "$1" in Username*) echo x-access-token ;; '
+    '*) echo "$LEMGENDARY_GIT_TOKEN" ;; esac\\n'
+)
+"""``GIT_ASKPASS`` helper: user name for the user prompt, the token from the environment."""
 
-def build_clone_cell(target: str = "kaggle") -> dict[str, Any]:
-    """Build the git clone and environment synchronization code cell."""
-    if target == "kaggle":
-        suite_path = "/kaggle/working/lemgendary-training-suite"
-        env_mgr_path = "/kaggle/working/lemgendary-env-manager"
-        secret_ui_action = "Kaggle Add-ons -> Secrets"
-    else:
-        suite_path = "/content/lemgendary-training-suite"
-        env_mgr_path = "/content/lemgendary-env-manager"
-        secret_ui_action = "Colab Secrets"
 
+def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -> dict[str, Any]:
+    """Build the git clone and environment synchronization code cell at ``refs``."""
+    paths = platform_paths(target)
+    secret_ui_action = "Kaggle Add-ons -> Secrets" if target == "kaggle" else "Colab Secrets"
     source = [
-        "import os, subprocess, shutil, sys\n",
-        "from urllib.parse import quote as _url_quote\n",
-        "repo_url = 'https://github.com/lemgenda/lemgendary-training-suite.git'\n",
-        f"suite_path = '{suite_path}'\n",
-        "pat = os.environ.get('SUITE_PAT', os.environ.get('GITHUB_PAT', ''))\n",
-        "if pat:\n",
-        "    _safe_pat = _url_quote(pat, safe='')\n",
-        "    auth_url = repo_url.replace('https://', f'https://x-access-token:{_safe_pat}@')\n",
-        (
-            '    print(f\'[AUTH] Using {"SUITE_PAT" if os.environ.get("SUITE_PAT") else '
-            '"GITHUB_PAT"} for cloning...\')\n'
+        "import os, shutil, stat, subprocess, sys, tempfile\n",
+        f"suite_url = {github_repo_url(SUITE_FOLDER)!r}\n",
+        f"env_mgr_url = {github_repo_url(ENV_MANAGER_FOLDER)!r}\n",
+        f"suite_ref = {refs.suite!r}\n",
+        f"env_mgr_ref = {refs.env_manager_ref!r}\n",
+        f"checkout_dir = {paths.checkout_dir!r}\n",
+        f"suite_path = {paths.suite_dir!r}\n",
+        f"env_mgr_path = {paths.env_mgr_dir!r}\n",
+        "os.makedirs(checkout_dir, exist_ok=True)\n",
+        "# The suite runs from the checkout; outputs and the hub stay in the working dir.\n",
+        f"os.environ['LEMGENDARY_WORKSPACE_ROOT'] = {paths.working_dir!r}\n",
+        f"os.environ['LEMGENDARY_ECOSYSTEM_FILE'] = {paths.ecosystem_file!r}\n",
+        *(
+            [f"os.environ.setdefault('KAGGLE_WORKING_DIR', {paths.working_dir!r})\n"]
+            if target == "kaggle"
+            else []
         ),
+        "\n",
+        "token = os.environ.get('SUITE_PAT') or os.environ.get('GITHUB_PAT') or ''\n",
+        "git_env = os.environ.copy()\n",
+        "git_env['GIT_TERMINAL_PROMPT'] = '0'\n",
+        "askpass_dir = tempfile.mkdtemp(prefix='lemgendary-askpass-')\n",
+        "if token:\n",
+        "    askpass = os.path.join(askpass_dir, 'askpass.sh')\n",
+        "    with open(askpass, 'w', encoding='utf-8') as fh:\n",
+        f"        fh.write('{_ASKPASS_SCRIPT}')\n",
+        "    os.chmod(askpass, stat.S_IRWXU)\n",
+        "    git_env['GIT_ASKPASS'] = askpass\n",
+        "    git_env['LEMGENDARY_GIT_TOKEN'] = token\n",
+        "    print('[AUTH] GitHub token supplied to git through GIT_ASKPASS (never stored).')\n",
         "else:\n",
-        (
-            "    print('[WARNING] No PAT found in environment. Attempting public clone (will fail "
-            "for private repos)...')\n"
-        ),
-        (
-            "    print('[ACTION REQUIRED] If clone fails, add SUITE_PAT or GITHUB_PAT to "
-            f"{secret_ui_action}.')\n"
-        ),
-        "    auth_url = repo_url\n",
+        "    print('[WARNING] No SUITE_PAT or GITHUB_PAT secret; trying a public clone.')\n",
         "\n",
-        "env = os.environ.copy()\n",
-        "env['GIT_TERMINAL_PROMPT'] = '0'\n",
+        "def _git(args, cwd=None):\n",
+        (
+            "    return subprocess.run(['git', *args], cwd=cwd, env=git_env, "
+            "capture_output=True, text=True)\n"
+        ),
         "\n",
-        "def _is_valid_repo(path, marker=None):\n",
-        "    if not os.path.isdir(path):\n",
-        "        return False\n",
-        "    if not os.path.isdir(os.path.join(path, '.git')):\n",
-        "        return False\n",
-        "    if marker and not os.path.exists(os.path.join(path, marker)):\n",
-        "        return False\n",
-        "    return True\n",
+        "def _sync_repo(url, path, marker, ref):\n",
+        "    valid = os.path.isdir(os.path.join(path, '.git')) and os.path.exists(\n",
+        "        os.path.join(path, marker))\n",
+        "    if not valid:\n",
+        "        if os.path.exists(path):\n",
+        "            shutil.rmtree(path)\n",
+        "        init = _git(['init', '--quiet', path])\n",
+        "        if init.returncode != 0:\n",
+        "            return f'init failed: {init.stderr.strip()}'\n",
+        "        add = _git(['remote', 'add', 'origin', url], cwd=path)\n",
+        "        if add.returncode != 0:\n",
+        "            return f'remote add failed: {add.stderr.strip()}'\n",
+        "    # Reset the origin to the plain URL (older notebooks stored the token in it).\n",
+        "    seturl = _git(['remote', 'set-url', 'origin', url], cwd=path)\n",
+        "    if seturl.returncode != 0:\n",
+        "        return f'remote set-url failed: {seturl.stderr.strip()}'\n",
+        "    # One ref (branch, tag or full commit SHA), fetched shallow and checked out.\n",
+        "    fetch = _git(['fetch', '--depth', '1', 'origin', ref], cwd=path)\n",
+        "    if fetch.returncode != 0:\n",
+        "        return f'fetch of {ref} failed: {fetch.stderr.strip()}'\n",
+        "    reset = _git(['reset', '--hard', 'FETCH_HEAD'], cwd=path)\n",
+        "    if reset.returncode != 0:\n",
+        "        return f'reset to {ref} failed: {reset.stderr.strip()}'\n",
+        "    head = _git(['rev-parse', '--short', 'HEAD'], cwd=path)\n",
+        "    if head.returncode != 0:\n",
+        "        return f'rev-parse after {ref} failed: {head.stderr.strip()}'\n",
+        "    print(f'[GIT] {url} at {ref} ({head.stdout.strip()})')\n",
+        "    return None\n",
         "\n",
-        "if not _is_valid_repo(suite_path, marker=os.path.join('training', 'train.py')):\n",
-        "    if os.path.exists(suite_path):\n",
-        "        print('[SUITE] Removing incomplete previous clone...')\n",
-        "        try:\n",
-        "            shutil.rmtree(suite_path)\n",
-        "        except OSError as rm_err:\n",
+        "try:\n",
         (
-            "            print(f'[WARNING] Could not remove incomplete clone {suite_path}: "
-            "{rm_err}')\n"
+            "    suite_error = _sync_repo(suite_url, suite_path, "
+            "os.path.join('training', 'train.py'), suite_ref)\n"
         ),
-        "    print('[SUITE] Initializing LemGendary Training Suite...')\n",
+        ("    env_mgr_error = _sync_repo(env_mgr_url, env_mgr_path, 'ecosystem', env_mgr_ref)\n"),
+        "finally:\n",
+        "    try:\n",
+        "        shutil.rmtree(askpass_dir)\n",
+        "    except OSError as rm_err:\n",
+        "        print(f'[WARNING] Could not remove {askpass_dir}: {rm_err}')\n",
+        "\n",
+        "if env_mgr_error:\n",
+        "    print(f'[WARNING] env-manager {env_mgr_error}')\n",
+        "if suite_error:\n",
+        "    print(f'[ERROR] Suite {suite_error}')\n",
         (
-            "    res = subprocess.run(['git', 'clone', '--depth', '1', auth_url, suite_path], "
-            "capture_output=True, text=True, env=env)\n"
-        ),
-        "    if res.returncode == 0:\n",
-        "        print('[OK] Suite cloned.')\n",
-        "    else:\n",
-        "        print(f'[ERROR] Clone failed: {res.stderr.strip()}')\n",
-        (
-            "        if '403' in res.stderr or '401' in res.stderr or 'terminal prompts disabled' "
-            "in res.stderr:\n"
-        ),
-        (
-            "            print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to "
+            "    print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to "
             f"{secret_ui_action} with GitHub read permissions.')\n"
         ),
-        "        sys.exit(1)\n",
-        "else:\n",
-        "    print('[OK] Suite resident. Syncing origin and pulling latest...')\n",
-        (
-            "    subprocess.run(['git', 'remote', 'set-url', 'origin', auth_url], cwd=suite_path, "
-            "env=env)\n"
-        ),
-        (
-            "    fetch = subprocess.run(['git', 'fetch', '--depth', '1', 'origin'], "
-            "cwd=suite_path, env=env, capture_output=True, text=True)\n"
-        ),
-        "    if fetch.returncode != 0:\n",
-        "        print(f'[WARNING] git fetch failed: {fetch.stderr.strip()}')\n",
-        (
-            "    reset = subprocess.run(['git', 'reset', '--hard', 'origin/main'], cwd=suite_path, "
-            "env=env, capture_output=True, text=True)\n"
-        ),
-        "    if reset.returncode != 0:\n",
-        "        print(f'[WARNING] git reset failed: {reset.stderr.strip()}')\n",
-        "\n",
-        "env_mgr_url = 'https://github.com/lemgenda/lemgendary-env-manager.git'\n",
-        f"env_mgr_path = '{env_mgr_path}'\n",
-        "if pat:\n",
-        (
-            "    env_mgr_auth = env_mgr_url.replace('https://', "
-            "f'https://x-access-token:{_url_quote(pat, safe=\"\")}@')\n"
-        ),
-        "else:\n",
-        "    env_mgr_auth = env_mgr_url\n",
-        "\n",
-        "if not _is_valid_repo(env_mgr_path):\n",
-        "    if os.path.exists(env_mgr_path):\n",
-        "        try:\n",
-        "            shutil.rmtree(env_mgr_path)\n",
-        "        except OSError as rm_err:\n",
-        (
-            "            print(f'[WARNING] Could not remove incomplete clone {env_mgr_path}: "
-            "{rm_err}')\n"
-        ),
-        (
-            "    res_mgr = subprocess.run(['git', 'clone', '--depth', '1', env_mgr_auth, "
-            "env_mgr_path], capture_output=True, text=True, env=env)\n"
-        ),
-        "    if res_mgr.returncode != 0:\n",
-        "        print(f'[WARNING] env-manager clone failed: {res_mgr.stderr.strip()}')\n",
-        "else:\n",
-        "    subprocess.run(['git', 'pull'], cwd=env_mgr_path, env=env, capture_output=True)\n",
+        "    sys.exit(1)\n",
+        "print(f'[OK] Suite ready at {suite_path}')\n",
     ]
-
     return make_code_cell(source)

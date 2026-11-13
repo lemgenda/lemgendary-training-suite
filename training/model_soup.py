@@ -4,9 +4,9 @@ Resolves a model's vault checkpoints (``vault_<metric>.pth``) inside the
 configured LemGendaryModels hub and hands the list of files to
 ``training.export.soup.create_pareto_model_soup``.
 
-The hub location has one source: ``paths.checkpoints_root`` in
-``config.yaml``, resolved relative to the training-suite project root
-(default ``../LemGendaryModels``, the sibling repo). This module does not
+The hub location is ``get_models_hub_root`` (the one hub-root resolver; on Kaggle the
+kernel output). An explicit ``paths.checkpoints_root`` in ``config.yaml`` overrides it,
+resolved relative to the training-suite project root. This module does not
 import torch; the blending function is imported only when a soup is built,
 so path resolution and request validation can be tested in isolation.
 """
@@ -23,8 +23,8 @@ from typing import Any
 import yaml
 
 from training.utils.lazy_imports import load_pareto_soup
+from training.utils.paths import get_models_hub_root
 
-DEFAULT_MODELS_ROOT = "../LemGendaryModels"
 VAULT_PREFIX = "vault_"
 VAULT_SUFFIX = ".pth"
 DEFAULT_SOUP_FILENAME = "best_soup.pth"
@@ -75,8 +75,7 @@ def _validate_name(value: str, kind: str) -> str:
 
 
 def resolve_models_root(project_root: Path) -> Path:
-    """Return the LemGendaryModels hub folder configured in ``config.yaml``."""
-    rel = DEFAULT_MODELS_ROOT
+    """Return the LemGendaryModels hub folder (``config.yaml`` override, else the hub root)."""
     cfg_path = project_root / "config.yaml"
     if cfg_path.exists():
         with open(cfg_path, "r", encoding="utf-8") as f:
@@ -91,8 +90,8 @@ def resolve_models_root(project_root: Path) -> Path:
                 raise ValueError(
                     "config.yaml 'paths.checkpoints_root' must be relative to the project root."
                 )
-            rel = configured
-    return (project_root / rel).resolve()
+            return (project_root / configured).resolve()
+    return get_models_hub_root(project_root)
 
 
 def resolve_checkpoints_dir(model_key: str, project_root: Path) -> Path:

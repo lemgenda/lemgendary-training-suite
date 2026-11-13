@@ -6,8 +6,19 @@ and ONNX FP16 embedded inference across vision and Forex time-series models.
 
 from typing import Any
 
+from training.cloud.variations import ONNX_FP16_SUFFIX, ONNX_FP32_SUFFIX, PT_SUFFIX
+from training.registry.preprocessing_source import (
+    indented,
+    numpy_input_source,
+    torch_input_source,
+)
+from training.utils.model_payload import pt_load_source
+
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
+
+_PT_LOAD = ["    " + line for line in pt_load_source("model_path", "device")]
+"""The shared ``.pt`` loader, indented into the cells' ``try`` block."""
 
 
 def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
@@ -22,13 +33,22 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
-            f"    model_path = os.path.join(pt_dir, '{stem}.pt') if pt_dir else '{stem}.pt'\n",
+            (
+                f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
+                f"else '{stem}{PT_SUFFIX}'\n"
+            ),
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    import numpy as np\n",
             "\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
-            "    model = torch.load(model_path, map_location=device)\n",
+            *_PT_LOAD,
+            "    if pt_model is None:\n",
+            (
+                "        raise RuntimeError('This .pt holds weights only: build the architecture "
+                "and load_state_dict(state).')\n"
+            ),
+            "    model = pt_model\n",
             "    if device.type == 'cuda' and torch.cuda.device_count() > 1:\n",
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
@@ -39,7 +59,10 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             ),
             "\n",
             "    with torch.no_grad():\n",
-            "        direction_logits, tp_sl_pips = model(input_dict)\n",
+            "        out = model(input_dict)\n",
+            "    # ForexPredictor returns a dict (as in the model card), not a tuple.\n",
+            "    direction_logits = out['direction_logits']\n",
+            "    tp_sl_pips = out['magnitude']\n",
             "    probs = torch.softmax(direction_logits, dim=-1)\n",
             "    print(f'Direction Probs (SELL/HOLD/BUY): {probs.cpu().numpy()}')\n",
             "    print(f'Predicted TP/SL Pips: {tp_sl_pips.cpu().numpy()}')\n",
@@ -52,27 +75,29 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "try:\n",
             "    import kagglehub\n",
             f"    pt_dir = kagglehub.model_download('{pt_handle}')\n",
-            f"    model_path = os.path.join(pt_dir, '{stem}.pt') if pt_dir else '{stem}.pt'\n",
+            (
+                f"    model_path = os.path.join(pt_dir, '{stem}{PT_SUFFIX}') if pt_dir "
+                f"else '{stem}{PT_SUFFIX}'\n"
+            ),
             "    t_key = 'dG' + '9y' + 'Y2g='\n",
             "    torch = __import__(base64.b64decode(t_key).decode())\n",
             "    from PIL import Image\n",
             "    import numpy as np\n",
             "\n",
             "    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
-            "    model = torch.load(model_path, map_location=device)\n",
+            *_PT_LOAD,
+            "    if pt_model is None:\n",
+            (
+                "        raise RuntimeError('This .pt holds weights only: build the architecture "
+                "and load_state_dict(state).')\n"
+            ),
+            "    model = pt_model\n",
             "    if device.type == 'cuda' and torch.cuda.device_count() > 1:\n",
             "        model = torch.nn.DataParallel(model)\n",
             "    model.eval()\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            (
-                "    input_tensor = torch.from_numpy(np.array(img)).permute(2, 0, "
-                "1).float().unsqueeze(0).to(device) / 255.0\n"
-            ),
-            "    \n",
-            "    mean = torch.tensor([0.485, 0.456, 0.406]).to(device).view(1, 3, 1, 1)\n",
-            "    std = torch.tensor([0.229, 0.224, 0.225]).to(device).view(1, 3, 1, 1)\n",
-            "    input_tensor = (input_tensor - mean) / std\n",
+            *indented(torch_input_source(meta.preprocessing)),
             "\n",
             "    with torch.no_grad():\n",
             "        output = model(input_tensor)\n",
@@ -93,8 +118,9 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else "
-                f"'{stem}_FP32.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP32_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP32_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
@@ -118,8 +144,9 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}_FP32.onnx') if onnx_dir else "
-                f"'{stem}_FP32.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP32_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP32_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
@@ -128,11 +155,7 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            (
-                "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, "
-                "0.406]) / [0.229, 0.224, 0.225]\n"
-            ),
-            "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
+            *indented(numpy_input_source(meta.preprocessing)),
             "\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",
@@ -152,8 +175,9 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else "
-                f"'{stem}.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP16_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP16_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
@@ -177,8 +201,9 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    import kagglehub\n",
             f"    onnx_dir = kagglehub.model_download('{onnx_handle}')\n",
             (
-                f"    onnx_path = os.path.join(onnx_dir, '{stem}.onnx') if onnx_dir else "
-                f"'{stem}.onnx'\n"
+                f"    onnx_path = os.path.join(onnx_dir, '{stem}{ONNX_FP16_SUFFIX}') "
+                "if onnx_dir else "
+                f"'{stem}{ONNX_FP16_SUFFIX}'\n"
             ),
             "    o_key = 'b25ue' + 'HJ1bn' + 'RpbWU='\n",
             "    ort = __import__(base64.b64decode(o_key).decode())\n",
@@ -187,11 +212,7 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            (
-                "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, "
-                "0.406]) / [0.229, 0.224, 0.225]\n"
-            ),
-            "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
+            *indented(numpy_input_source(meta.preprocessing)),
             "\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",

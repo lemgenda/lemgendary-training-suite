@@ -20,8 +20,8 @@ from models.factory import get_model
 from training.checkpoint.manager import CHECKPOINT_LOAD_ERRORS, safe_load_checkpoint
 from training.context_data import DATASET_BUILD_ERRORS, LLM_TASKS
 from training.fid_reeval.measure import MIN_IMAGES
+from training.utils.model_payload import ModelPayloadError, model_payload_of
 
-_STATE_KEYS = ("model_state", "model_state_dict", "state_dict", "model")
 _STRIP_PREFIXES = ("module.", "_orig_mod.")
 _NON_IMAGE_TASKS = (*LLM_TASKS, "forex", "quality")
 
@@ -90,9 +90,12 @@ def sha256_file(path: Path) -> str:
 
 def checkpoint_state(payload: dict[str, Any]) -> dict[str, Any]:
     """Model weights of a checkpoint payload with DDP / ``torch.compile`` prefixes removed."""
-    state = next((payload[k] for k in _STATE_KEYS if isinstance(payload.get(k), dict)), payload)
-    if not state or not all(isinstance(v, torch.Tensor) for v in state.values()):
-        raise InputError("checkpoint holds no tensor state dict under " + ", ".join(_STATE_KEYS))
+    try:
+        state = model_payload_of(payload).state_dict
+    except ModelPayloadError as exc:
+        raise InputError(f"checkpoint holds no model weights: {exc}") from exc
+    if not all(isinstance(v, torch.Tensor) for v in state.values()):
+        raise InputError("checkpoint model state holds non-tensor entries")
     cleaned = {}
     for key, value in state.items():
         for prefix in _STRIP_PREFIXES:

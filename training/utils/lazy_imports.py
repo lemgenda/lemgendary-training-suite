@@ -151,6 +151,11 @@ def load_pandas_ta() -> ModuleType:
     return importlib.import_module("pandas_ta_classic")
 
 
+def load_torch_directml() -> ModuleType:
+    """Return the ``torch_directml`` backend module (DirectML devices are ``privateuseone``)."""
+    return importlib.import_module("torch_directml")
+
+
 # --- Suite modules that are heavy or would close an import cycle -----------------------
 
 

@@ -18,8 +18,6 @@ import torch
 import torch.nn.functional as F
 
 from training.checkpoint.lifecycle_manager import CheckpointLifecycleManager
-from training.server.routes.gui_model_stats import model_with_stats
-
 from training.fid_reeval import cli, inputs, ledger
 from training.fid_reeval.measure import (
     FID_FEATURE_DIM,
@@ -29,6 +27,7 @@ from training.fid_reeval.measure import (
     FidUnavailableError,
     measure_fid,
 )
+from training.server.routes.gui_model_stats import model_with_stats
 from training.training import val_metrics
 
 PACKAGE_DIR = Path(__file__).resolve().parents[2] / "training" / "fid_reeval"
@@ -473,13 +472,15 @@ def test_filter_metrics_in_gui_model_stats(tmp_path: Path) -> None:
     with open(metrics_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["Epoch", "Resolution", "Fraction", "PSNR", "FID"])
         writer.writeheader()
-        writer.writerow({
-            "Epoch": "1",
-            "Resolution": "512",
-            "Fraction": "1.0",
-            "PSNR": "30.0",
-            "FID": "2.85",
-        })
+        writer.writerow(
+            {
+                "Epoch": "1",
+                "Resolution": "512",
+                "Fraction": "1.0",
+                "PSNR": "30.0",
+                "FID": "2.85",
+            }
+        )
 
     ledger.append_rows(
         ledger.ledger_path(hub_dir),

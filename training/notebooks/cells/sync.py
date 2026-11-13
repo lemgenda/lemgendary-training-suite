@@ -7,170 +7,14 @@ training subprocess management, and final artifact uploads to KaggleHub and Goog
 import logging
 from typing import Any
 
-import yaml
+from training.cloud.session_deadline import DEADLINE_MARKER
+from training.platform_paths import platform_paths
 
-from training.ecosystem import kaggle_owner
-from training.utils.lazy_imports import load_cloud_module
-
+from ..launch_options import DEFAULT_LAUNCH, LaunchOptions
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
 
 logger = logging.getLogger("lemtrain.notebooks.cells.sync")
-
-
-def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
-    """Build the cloud authentication and secrets acquisition code cell."""
-    if target == "kaggle":
-        source = [
-            "try:\n",
-            "    import base64 as _b64\n",
-            "    _k = 'a2Fn' + 'Z2xlX' + '3NlY3' + 'JldHM='\n",
-            "    _m = __import__(_b64.b64decode(_k).decode())\n",
-            "    _c = getattr(_m, 'UserS' + 'ecrets' + 'Client')()\n",
-            "    import os as _os, json as _json\n",
-            "    g_pat = None\n",
-            "    s_pat = None\n",
-            "    k_key = None\n",
-            "    k_user = None\n",
-            "    g_drive = None\n",
-            "    g_drive_json = None\n",
-            "    try: g_pat = _c.get_secret('GITHUB_PAT')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named GITHUB_PAT with your GitHub Personal Access Token as value')\n"
-            ),
-            "    try: s_pat = _c.get_secret('SUITE_PAT')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named SUITE_PAT with your GitHub Personal Access Token as value')\n"
-            ),
-            "    try: k_key = _c.get_secret('KAGGLE_KEY')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named KAGGLE_KEY with your Kaggle API Token as value')\n"
-            ),
-            "    try: k_user = _c.get_secret('KAGGLE_USERNAME')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named KAGGLE_USERNAME with your Kaggle username as value')\n"
-            ),
-            "    try: g_drive = _c.get_secret('GOOGLE_DRIVE')\n",
-            "    except Exception: pass\n",
-            "    try: g_drive_json = _c.get_secret('GOOGLE_DRIVE_JSON')\n",
-            "    except Exception: pass\n",
-            "    \n",
-            "    if g_pat: _os.environ['GITHUB_PAT'] = g_pat\n",
-            "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
-            "    if g_drive: _os.environ['GOOGLE_DRIVE'] = g_drive\n",
-            "    if g_drive_json:\n",
-            "        _os.environ['GOOGLE_DRIVE_JSON'] = g_drive_json\n",
-            "        _g_dir = _os.path.expanduser('~/.gdrive')\n",
-            "        _os.makedirs(_g_dir, exist_ok=True)\n",
-            "        _sa_path = _os.path.join(_g_dir, 'service_account.json')\n",
-            "        with open(_sa_path, 'w') as _gf:\n",
-            (
-                "            _gf.write(g_drive_json if isinstance(g_drive_json, str) else "
-                "_json.dumps(g_drive_json))\n"
-            ),
-            "        _os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = _sa_path\n",
-            "    \n",
-            f"    if not k_user: k_user = {kaggle_owner()!r}\n",
-            "    if k_key:\n",
-            "        _os.environ['KAGGLE_KEY'] = k_key\n",
-            "        _os.environ['KAGGLE_USERNAME'] = k_user\n",
-            "        _k_dir = _os.path.expanduser('~/.kaggle')\n",
-            "        _os.makedirs(_k_dir, exist_ok=True)\n",
-            "        with open(_os.path.join(_k_dir, 'kaggle.json'), 'w') as _kf:\n",
-            "            _json.dump({'username': k_user, 'key': k_key}, _kf)\n",
-            "        _os.chmod(_os.path.join(_k_dir, 'kaggle.json'), 0o600)\n",
-            "    \n",
-            "    active = []\n",
-            "    if s_pat: active.append('SUITE_PAT')\n",
-            "    if g_pat: active.append('GITHUB_PAT')\n",
-            "    if k_key: active.append('KAGGLE_KEY')\n",
-            "    if g_drive: active.append('GOOGLE_DRIVE')\n",
-            "    if g_drive_json: active.append('GOOGLE_DRIVE_JSON')\n",
-            "    if active:\n",
-            "        print(f'[OK] [AUTH] Kaggle Secrets mounted: {\", \".join(active)}')\n",
-            "    else:\n",
-            (
-                "        print('[ERROR] [CRITICAL] No PATs found in Kaggle Secrets! Private "
-                "repositories will fail to clone.')\n"
-            ),
-            (
-                "        print('[ACTION REQUIRED] In Kaggle Notebook top bar -> Add-ons -> Secrets "
-                "-> Add SUITE_PAT or GITHUB_PAT.')\n"
-            ),
-            "except Exception as e:\n",
-            "    print(f'[ERROR] Secret mounting failed: {e}')\n",
-        ]
-    else:
-        source = [
-            "try:\n",
-            "    from google.colab import userdata\n",
-            "    import os as _os, json as _json\n",
-            "    k_key = None\n",
-            "    k_user = None\n",
-            "    g_drive = None\n",
-            "    try: g_pat = userdata.get('GITHUB_PAT')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named GITHUB_PAT with your GitHub Personal Access Token as value')\n"
-            ),
-            "    try: s_pat = userdata.get('SUITE_PAT')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named SUITE_PAT with your GitHub Personal Access Token as value')\n"
-            ),
-            "    try: k_key = userdata.get('KAGGLE_KEY')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named KAGGLE_KEY with your Kaggle API Token as value')\n"
-            ),
-            "    try: k_user = userdata.get('KAGGLE_USERNAME')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named KAGGLE_USERNAME with your Kaggle username as value')\n"
-            ),
-            "    try: g_drive = userdata.get('GOOGLE_DRIVE')\n",
-            (
-                "    except Exception: print('[REMEDY] Missing secret! You should create new "
-                "secret named GOOGLE_DRIVE with your Google Drive token as value')\n"
-            ),
-            "    \n",
-            "    if g_pat: _os.environ['GITHUB_PAT'] = g_pat\n",
-            "    if s_pat: _os.environ['SUITE_PAT'] = s_pat\n",
-            "    if g_drive: _os.environ['GOOGLE_DRIVE'] = g_drive\n",
-            "    \n",
-            f"    if not k_user: k_user = {kaggle_owner()!r}\n",
-            "    if k_key:\n",
-            "        _os.environ['KAGGLE_KEY'] = k_key\n",
-            "        _os.environ['KAGGLE_USERNAME'] = k_user\n",
-            "        _k_dir = _os.path.expanduser('~/.kaggle')\n",
-            "        _os.makedirs(_k_dir, exist_ok=True)\n",
-            "        with open(_os.path.join(_k_dir, 'kaggle.json'), 'w') as _kf:\n",
-            "            _json.dump({'username': k_user, 'key': k_key}, _kf)\n",
-            "        _os.chmod(_os.path.join(_k_dir, 'kaggle.json'), 0o600)\n",
-            "    \n",
-            "    active = []\n",
-            "    if s_pat: active.append('SUITE_PAT')\n",
-            "    if g_pat: active.append('GITHUB_PAT')\n",
-            "    if k_key: active.append('KAGGLE_KEY')\n",
-            "    if g_drive: active.append('GOOGLE_DRIVE')\n",
-            "    if g_drive_json: active.append('GOOGLE_DRIVE_JSON')\n",
-            "    if g_drive: active.append('GOOGLE_DRIVE')\n",
-            "    if active:\n",
-            "        print(f'[OK] [AUTH] Colab Secrets mounted: {\", \".join(active)}')\n",
-            "    else:\n",
-            (
-                "        print('[WARNING] No PATs found in Colab Secrets! Private repositories "
-                "will fail to clone.')\n"
-            ),
-            "        print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to Colab Secrets.')\n",
-            "except Exception as e:\n",
-            "    print(f'[ERROR] Secret mounting failed: {e}')\n",
-        ]
-    return make_code_cell(source)
 
 
 def build_fuse_mount_cell() -> dict[str, Any]:
@@ -218,6 +62,7 @@ def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
         "\n",
         "def drive_sync_worker():\n",
         "    print(f'[SYNC] Background sync thread started. Target: {drive_target_dir}')\n",
+        "    last_error = None\n",
         "    while True:\n",
         "        try:\n",
         "            for f in os.listdir(ckpt_hub_dir):\n",
@@ -239,8 +84,14 @@ def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "os.path.getmtime(m_dst):\n"
         ),
         "                    shutil.copy2(m_src, m_dst)\n",
-        "        except Exception as e:\n",
-        "            pass\n",
+        "            last_error = None\n",
+        "        except OSError as sync_err:\n",
+        "            # Drive unmounted, quota full or a checkpoint mid-write (shutil.Error is an\n",
+        "            # OSError): report each new error once, retry on the next pass.\n",
+        "            if str(sync_err) != last_error:\n",
+        "                last_error = str(sync_err)\n",
+        "                print(f'[SYNC] [WARNING] Drive sync pass failed, retrying in 30 s: '\n",
+        "                      f'{type(sync_err).__name__}: {sync_err}')\n",
         "        time.sleep(30)\n",
         "\n",
         "if drive_target_dir:\n",
@@ -255,32 +106,106 @@ def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     return make_code_cell(source)
 
 
-def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
-    """Build process janitor and training coordinator launch code cell."""
-    if target == "kaggle":
-        suite_candidates = [
-            "/kaggle/working/lemgendary-training-suite",
-            "/kaggle/working/model-training/lemgendary-training-suite",
-            "/kaggle/working",
-        ]
-        default_dir = "/kaggle/working/lemgendary-training-suite"
-        env_flag = "kaggle"
-    else:
-        suite_candidates = [
-            "/content/lemgendary-training-suite",
-            "/content/model-training/lemgendary-training-suite",
-            "/content",
-        ]
-        default_dir = "/content/lemgendary-training-suite"
-        env_flag = "colab"
+_INTERRUPT_LINES = [
+    "except KeyboardInterrupt:\n",
+    (
+        "    print('\\n[TERMINATED] Training interrupted by user. Terminating training "
+        "subprocess safely...')\n"
+    ),
+    "    try:\n",
+    "        p.terminate()\n",
+    "        p.wait(timeout=5)\n",
+    "    except subprocess.TimeoutExpired:\n",
+    "        p.kill()\n",
+    "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n",
+]
+
+
+TRAINER_STREAM_LINES = [
+    "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n",
+    "try:\n",
+    "    import io\n",
+    "    with io.TextIOWrapper(p.stdout, newline='') as trainer_out:\n",
+    "        for line in trainer_out:\n",
+    "            print(line, end='', flush=True)\n",
+    "    p.wait()\n",
+]
+"""Generated trainer launch of every target: the trainer's stdout and stderr come through a
+pipe and the cell prints each line (carriage-return progress updates kept, ``newline=''``).
+
+The trainer must never inherit the kernel's file descriptors. ipykernel captures fd 1 and 2
+and forwards what a child writes there twice: echoed to the kernel's own terminal and, after
+its 0.2 s flush, as notebook output. Kaggle's log records both, so every trainer line
+appeared twice (Kaggle run 4 of ``upn_v2``). A line printed by the cell is notebook output
+only.
+"""
+
+
+_GPU_COUNT_LINES = [
+    "# GPUs are counted in a fresh interpreter: torch in this kernel process may be older\n",
+    "# than the build the dependency cell installed.\n",
+    "gpu_probe = subprocess.run(\n",
+    "    [sys.executable, '-c',\n",
+    "     'import torch; print(torch.cuda.device_count() if torch.cuda.is_available() else 0)'],\n",
+    "    capture_output=True, text=True)\n",
+    "if gpu_probe.returncode == 0 and gpu_probe.stdout.strip():\n",
+    "    num_gpus = int(gpu_probe.stdout.split()[-1])\n",
+    "else:\n",
+    "    num_gpus = 0\n",
+    "    print(f'[WARNING] GPU count probe failed with exit code {gpu_probe.returncode}: '\n",
+    "          f'{gpu_probe.stderr[-1000:]}')\n",
+]
+
+
+def _exit_gate_lines(meta: ModelNotebookMeta, target: str) -> list[str]:
+    """Stop the notebook unless the trainer exited 0 (``training.cloud.trainer_exit``).
+
+    A non-zero exit (failure, interruption, resume refusal) raises ``TrainerExitError``, so
+    the kernel ends with an error and the publish cells never run. Exit 0 with the session
+    deadline marker is the intentional deadline stop the next session resumes.
+    """
+    model_dir = f"{platform_paths(target).hub_root}/{meta.identity.model_key}"
+    return [
+        "\n",
+        "if active_suite_dir not in sys.path:\n",
+        "    sys.path.insert(0, active_suite_dir)\n",
+        "from pathlib import Path\n",
+        "from training.cloud.trainer_exit import TrainerOutcome, check_trainer_exit\n",
+        f"trainer_outcome = check_trainer_exit(p.wait(), Path({model_dir!r}))\n",
+        "if trainer_outcome is TrainerOutcome.DEADLINE_STOP:\n",
+        (
+            "    print('[DEADLINE] Training stopped at the session deadline; progress is "
+            "synced and the next session resumes it.')\n"
+        ),
+        "else:\n",
+        "    print('[OK] Training finished with exit code 0.')\n",
+    ]
+
+
+def _env_text(env: dict[str, str]) -> str:
+    """``NAME=value`` pairs of ``env`` for a launch log line."""
+    return " ".join(f"{name}={value}" for name, value in env.items())
+
+
+def build_training_cell(
+    meta: ModelNotebookMeta, target: str = "kaggle", options: LaunchOptions = DEFAULT_LAUNCH
+) -> dict[str, Any]:
+    """Build process janitor and training coordinator launch code cell.
+
+    ``options`` add trainer switches (``--override-frozen``) and the session window override
+    (environment variables the trainer's session deadline reads) to every launch path. The
+    cell ends with the trainer exit gate (:func:`_exit_gate_lines`).
+    """
+    default_dir = platform_paths(target).suite_dir
+    suite_candidates = [default_dir]
+    env_flag = "kaggle" if target == "kaggle" else "colab"
 
     launch_msg = "Forex Curriculum Orchestrator" if meta.identity.is_forex else "Training Matrix"
     cmd_dispatch = [
         "is_forex = " + str(meta.identity.is_forex) + "\n",
         f"model_key = '{meta.identity.model_key}'\n",
         f"preferred_parallel = '{meta.preferred_parallel}'\n",
-        "import torch\n",
-        "num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0\n",
+        *_GPU_COUNT_LINES,
         (
             "use_ddp = (num_gpus > 1) and (preferred_parallel == 'ddp' or (preferred_parallel != "
             "'single' and not is_forex and 'yolo' not in model_key.lower()))\n"
@@ -304,44 +229,20 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
             f"'--env', '{env_flag}', '--auto_sync']\n"
         ),
     ]
+    flags = options.trainer_flags()
+    if flags:
+        cmd_dispatch += [
+            f"cmd += {flags!r}\n",
+            f"print('[LAUNCH] Trainer switches: {' '.join(flags)}')\n",
+        ]
+    session_env = options.trainer_environment()
+    if session_env:
+        cmd_dispatch += [
+            f"os.environ.update({session_env!r})\n",
+            f"print({'[LAUNCH] Session window override: ' + _env_text(session_env)!r})\n",
+        ]
 
-    if target == "kaggle":
-        exec_lines = [
-            "p = subprocess.Popen(cmd)\n",
-            "try:\n",
-            "    p.wait()\n",
-            "except KeyboardInterrupt:\n",
-            (
-                "    print('\\n[TERMINATED] Training interrupted by user. Terminating training "
-                "subprocess safely...')\n"
-            ),
-            "    try:\n",
-            "        p.terminate()\n",
-            "        p.wait(timeout=5)\n",
-            "    except subprocess.TimeoutExpired:\n",
-            "        p.kill()\n",
-            "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n",
-        ]
-    else:
-        exec_lines = [
-            "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n",
-            "try:\n",
-            "    import io\n",
-            "    for line in io.TextIOWrapper(p.stdout, newline=''):\n",
-            "        print(line, end='', flush=True)\n",
-            "    p.wait()\n",
-            "except KeyboardInterrupt:\n",
-            (
-                "    print('\\n[TERMINATED] Training interrupted by user. Terminating training "
-                "subprocess safely...')\n"
-            ),
-            "    try:\n",
-            "        p.terminate()\n",
-            "        p.wait(timeout=5)\n",
-            "    except subprocess.TimeoutExpired:\n",
-            "        p.kill()\n",
-            "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n",
-        ]
+    exec_lines = TRAINER_STREAM_LINES + _INTERRUPT_LINES + _exit_gate_lines(meta, target)
 
     source = (
         [
@@ -349,7 +250,7 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
             f"suite_candidates = {suite_candidates!r}\n",
             (
                 "active_suite_dir = next((p for p in suite_candidates if "
-                f"os.path.exists(os.path.join(p, 'training', 'train.py'))), '{default_dir}')\n"
+                f"os.path.exists(os.path.join(p, 'training', 'train.py'))), {default_dir!r})\n"
             ),
             "os.chdir(active_suite_dir)\n",
             "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
@@ -367,8 +268,8 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
                 "{pid})...')\n"
             ),
             "                subprocess.run(['kill', '-9', str(pid)], capture_output=True)\n",
-            "except Exception:\n",
-            "    pass\n",
+            "except (OSError, ValueError, subprocess.SubprocessError) as janitor_err:\n",
+            "    print(f'[JANITOR] Stale process scan skipped: {janitor_err}')\n",
             "\n",
             (
                 f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} "
@@ -381,167 +282,77 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
     return make_code_cell(source)
 
 
+_RUN_SUITE_LINES = [
+    "\n",
+    "def _run_suite(module, *args):\n",
+    "    # Suite code that may load torch runs in a fresh interpreter, never in this kernel\n",
+    "    # process: its torch may be older than the build the dependency cell installed.\n",
+    "    with subprocess.Popen([sys.executable, '-u', '-m', module, *args], cwd=suite_dir,\n",
+    "                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,\n",
+    "                          text=True) as proc:\n",
+    "        for line in proc.stdout:\n",
+    "            print(line, end='', flush=True)\n",
+    "    return proc.returncode\n",
+]
+"""Generated helper of the publish cell: run ``python -m <module>`` from the suite checkout,
+stream its output into the cell and return its exit code."""
+
+
 def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
-    """Build the KaggleHub (4 variations) and Google Drive deployment code cell."""
-    local_path = (
-        f"/kaggle/working/LemGendaryModels/{meta.identity.model_key}"
-        if target == "kaggle"
-        else f"/content/LemGendaryModels/{meta.identity.model_key}"
-    )
+    """Build the release cell: one call into the suite's publish policy, then Google Drive.
 
-    metadata_yaml_str = ""
-    try:
-        metadata_generator = load_cloud_module("metadata_generator")
-        meta_svc = metadata_generator.KaggleMetadataService(owner_slug=meta.kaggle.username)
-        metadata_obj = meta_svc.build(meta.identity.model_key)
-        metadata_yaml_str = metadata_obj.to_yaml()
-    except (ImportError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
-        # ValueError includes MetadataValidationError (model missing from registry or
-        # invalid fields).
-        logger.warning(
-            "Could not embed Kaggle metadata for %s; push cell ships without it: %s",
-            meta.identity.model_key,
-            exc,
-        )
-        metadata_yaml_str = ""
-
+    ``training.cloud.release_publish_cli`` runs ``publish_release``, which exports every format
+    and runs ``KaggleModelSyncManager.push_model``, the same policy as the GUI and CLI push
+    (model page first, license, unchanged variations skipped, version notes with epoch, metrics
+    and suite version). Both steps run in a fresh interpreter (:data:`_RUN_SUITE_LINES`), never
+    in the notebook's own kernel process. A failed export or upload raises ``RuntimeError``,
+    so the kernel ends with an error; a failed Google Drive mirror is reported only.
+    """
+    model_key = meta.identity.model_key
+    paths = platform_paths(target)
+    local_path = f"{paths.hub_root}/{model_key}"
     source = [
-        "import os, sys, shutil, json, tempfile\n",
-        f"model_key = '{meta.identity.model_key}'\n",
-        f"local_path = '{local_path}'\n",
-        f"owner_slug = '{meta.kaggle.username}'\n",
-        f"model_slug = '{meta.kaggle.slug}'\n",
-        f"handles = {meta.kaggle.handles!r}\n",
-        f"EMBEDDED_METADATA_YAML = {metadata_yaml_str!r}\n",
+        "import os, subprocess, sys\n",
+        f"model_key = {model_key!r}\n",
+        f"local_path = {local_path!r}\n",
+        f"suite_dir = {paths.suite_dir!r}\n",
+        *_RUN_SUITE_LINES,
         "\n",
-        "print(f'[PUBLISH] Initiating 4-variation Kaggle Model Hub publish for {model_key}...')\n",
-        "if not os.path.exists(local_path):\n",
-        "    print(f'[ERROR] Local manifold directory not found at {local_path}')\n",
-        "    sys.exit(1)\n",
-        "\n",
-        "try:\n",
-        "    # 1. Run Universal Exporter to generate .pt, ONNX FP32 and ONNX FP16\n",
-        "    print('[1/4] Running Universal Exporter for all production formats...')\n",
-        "    from training.export import export_all\n",
-        "    export_res = export_all(model_key, output_dir=local_path)\n",
-        "    print(f'   -> Exporter completed: {export_res}')\n",
-        "except Exception as exp_err:\n",
-        "    print(f'   -> [NOTICE] Exporter step note: {exp_err}')\n",
-        "\n",
-        "try:\n",
-        "    # 2. Stage isolated variations under dist/kaggle/\n",
+        "print(f'[PUBLISH] Exporting and publishing {model_key} to the Kaggle Models Hub...')\n",
+        "publish_code = _run_suite('training.cloud.release_publish_cli', model_key)\n",
+        "if publish_code != 0:\n",
         (
-            "    print('[2/4] Staging 4 isolated variations (default, fp32, onnx_fp16, "
-            "onnx_fp32)...')\n"
+            "    raise RuntimeError(f'[ERROR] Release publish of {model_key} failed with exit "
+            "code {publish_code}; see the log above.')\n"
         ),
-        "    from training.export.staging import VariationStagingService\n",
-        "    from training.export.validation import StrictIsolationValidator\n",
-        "    staging_svc = VariationStagingService()\n",
-        (
-            "    staging_res = staging_svc.stage_variations(model_key, base_dir=local_path, "
-            "validate=True)\n"
-        ),
-        "    if not staging_res.success:\n",
-        "        print(f'[ERROR] Variation staging audit failed: {staging_res.errors}')\n",
-        "        sys.exit(1)\n",
-        "    print('   -> Staging isolation verification passed successfully.')\n",
-        "except Exception as stage_err:\n",
-        "    print(f'[ERROR] Staging failed: {stage_err}')\n",
-        "    sys.exit(1)\n",
         "\n",
-        "# 3. Upload each of the 4 variations via kagglehub\n",
-        "print('[3/4] Uploading 4 variations to Kaggle Models Hub...')\n",
-        "import kagglehub\n",
-        "dist_root = os.path.join(local_path, 'dist', 'kaggle')\n",
-        "var_payload_dirs = {\n",
-        (
-            "    'pytorch/default': local_path if not os.path.exists(os.path.join(dist_root, "
-            "'pytorch_default')) else os.path.join(dist_root, 'pytorch_default'),\n"
-        ),
-        "    'pytorch/fp32': os.path.join(dist_root, 'pytorch'),\n",
-        "    'onnx/fp16': os.path.join(dist_root, 'onnx_fp16'),\n",
-        "    'onnx/fp32': os.path.join(dist_root, 'onnx_fp32'),\n",
-        "}\n",
-        "\n",
-        "upload_errors = []\n",
-        "for var_key, handle in handles.items():\n",
-        "    p_dir = var_payload_dirs.get(var_key)\n",
-        "    if not p_dir or not os.path.exists(p_dir):\n",
-        "        err = f'Missing payload directory for variation {var_key}: {p_dir}'\n",
-        "        upload_errors.append(err)\n",
-        "        print(f'   [ERROR] {err}')\n",
-        "        continue\n",
-        "    print(f'   [UPLOAD] Uploading variation {var_key} -> {handle}...')\n",
-        "    temp_dir = None\n",
-        "    actual_dir = p_dir\n",
-        "    if var_key == 'pytorch/default' and p_dir == local_path:\n",
-        "        temp_dir = tempfile.mkdtemp(prefix='lemtrain_default_upload_')\n",
-        "        t_ckpt = os.path.join(temp_dir, 'checkpoints')\n",
-        "        os.makedirs(t_ckpt, exist_ok=True)\n",
-        "        src_ckpt = os.path.join(local_path, 'checkpoints')\n",
-        "        if os.path.exists(src_ckpt):\n",
-        "            for f in os.listdir(src_ckpt):\n",
-        "                if f.endswith('.pth'):\n",
-        "                    shutil.copy2(os.path.join(src_ckpt, f), os.path.join(t_ckpt, f))\n",
-        "        for rf in ('README.md', 'metrics.csv', 'history.csv'):\n",
-        "            src_rf = os.path.join(local_path, rf)\n",
-        "            if os.path.exists(src_rf):\n",
-        "                shutil.copy2(src_rf, os.path.join(temp_dir, rf))\n",
-        "        actual_dir = temp_dir\n",
-        "    try:\n",
-        "        kagglehub.model_upload(\n",
-        "            handle=handle,\n",
-        "            local_model_dir=actual_dir,\n",
-        "            version_notes=f'Automated SOTA Release: {model_key} [{var_key}]',\n",
-        "        )\n",
-        "        print(f'   [OK] Variation {var_key} uploaded successfully.')\n",
-        "    except Exception as up_err:\n",
-        "        upload_errors.append(f'[{var_key}] {up_err}')\n",
-        "        print(f'   [ERROR] Failed uploading {var_key}: {up_err}')\n",
-        "    finally:\n",
-        "        if temp_dir and os.path.exists(temp_dir):\n",
-        "            try:\n",
-        "                shutil.rmtree(temp_dir)\n",
-        "            except OSError as rm_err:\n",
-        "                print(f'   [WARNING] Could not remove temp dir {temp_dir}: {rm_err}')\n",
-        "\n",
-        "if upload_errors:\n",
-        "    print(f'[ERROR] Variation upload failed: {\"; \".join(upload_errors)}')\n",
-        "    sys.exit(1)\n",
-        "\n",
-        "print(f'[SUCCESS] Model {model_key} pushed successfully to Kaggle (4 variations)')\n",
-        "\n",
-        "# 4. Apply model and instance metadata via Kaggle API\n",
-        "print('[4/4] Synchronizing Kaggle Model and Variation metadata...')\n",
-        "meta_synced = False\n",
-        "try:\n",
-        "    from training.cloud.model_metadata import ModelMetadata\n",
-        "    from training.cloud.kaggle_api_sync import KaggleApiSyncService\n",
-        "    if EMBEDDED_METADATA_YAML:\n",
-        "        import yaml\n",
-        "        meta_dict = yaml.safe_load(EMBEDDED_METADATA_YAML)\n",
-        "        metadata = ModelMetadata.from_dict(meta_dict)\n",
-        "    else:\n",
-        "        meta_yaml_path = os.path.join(local_path, 'model_metadata.yaml')\n",
-        "        metadata = ModelMetadata.load(meta_yaml_path)\n",
-        "    api_service = KaggleApiSyncService(username=owner_slug)\n",
-        "    sync_res = api_service.sync_metadata(metadata)\n",
-        "    if sync_res.get('errors'):\n",
-        "        print(f\"   [WARN] Metadata update warnings: {sync_res['errors']}\")\n",
-        "    meta_synced = True\n",
-        "    print(f'[SUCCESS] Kaggle metadata updated successfully for {model_key}')\n",
-        "except Exception as meta_err:\n",
-        "    print(f'   [WARN] Metadata synchronization notice: {meta_err}')\n",
-        "\n",
-        "# Google Drive mirror\n",
         "print('[GDRIVE] Synchronizing production artifacts to Google Drive...')\n",
-        "try:\n",
-        "    from training.gdrive_cloud_manager import GDriveCloudManager\n",
-        "    g_mgr = GDriveCloudManager(model_key)\n",
-        "    g_mgr.sync()\n",
-        "except Exception as g_err:\n",
-        "    print(f'   [NOTICE] Google Drive sync note: {g_err}')\n",
-        "\n",
-        "print(f'[COMPLETED] Fleet publishing completed successfully for {model_key}.')\n",
+        "gdrive_code = _run_suite('training.gdrive_cloud_manager', '--model', model_key)\n",
+        "if gdrive_code == 0:\n",
+        "    print('[GDRIVE] Google Drive mirror updated.')\n",
+        "else:\n",
+        (
+            "    print(f'[GDRIVE] Google Drive mirror not updated (exit code {gdrive_code}; see "
+            "the log above).')\n"
+        ),
     ]
-    return make_code_cell(source)
+    return make_code_cell(_skip_after_deadline(source, local_path))
+
+
+def _skip_after_deadline(source: list[str], local_path: str) -> list[str]:
+    """Guard the publish steps: a run stopped at its session deadline publishes no release.
+
+    The deadline stop already synced ``pytorch/default``; the next session resumes it.
+    """
+    start = next(i for i, line in enumerate(source) if "[PUBLISH]" in line)
+    marker = f"{local_path}/{DEADLINE_MARKER}"
+    guard = [
+        f"if os.path.exists({marker!r}):\n",
+        (
+            "    print('[DEADLINE] Session deadline stop: progress is on the Hub; release "
+            "publish skipped until training finishes.')\n"
+        ),
+        "else:\n",
+    ]
+    body = [f"    {line}" if line.strip() else line for line in source[start:]]
+    return source[:start] + guard + body

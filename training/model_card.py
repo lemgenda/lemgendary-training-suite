@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import textwrap
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,13 +11,20 @@ from typing import Any
 
 import yaml
 
-from training.model_card_snippets import topology_mermaid, usage_snippet
+from training.loss_emd import registry_emd_form
+from training.model_card_snippets import SnippetInput, topology_mermaid, usage_snippet
 from training.registry import get_model_registry
+from training.registry.class_names import class_names
+from training.registry.forex_risk import risk_label, risk_per_trade
+from training.registry.preprocessing import image_preprocessing
 from training.utils.lazy_imports import load_cloud_module
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
 
 DEFAULT_HARDWARE = "NVIDIA GeForce GTX 1650 (4G VRAM)"
+
+TOP5_CLASSES = 5
+"""Class count up to which top-5 accuracy is trivially 1.0 and is left off the card."""
 
 # Registry lookups load unified_models_v2.yaml lazily: import failures, unreadable or malformed
 # YAML, and spec entries of unexpected shape are the expected failure modes.
@@ -175,9 +183,33 @@ class ModelCard:
         return self.info.get("datasets", [])
 
 
+NOT_MEASURED = "not measured"
+"""Shown for a metric the checkpoint's metrics do not hold; never a target or a guess."""
+
+
+def measured(metrics: dict[str, Any], *keys: str) -> str:
+    """The first measured value among ``keys`` (``0`` included), else :data:`NOT_MEASURED`.
+
+    Model cards used to print the SOTA target or a hardcoded figure when a metric was
+    missing (``metrics.get(k) or sota.get(k, "58.5")``), so an untrained model's card
+    showed its targets as achieved results (R2-T10).
+    """
+    for key in keys:
+        value = metrics.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if not math.isnan(number):
+            return f"{number:.4g}"
+    return NOT_MEASURED
+
+
 def _quality_summary(card: ModelCard) -> tuple[str, str]:
     metrics, model_key = card.metrics, card.model_key
-    summary = f"**PLCC**: {metrics.get('plcc', '0.90+')} | **SRCC**: {metrics.get('srcc', '0.83+')}"
+    summary = f"**PLCC**: {measured(metrics, 'plcc')} | **SRCC**: {measured(metrics, 'srcc')}"
     focus = "Aesthetics" if "aesthetic" in model_key else "Technical Integrity"
     targets = (
         "Composition, Color, Lighting, Artistic Intent"
@@ -194,65 +226,74 @@ def _quality_summary(card: ModelCard) -> tuple[str, str]:
 
 def _forex_summary(card: ModelCard) -> tuple[str, str]:
     metrics = card.metrics
-    sota = card.info.get("sota_targets", {})
-    dir_acc = metrics.get("dir_acc") or sota.get("dir_acc", "58.5")
-    win_rate = metrics.get("win_rate") or sota.get("win_rate", "56.0")
-    pf = metrics.get("profit_factor") or sota.get("profit_factor", "1.65")
-    sharpe = metrics.get("sharpe_ratio") or sota.get("sharpe_ratio", "1.85")
-    max_dd = metrics.get("max_drawdown") or sota.get("max_drawdown", "12.0")
+    dir_acc = measured(metrics, "dir_acc", "DirAcc")
+    win_rate = measured(metrics, "win_rate", "WinRate")
+    pf = measured(metrics, "profit_factor", "ProfitFactor")
+    sharpe = measured(metrics, "sharpe_ratio", "Sharpe")
+    max_dd = measured(metrics, "max_drawdown", "MaxDD")
+    # The drawdown compounds the equity at the run's risk per trade, so it is shown with it.
+    risk = risk_label(risk_per_trade(card.info))
     return (
         f"**Dir Acc**: {dir_acc}% | **Win Rate**: {win_rate}% | **PF**: {pf} | "
-        f"**Sharpe**: {sharpe} | **MaxDD**: {max_dd}%"
+        f"**Sharpe**: {sharpe} | **MaxDD @ {risk} risk**: {max_dd}%"
     ), ""
 
 
 def _detection_summary(card: ModelCard) -> tuple[str, str]:
     metrics = card.metrics
-    m50 = metrics.get("mAP50") or metrics.get("map50", "0.540")
-    m95 = metrics.get("mAP50-95") or metrics.get("map50_95", "0.390")
-    b_loss = metrics.get("Box_Loss") or (
-        f"{float(metrics['Train_Loss']):.4f}" if metrics.get("Train_Loss") else "1.20-"
-    )
-    c_loss = metrics.get("Cls_Loss") or (
-        f"{float(metrics['Val_Loss']):.4f}" if metrics.get("Val_Loss") else "0.50-"
-    )
+    m50 = measured(metrics, "mAP50", "map50")
+    m95 = measured(metrics, "mAP50-95", "map50_95")
+    b_loss = measured(metrics, "Box_Loss", "Train_Loss")
+    c_loss = measured(metrics, "Cls_Loss", "Val_Loss")
     return (
         f"**mAP50**: {m50} | **mAP50-95**: {m95} | **Box Loss**: {b_loss} | **Cls Loss**: {c_loss}"
     ), ""
 
 
 def _face_summary(card: ModelCard) -> tuple[str, str]:
+    """Measured single-box face metrics (one face per image; not WIDER FACE subsets)."""
     metrics = card.metrics
-    m_easy = metrics.get("map_easy", "0.915")
-    m_med = metrics.get("map_med", "0.890")
-    m_hard = metrics.get("map_hard", "0.750")
-    return f"**mAP (Easy)**: {m_easy} | **mAP (Medium)**: {m_med} | **mAP (Hard)**: {m_hard}", ""
+    iou = measured(metrics, "box_iou", "Box_IoU")
+    ap50 = measured(metrics, "ap50", "AP50")
+    ap50_95 = measured(metrics, "ap50_95", "AP50_95")
+    nme = measured(metrics, "landmark_nme", "Landmark_NME")
+    boxes = f"**Box IoU**: {iou} | **AP50**: {ap50} | **AP50:95**: {ap50_95}"
+    return f"{boxes} | **Landmark NME**: {nme}", ""
 
 
 def _segmentation_summary(card: ModelCard) -> tuple[str, str]:
-    miou = card.metrics.get("miou", "0.860")
-    p_acc = card.metrics.get("pixel_acc", "0.945")
+    miou = measured(card.metrics, "miou")
+    p_acc = measured(card.metrics, "pixel_acc")
     return f"**mIoU**: {miou} | **Pixel Accuracy**: {p_acc}", ""
 
 
 def _parameter_summary(card: ModelCard) -> tuple[str, str]:
     metrics = card.metrics
-    return f"**MAE**: {metrics.get('mae', '0.050')} | **MSE**: {metrics.get('mse', '0.004')}", ""
+    return f"**MAE**: {measured(metrics, 'mae')} | **MSE**: {measured(metrics, 'mse')}", ""
 
 
 def _classification_summary(card: ModelCard) -> tuple[str, str]:
+    """Top-1 (and, above 5 classes, top-5) accuracy and the registry output classes."""
     metrics = card.metrics
-    top1 = metrics.get("acc", metrics.get("accuracy", "0.980"))
-    top5 = metrics.get("acc_top5", "0.995")
-    return f"**Top-1 Accuracy**: {top1} | **Top-5 Accuracy**: {top5}", ""
+    names = class_names(card.info)
+    summary = f"**Top-1 Accuracy**: {measured(metrics, 'acc', 'accuracy')}"
+    # Top-5 accuracy is always 1.0 for a model with 5 or fewer classes.
+    if not names or len(names) > TOP5_CLASSES:
+        summary += f" | **Top-5 Accuracy**: {measured(metrics, 'acc_top5')}"
+    if not names:
+        return summary, ""
+    bullets = "".join(f"> - `{idx}`: {name}\n" for idx, name in enumerate(names))
+    return summary, (
+        f"> [!NOTE]\n> **Output Classes**: {len(names)} logits in class id order.\n>\n{bullets}"
+    )
 
 
 def _restoration_summary(card: ModelCard) -> tuple[str, str]:
     metrics = card.metrics
-    psnr = metrics.get("psnr", "32.5+")
-    ssim = metrics.get("ssim", "0.94+")
-    lpips = metrics.get("lpips", "0.06-")
-    fid = metrics.get("fid", "2.5-")
+    psnr = measured(metrics, "psnr")
+    ssim = measured(metrics, "ssim")
+    lpips = measured(metrics, "lpips")
+    fid = measured(metrics, "fid")
     return f"**PSNR**: {psnr} | **SSIM**: {ssim} | **LPIPS**: {lpips} | **FID**: {fid}", ""
 
 
@@ -277,8 +318,11 @@ def _metrics_summary(card: ModelCard) -> tuple[str, str]:
     return _restoration_summary(card)
 
 
-def _evaluation_profile(task: Any) -> tuple[str, str, str]:
-    """Return the input requirements, the validation protocol and the metrics label."""
+def _evaluation_profile(task: Any, image_input: str) -> tuple[str, str, str]:
+    """Return the input requirements, the validation protocol and the metrics label.
+
+    ``image_input`` describes the model's image preprocessing (vision tasks).
+    """
     if task == "forex":
         return (
             "\n".join(
@@ -303,9 +347,7 @@ def _evaluation_profile(task: Any) -> tuple[str, str, str]:
         return (
             "\n".join(
                 [
-                    _wrap_md_bullet(
-                        "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats."
-                    ),
+                    _wrap_md_bullet(f"- **Input Requirements**: {image_input}"),
                     _wrap_md_bullet(
                         "- **Failures**: Small bounding box occlusion and extreme aspect ratio "
                         "distortions."
@@ -321,9 +363,7 @@ def _evaluation_profile(task: Any) -> tuple[str, str, str]:
     return (
         "\n".join(
             [
-                _wrap_md_bullet(
-                    "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats."
-                ),
+                _wrap_md_bullet(f"- **Input Requirements**: {image_input}"),
                 _wrap_md_bullet(
                     "- **Failures**: Large aspect ratio distortions during standard resize phases."
                 ),
@@ -338,10 +378,10 @@ def _stability_line(info: dict[str, Any]) -> str:
     """Describe the training loss used to stabilize the manifold."""
     loss_fn = info.get("loss_fn", "l1").upper()
     if loss_fn == "EMD":
-        softmax_temp = info.get("stabilizers", {}).get("softmax_temp", 0.1)
+        form = registry_emd_form(info.get("stabilizers"))
         return (
-            "Trained using **Earth Mover's Distance (EMD)** with strict "
-            f"{softmax_temp} Temperature Anchoring."
+            f"Trained using **Earth Mover's Distance (EMD, r = 2, {form} form)** on a plain "
+            "softmax (temperature 1); temperature is calibrated post hoc only."
         )
     return f"Trained using **{loss_fn} Loss** to enforce strict manifold alignment."
 
@@ -399,13 +439,8 @@ def _paper_section(model_key: str) -> str:
     if paper:
         title_line = _wrap_md_bullet(f"- **Title**: {paper['title']}")
         authors_line = _wrap_md_bullet(f"- **Authors**: {paper['authors']}")
-        pub_line = _wrap_md_bullet(
-            f"- **Publication**: {paper['venue']} ({paper['year']})"
-        )
-        src_line = (
-            "- **Canonical Source / Link**:\n"
-            f"  [Reference Link]({paper['link']})"
-        )
+        pub_line = _wrap_md_bullet(f"- **Publication**: {paper['venue']} ({paper['year']})")
+        src_line = f"- **Canonical Source / Link**:\n  [Reference Link]({paper['link']})"
         return f"""## Scientific Research & Reference Paper
 
 {title_line}
@@ -530,19 +565,25 @@ def build_model_readme(
     card = ModelCard.load(model_key, unified_models, metrics or {})
     # Sections are rendered in the original order so warnings are logged in that order.
     fields = {
-        "usage_snippet": usage_snippet(card.task, model_key, *card.size),
+        "usage_snippet": usage_snippet(
+            card.task,
+            model_key,
+            SnippetInput(
+                *card.size,
+                classes=class_names(card.info),
+                preprocessing=image_preprocessing(card.info),
+            ),
+        ),
         "badge_str": _badges(card.res_str, epochs_trained),
         "topology_mermaid": topology_mermaid(card.task, card.res_str, card.arch),
         "stability_bullet": _wrap_md_bullet(f"- **Stability**: {_stability_line(card.info)}"),
     }
     metrics_summary, fields["vector_section"] = _metrics_summary(card)
     fields["ds_str"] = _dataset_manifest(card, unified_models)
-    fields["input_reqs_str"], fields["eval_split_str"], metrics_label = (
-        _evaluation_profile(card.task)
+    fields["input_reqs_str"], fields["eval_split_str"], metrics_label = _evaluation_profile(
+        card.task, image_preprocessing(card.info).describe()
     )
-    fields["eval_metrics_bullet"] = _wrap_md_bullet(
-        f"- **{metrics_label}**: {metrics_summary}"
-    )
+    fields["eval_metrics_bullet"] = _wrap_md_bullet(f"- **{metrics_label}**: {metrics_summary}")
     fields["paper_section"] = _paper_section(model_key)
     arch_type = card.info.get("architecture_type", "Standard Backbone")
     desc = card.info.get("description", "Premium LemGendary AI Training Suite Matrix Model.")

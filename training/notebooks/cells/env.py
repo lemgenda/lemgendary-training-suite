@@ -4,10 +4,13 @@ Embeds runtime environment configuration from LemGendary Environment Manager
 and generates hardware probe sentinel cells.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from training.cloud.session_deadline import SESSION_START_ENV
 
 from .base import make_code_cell
 
@@ -79,198 +82,129 @@ def _build_env_var_lines(env_vars: dict[str, str]) -> list[str]:
     return lines
 
 
+NO_GPU_EXIT_CODE = 3
+"""Exit code of the hardware probe when no CUDA GPU is visible."""
+
+
+@dataclass(frozen=True)
+class _SentinelText:
+    """Platform wording of the hardware sentinel."""
+
+    recommended: str
+    incompatible_remedy: str
+    no_gpu_remedy: str
+    abort: str
+
+
+_SENTINEL_TEXT = {
+    "kaggle": _SentinelText(
+        recommended="Kaggle: GPU T4 x2 (30GB total VRAM) [Recommended]",
+        incompatible_remedy=(
+            "Switch Kaggle Accelerator to GPU T4 x2 in Notebook Settings (right panel)."
+        ),
+        no_gpu_remedy=(
+            "   -> Kaggle: Right Panel -> Session Options -> Accelerator -> "
+            "GPU T4 x2 (30GB total VRAM) [Recommended]"
+        ),
+        abort="Enable GPU in Session Options and re-run from the top.",
+    ),
+    "colab": _SentinelText(
+        recommended="Google Colab: T4 GPU (or A100/L4 with Pro)",
+        incompatible_remedy=(
+            "Switch Colab Runtime to T4 GPU (Runtime -> Change runtime type -> T4 GPU)."
+        ),
+        no_gpu_remedy=(
+            "   -> Colab:  Runtime -> Change runtime type -> Hardware accelerator -> T4 GPU"
+        ),
+        abort="Enable GPU in Colab Runtime settings and re-run from the top.",
+    ),
+}
+
+
+def _hardware_probe_lines(text: _SentinelText) -> list[str]:
+    """Source of the torch hardware probe the sentinel runs in a fresh interpreter.
+
+    It exits :data:`NO_GPU_EXIT_CODE` when no CUDA GPU is visible. The lines contain no
+    backslash and no triple quote, so the cell embeds them in a triple-quoted string.
+    """
+    return [
+        "import sys\n",
+        "import torch\n",
+        "if not torch.cuda.is_available():\n",
+        "    print('[CRITICAL ERROR] [HARDWARE] NO GPU DETECTED! '\n",
+        "          'Training cannot proceed on CPU.')\n",
+        "    print('[ACTION REQUIRED] Enable GPU Accelerator before running this notebook:')\n",
+        f"    print({text.no_gpu_remedy!r})\n",
+        f"    sys.exit({NO_GPU_EXIT_CODE})\n",
+        "gpu_name = torch.cuda.get_device_name(0)\n",
+        "cap = torch.cuda.get_device_capability(0)\n",
+        "archs = torch.cuda.get_arch_list()\n",
+        "compat = any(f'{cap[0]}.{cap[1]}' in a or f'sm_{cap[0]}{cap[1]}' in a for a in archs)\n",
+        "try:\n",
+        "    probe = torch.ones(1, device='cuda') + 1.0\n",
+        "    torch.cuda.synchronize()\n",
+        "    del probe\n",
+        "except RuntimeError as kernel_err:\n",
+        "    print(f'[WARNING] [HARDWARE] CUDA kernel test failed: {kernel_err}')\n",
+        "    compat = False\n",
+        "if compat:\n",
+        "    print(f'[OK] [HARDWARE] NVIDIA {gpu_name} (sm_{cap[0]}{cap[1]}) '\n",
+        "          'validated & ready.')\n",
+        "else:\n",
+        "    print(f'[CRITICAL ERROR] [HARDWARE] NVIDIA {gpu_name} '\n",
+        "          f'(sm_{cap[0]}{cap[1]}) has no '\n",
+        "          'kernel images in the preinstalled PyTorch build.')\n",
+        f"    print({'[ACTION REQUIRED] ' + text.incompatible_remedy!r})\n",
+        "    print('[INFO] The dependency cell installs the suite torch build for this GPU.')\n",
+        "props = torch.cuda.get_device_properties(0)\n",
+        "tag = '[OK] [ACTIVE]' if compat else '[WARNING] [INCOMPATIBLE ACCELERATOR]'\n",
+        "print(f'{tag} {props.name} (Compute Capability sm_{cap[0]}{cap[1]})')\n",
+        "print(f'[OK] [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
+        "if torch.cuda.device_count() > 1:\n",
+        "    print(f'[OK] [MULTI-GPU] Detected {torch.cuda.device_count()} active GPUs.')\n",
+        "if props.total_memory / 1024**3 < 10.0:\n",
+        "    print('[WARNING] Low VRAM detected. '\n",
+        "          'Suite will enable Survival Profiles automatically.')\n",
+    ]
+
+
 def build_sentinel_cell(target: str = "kaggle") -> dict[str, Any]:
-    """Build the hardware sentinel code cell for Kaggle or Colab runtimes."""
-    env_vars = _load_runtime_env()
-    env_lines = _build_env_var_lines(env_vars)
+    """Build the hardware sentinel code cell for Kaggle or Colab runtimes.
 
+    torch is probed in a fresh interpreter, never imported into the notebook's own kernel
+    process: the dependency cell installs the suite torch build afterwards, and a torch module
+    already loaded in the kernel would then be stale (``operator torchvision::nms does not
+    exist`` when suite code later imports torchvision there). No GPU stops the notebook.
+    """
+    text = _SENTINEL_TEXT["kaggle" if target == "kaggle" else "colab"]
+    env_lines = _build_env_var_lines(_load_runtime_env())
+    header = ["import os, subprocess, sys, time\n"]
     if target == "kaggle":
-        accel_str = "GPU T4 x2 (30GB total VRAM) [Recommended]"
-        source = (
-            [
-                "import os, sys, subprocess\n",
-                "# Runtime environment (LemGendary env-manager SSOT)\n",
-            ]
-            + env_lines
-            + [
-                "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
-                f"print('[OK] [RECOMMENDED ACCELERATOR] Kaggle: {accel_str}')\n",
-                "\n",
-                "import torch\n",
-                "_compat = True\n",
-                "if torch.cuda.is_available():\n",
-                "    _gpu_name = torch.cuda.get_device_name(0)\n",
-                "    _cap = torch.cuda.get_device_capability(0)\n",
-                "    _archs = getattr(torch.cuda, 'get_arch_list', lambda: [])()\n",
-                (
-                    "    _compat = any(f'{_cap[0]}.{_cap[1]}' in a or f'sm_{_cap[0]}{_cap[1]}' in "
-                    "a for a in _archs)\n"
-                ),
-                "    try:\n",
-                "        _t = torch.ones(1, device='cuda') + 1.0\n",
-                "        torch.cuda.synchronize()\n",
-                "        del _t\n",
-                "    except Exception as _k_err:\n",
-                (
-                    "        if any(_e in str(_k_err) for _e in ['no kernel image', "
-                    "'cudaErrorNoKernelImageForDevice', 'capability']):\n"
-                ),
-                "            _compat = False\n",
-                "    if not _compat:\n",
-                (
-                    "        print(f'[CRITICAL ERROR] [HARDWARE] NVIDIA {_gpu_name} "
-                    "(sm_{_cap[0]}{_cap[1]}) has no kernel images in current PyTorch build!')\n"
-                ),
-                (
-                    "        print('[ACTION REQUIRED] Switch Kaggle Accelerator to GPU T4 x2 in "
-                    "Notebook Settings (right panel).')\n"
-                ),
-                (
-                    "        print('[AUTO-FIX] Alternatively run: !pip install --force-reinstall "
-                    "torch==2.14.1+cu126 torchvision==0.29.1+cu126 --extra-index-url "
-                    "https://download.pytorch.org/whl/cu126')\n"
-                ),
-                "    else:\n",
-                (
-                    "        print(f'[OK] [HARDWARE] NVIDIA {_gpu_name} (sm_{_cap[0]}{_cap[1]}) "
-                    "validated & ready.')\n"
-                ),
-                "\n",
-                "if not torch.cuda.is_available():\n",
-                (
-                    "    print('[CRITICAL ERROR] [HARDWARE] NO GPU DETECTED! Training cannot "
-                    "proceed on CPU.')\n"
-                ),
-                (
-                    "    print('[ACTION REQUIRED] Enable GPU Accelerator before running this "
-                    "notebook:')\n"
-                ),
-                (
-                    "    print('   -> Kaggle: Right Panel -> Session Options -> Accelerator -> "
-                    f"{accel_str}')\n"
-                ),
-                (
-                    "    raise RuntimeError('[ABORT] No GPU accelerator detected. Enable GPU in "
-                    "Session Options and re-run from the top.')\n"
-                ),
-                "else:\n",
-                "    props = torch.cuda.get_device_properties(0)\n",
-                "    cap = torch.cuda.get_device_capability(0)\n",
-                (
-                    "    _status_tag = '[OK] [ACTIVE]' if _compat else '[WARNING] [INCOMPATIBLE "
-                    "ACCELERATOR]'\n"
-                ),
-                (
-                    "    print(f'{_status_tag} {props.name} (Compute Capability "
-                    "sm_{cap[0]}{cap[1]})')\n"
-                ),
-                "    print(f'[OK] [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
-                "    if torch.cuda.device_count() > 1:\n",
-                (
-                    "        print(f'[OK] [MULTI-GPU] Detected {torch.cuda.device_count()} active "
-                    "GPUs.')\n"
-                ),
-                "    if props.total_memory / 1024**3 < 10.0:\n",
-                (
-                    "        print('[WARNING] Low VRAM detected. Suite will enable Survival "
-                    "Profiles automatically.')\n"
-                ),
-            ]
-        )
-    else:
-        source = (
-            [
-                "import os, sys, subprocess\n",
-                "# Runtime environment (LemGendary env-manager SSOT)\n",
-            ]
-            + env_lines
-            + [
-                "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
-                (
-                    "print('[OK] [RECOMMENDED ACCELERATOR] Google Colab: T4 GPU (or A100/L4 with "
-                    "Pro)')\n"
-                ),
-                "\n",
-                "import torch\n",
-                "_compat = True\n",
-                "if torch.cuda.is_available():\n",
-                "    _gpu_name = torch.cuda.get_device_name(0)\n",
-                "    _cap = torch.cuda.get_device_capability(0)\n",
-                "    _archs = getattr(torch.cuda, 'get_arch_list', lambda: [])()\n",
-                (
-                    "    _compat = any(f'{_cap[0]}.{_cap[1]}' in a or f'sm_{_cap[0]}{_cap[1]}' in "
-                    "a for a in _archs)\n"
-                ),
-                "    try:\n",
-                "        _t = torch.ones(1, device='cuda') + 1.0\n",
-                "        torch.cuda.synchronize()\n",
-                "        del _t\n",
-                "    except Exception as _k_err:\n",
-                (
-                    "        if any(_e in str(_k_err) for _e in ['no kernel image', "
-                    "'cudaErrorNoKernelImageForDevice', 'capability']):\n"
-                ),
-                "            _compat = False\n",
-                "    if not _compat:\n",
-                (
-                    "        print(f'[CRITICAL ERROR] [HARDWARE] NVIDIA {_gpu_name} "
-                    "(sm_{_cap[0]}{_cap[1]}) has no kernel images in current PyTorch build!')\n"
-                ),
-                (
-                    "        print('[ACTION REQUIRED] Switch Colab Runtime to T4 GPU (Runtime -> "
-                    "Change runtime type -> T4 GPU).')\n"
-                ),
-                (
-                    "        print('[AUTO-FIX] Alternatively run: !pip install --force-reinstall "
-                    "torch==2.14.1+cu126 torchvision==0.29.1+cu126 --extra-index-url "
-                    "https://download.pytorch.org/whl/cu126')\n"
-                ),
-                "    else:\n",
-                (
-                    "        print(f'[OK] [HARDWARE] NVIDIA {_gpu_name} (sm_{_cap[0]}{_cap[1]}) "
-                    "validated & ready.')\n"
-                ),
-                "\n",
-                "if not torch.cuda.is_available():\n",
-                (
-                    "    print('[CRITICAL ERROR] [HARDWARE] NO GPU DETECTED! Training cannot "
-                    "proceed on CPU.')\n"
-                ),
-                (
-                    "    print('[ACTION REQUIRED] Enable GPU Accelerator before running this "
-                    "notebook:')\n"
-                ),
-                (
-                    "    print('   -> Colab:  Runtime -> Change runtime type -> Hardware "
-                    "accelerator -> T4 GPU')\n"
-                ),
-                (
-                    "    raise RuntimeError('[ABORT] No GPU accelerator detected. Enable GPU in "
-                    "Colab Runtime settings and re-run from the top.')\n"
-                ),
-                "else:\n",
-                "    props = torch.cuda.get_device_properties(0)\n",
-                "    cap = torch.cuda.get_device_capability(0)\n",
-                (
-                    "    _status_tag = '[OK] [ACTIVE]' if _compat else '[WARNING] [INCOMPATIBLE "
-                    "ACCELERATOR]'\n"
-                ),
-                (
-                    "    print(f'{_status_tag} {props.name} (Compute Capability "
-                    "sm_{cap[0]}{cap[1]})')\n"
-                ),
-                "    print(f'[OK] [VRAM] {props.total_memory / 1024**3:.1f} GB')\n",
-                "    if torch.cuda.device_count() > 1:\n",
-                (
-                    "        print(f'[OK] [MULTI-GPU] Detected {torch.cuda.device_count()} active "
-                    "GPUs.')\n"
-                ),
-                "    if props.total_memory / 1024**3 < 10.0:\n",
-                (
-                    "        print('[WARNING] Low VRAM detected. Suite will enable Survival "
-                    "Profiles automatically.')\n"
-                ),
-            ]
-        )
-
+        header += [
+            "# Session start for the training loop's deadline guard (first run only)\n",
+            f"os.environ.setdefault({SESSION_START_ENV!r}, str(time.time()))\n",
+        ]
+    source = [
+        *header,
+        "# Runtime environment (LemGendary env-manager SSOT)\n",
+        *env_lines,
+        "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
+        f"print({'[OK] [RECOMMENDED ACCELERATOR] ' + text.recommended!r})\n",
+        "\n",
+        "# torch is probed in a fresh interpreter, never imported into this kernel process.\n",
+        "HW_PROBE = '''\n",
+        *_hardware_probe_lines(text),
+        "'''\n",
+        "hw_probe = subprocess.run([sys.executable, '-c', HW_PROBE],\n",
+        "                          capture_output=True, text=True)\n",
+        "print(hw_probe.stdout, end='')\n",
+        f"if hw_probe.returncode == {NO_GPU_EXIT_CODE}:\n",
+        f"    raise RuntimeError({'[ABORT] No GPU accelerator detected. ' + text.abort!r})\n",
+        "if hw_probe.returncode != 0:\n",
+        "    print(hw_probe.stderr[-2000:])\n",
+        (
+            "    raise RuntimeError(f'[ABORT] Hardware probe failed with exit code "
+            "{hw_probe.returncode}.')\n"
+        ),
+    ]
     return make_code_cell(source)

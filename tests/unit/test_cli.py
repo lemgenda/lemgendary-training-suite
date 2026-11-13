@@ -13,7 +13,9 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from training.cli.lemtrain import app
+from training.cli.sync_commands import push_all_help
 from training.model_soup import SoupCheckpointsMissing, SoupResult
+from training.registry import get_model_registry
 from training.version import __version__
 
 runner = CliRunner()
@@ -35,6 +37,16 @@ class TestLemTrainCLI(unittest.TestCase):
         self.assertIn("audit", result.output)
         self.assertIn("sync", result.output)
         self.assertIn("version", result.output)
+
+    def test_sync_push_all_help_counts_the_registry(self) -> None:
+        """``sync push --all`` help names the registry's model count, not a fixed number."""
+        count = len(get_model_registry().list_keys())
+        self.assertEqual(
+            push_all_help(), f"Push all {count} registered models to Kaggle Models Hub."
+        )
+        result = runner.invoke(app, ["sync", "push", "--help"], env={"COLUMNS": "200"})
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn(f"Push all {count} registered models", result.output)
 
     def test_cli_version(self) -> None:
         """Verify version command."""
@@ -126,7 +138,19 @@ class TestLemTrainCLI(unittest.TestCase):
             mock.patch("training.cli.lemtrain.run_training", return_value=summary) as run,
         ):
             result = runner.invoke(
-                app, ["train", "m", "-e", "2", "--lr", "0.01", "--clean", "--parallel", "dp"]
+                app,
+                [
+                    "train",
+                    "m",
+                    "-e",
+                    "2",
+                    "--lr",
+                    "0.01",
+                    "--clean",
+                    "--override-frozen",
+                    "--parallel",
+                    "dp",
+                ],
             )
         self.assertEqual(result.exit_code, 0, result.output)
         run.assert_called_once_with(
@@ -137,6 +161,7 @@ class TestLemTrainCLI(unittest.TestCase):
             preset=None,
             env="local",
             clean=True,
+            override_frozen=True,
             auto_sync=False,
             parallel="dp",
         )
@@ -192,14 +217,22 @@ class TestLemTrainCLI(unittest.TestCase):
         ):
             push.return_value = SimpleNamespace(success=True, variations={})
             result = runner.invoke(
-                app, ["sync", "push", "m", "--dry-run", "-v", "pytorch", "-u", "me"]
+                app, ["sync", "push", "m", "--dry-run", "-v", "onnx/fp16", "-u", "me"]
             )
         self.assertEqual(result.exit_code, 0, result.output)
         mgr.assert_called_once_with(username="me", hub_root=None)
         self.assertEqual(
             push.call_args.args[2],
-            {"variation": "pytorch", "version_notes": None, "dry_run": True},
+            {"variation": "onnx/fp16", "version_notes": None, "dry_run": True},
         )
+
+    def test_cli_sync_push_rejects_legacy_variation_names(self) -> None:
+        """Verify `sync push -v pytorch` (a pre-v16.9.177 name) is rejected before any push."""
+        with mock.patch("training.cli.sync_commands.KaggleModelSyncManager") as mgr:
+            result = runner.invoke(app, ["sync", "push", "m", "-v", "pytorch"])
+        self.assertNotEqual(result.exit_code, 0, result.output)
+        self.assertIn("pytorch/default", str(result.exception) + result.output)
+        mgr.assert_not_called()
 
     def test_cli_sync_push_without_model_or_all_exits_1(self) -> None:
         """Verify `sync push` with neither a model nor --all exits 1."""

@@ -24,6 +24,8 @@ from training.hardware.policy import ExecutionPolicy
 from training.hardware.sentinel import SentinelGuard
 
 if TYPE_CHECKING:
+    from training.cloud.session_deadline import SessionDeadline
+    from training.run_settings.policy import RunSettingsTracker
     from training.training.swa import SwaPhase
 
 
@@ -123,6 +125,11 @@ class RunState:
     last_train_metrics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     guards: ResumeGuards = field(default_factory=ResumeGuards)
+    session_deadline: SessionDeadline | None = None
+    """Kaggle session deadline of the run (None off Kaggle); see ``training.cloud``."""
+    run_settings: RunSettingsTracker | None = None
+    """Frozen, active and pending run settings (None without a tracker); see
+    ``training.run_settings``."""
 
 
 @dataclass

@@ -8,6 +8,7 @@ from typing import Annotated, Any
 import typer
 
 from training.cli.server_commands import is_sidecar_online, sidecar_port
+from training.cli.shared_options import OverrideFrozenOption
 from training.services.export_service import ExportService
 from training.services.training_service import TrainingService, TrainRequest
 from training.training.summary import TrainingSummary
@@ -27,6 +28,7 @@ class RunFlags:
     clean: Annotated[
         bool, typer.Option("--clean", help="Wipe local checkpoints and start fresh.")
     ] = False
+    override_frozen: OverrideFrozenOption = False
     auto_sync: Annotated[
         bool, typer.Option("--auto-sync", help="Enable cloud checkpoint synchronization.")
     ] = False

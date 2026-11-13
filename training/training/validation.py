@@ -16,16 +16,19 @@ from typing import Any
 
 import torch
 
+from training.cloud.session_deadline import SessionDeadlineReached
+from training.data.resumable_sampler import resume_start_batch
+from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import get_autocast_context
 from training.training.context import TrainingContext
 from training.training.epoch import _unpack_batch
 from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
+    deadline_reached,
     is_main_process,
-    is_oom_error,
     progress_payload,
-    release_cuda_cache,
+    progress_save_agreed,
     resume_iteration,
 )
 from training.training.val_accumulators import ValAccumulators
@@ -59,9 +62,7 @@ class _ValidationPass:
         self.step_count = 0
         start_time = time.time()
         num_batches = (
-            len(self.loader)
-            if self.loader is not None and hasattr(self.loader, "__len__")
-            else 0
+            len(self.loader) if self.loader is not None and hasattr(self.loader, "__len__") else 0
         )
         self.clock = BatchClock(num_batches, start_time, time.time())
 
@@ -89,9 +90,7 @@ class _ValidationPass:
     def forward(self, inputs: Any, targets: Any, task_idx: Any) -> tuple[Any, Any]:
         """Return ``(preds, loss)`` for one batch under autocast."""
         ctx = self.ctx
-        autocast_ctx = get_autocast_context(
-            ctx.hardware.policy, ctx.hardware.device_info.device
-        )
+        autocast_ctx = get_autocast_context(ctx.hardware.policy, ctx.hardware.device_info.device)
         with autocast_ctx:
             eval_step_fn = getattr(ctx.models.model, "eval_step", None)
             if callable(eval_step_fn):
@@ -107,11 +106,11 @@ class _ValidationPass:
     def guarded_forward(
         self, batch_idx: int, batch: tuple[Any, Any, Any]
     ) -> tuple[Any, Any] | None:
-        """Run :meth:`forward`; on CUDA out-of-memory recover and return None."""
+        """Run :meth:`forward`; on device out-of-memory recover and return None."""
         try:
             return self.forward(*batch)
-        except (torch.cuda.OutOfMemoryError, RuntimeError) as err:
-            if not is_oom_error(err):
+        except (torch.OutOfMemoryError, RuntimeError) as err:
+            if not is_out_of_memory(err):
                 raise
             self.relieve_oom(batch_idx)
             return None
@@ -121,15 +120,15 @@ class _ValidationPass:
         if hasattr(self.ctx.governance.governor, "handle_oom"):
             self.ctx.governance.governor.handle_oom()
         else:
-            release_cuda_cache()
+            release_device_memory("validation OOM relief")
         print(
             f"\n  [VAL WARNING] VRAM OOM intercepted on val batch {batch_idx + 1}. "
             "Cache evacuated and recovered.",
             flush=True,
         )
 
-    def save_progress(self) -> None:
-        """Offer an intra-epoch progress checkpoint to the lifecycle manager."""
+    def save_progress(self, force: bool = False) -> None:
+        """Offer an intra-epoch progress checkpoint to the lifecycle manager (``force``: save)."""
         ctx = self.ctx
         if ctx.governance.lifecycle_manager is None:
             return
@@ -138,7 +137,14 @@ class _ValidationPass:
             if ctx.data.val_loader is not None and hasattr(ctx.data.val_loader, "__len__")
             else 0
         )
-        ctx.governance.lifecycle_manager.check_and_save_progress(
+        manager = ctx.governance.lifecycle_manager
+        if not force and not progress_save_agreed(
+            manager.progress_due(self.step_count, total_val),
+            self.step_count,
+            ctx.hardware.device_info.device,
+        ):
+            return
+        manager.save_progress_now(
             epoch=self.epoch,
             phase="val",
             step=self.step_count,
@@ -249,12 +255,16 @@ def validate_one_epoch(
         torch.cuda.empty_cache()
 
     with torch.no_grad():
-        for batch_idx, batch in enumerate(target_loader):
+        first_batch = resume_start_batch(target_loader, run.clock.resume_step)
+        for batch_idx, batch in enumerate(target_loader, start=first_batch):
             if run.clock.skip_resumed(batch_idx, "VAL BATCH", "validation"):
                 continue
             if cancel_check is not None and cancel_check():
                 raise InterruptedError("Validation cancelled by user request.")
 
             run.step(batch_idx, batch, heavy=batch_idx % heavy_stride == 0)
+            if loader is None and deadline_reached(ctx, batch_idx + 1):
+                run.save_progress(force=True)
+                raise SessionDeadlineReached(epoch, "val", run.step_count)
 
     return summarize(ctx, run.acc, run.step_count, time.time() - run.clock.start_time)

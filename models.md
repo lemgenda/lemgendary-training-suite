@@ -107,7 +107,8 @@ Models are categorized across three operational domains:
   - Res Ladder: [640]
   - Target Manifold: `LemGendizedRetinaFace`
   - Recommended Accelerator: P100
-  - Target SOTA Metrics: mAP Easy: 0.915, Med: 0.890, Hard: 0.750
+  - Target SOTA Metrics (provisional): Box IoU: 0.80, AP50: 0.95,
+    AP50:95: 0.60, Landmark NME: 0.10
 - `ffanet_indoor`: LemGendary FFANet Dehazing (Indoor)
   - Domain: Image Manipulation & Restoration
   - Category: `restoration`

@@ -45,7 +45,12 @@ function Initialize-Environment {
         & $script:ENV_MGR install --project lemgendary-training-suite
     } else {
         Write-Ui "  [!] LemGendary Environment Manager not found at $script:ENV_MGR. Falling back to local python -m venv." -Color Yellow
-        $GlobalPy = (Get-Command python -ErrorAction SilentlyContinue).Source
+        try {
+            $GlobalPy = (Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+        } catch [System.Management.Automation.CommandNotFoundException] {
+            Write-Ui "  [!] No global python found on PATH; cannot create $script:VENV_DIR." -Color Red
+            return
+        }
         & $GlobalPy -m venv $script:VENV_DIR
         & "$script:VENV_DIR\Scripts\python.exe" -m pip install --upgrade pip wheel setuptools
         if (Test-Path $script:REQ_FILE) {
@@ -69,7 +74,7 @@ function Test-Environment {
 }
 
 function Invoke-JanitorPurge {
-    $lockedProcs = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*$script:VENV_DIR*" }
+    $lockedProcs = Get-Process | Where-Object { $_.ProcessName -eq 'python' -and $_.Path -like "*$script:VENV_DIR*" }
     foreach ($proc in $lockedProcs) {
         try {
             Stop-Process -Id $proc.Id -Force -ErrorAction Stop

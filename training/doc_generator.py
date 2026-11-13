@@ -21,7 +21,7 @@ from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.model_card import DEFAULT_HARDWARE, build_model_readme
 from training.registry import get_model_registry
 from training.utils.lazy_imports import load_hub_readme_generator, load_variation_staging
-from training.utils.paths import get_model_hub_dir
+from training.utils.paths import get_model_hub_dir, get_models_hub_root
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
 
@@ -144,9 +144,7 @@ def _read_metrics(m_csv: str, m_key: str) -> tuple[int, dict[str, Any]]:
                         epochs_trained = int(last_ep) + 1
                     else:
                         epochs_trained = len(reader)
-                    metrics = filter_metrics_row_for_fid_provenance(
-                        reader[-1], Path(m_csv).parent
-                    )
+                    metrics = filter_metrics_row_for_fid_provenance(reader[-1], Path(m_csv).parent)
         except (OSError, UnicodeDecodeError, csv.Error) as exc:
             logger.warning("Failed reading metrics %s for %s: %s", m_csv, m_key, exc)
     return epochs_trained, metrics
@@ -195,7 +193,7 @@ def main() -> int:
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     yaml_path = os.path.join(base_dir, "unified_models_v2.yaml")
-    hub_dir = os.path.abspath(os.path.join(base_dir, "..", "LemGendaryModels"))
+    hub_dir = str(get_models_hub_root())
 
     with open(yaml_path, "r", encoding="utf-8") as f:
         unified_models = yaml.safe_load(f)

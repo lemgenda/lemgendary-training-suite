@@ -60,8 +60,12 @@ def generate_synthetic_candles(n_bars: int = 600) -> pd.DataFrame:
     return df
 
 
-def run_multi_timeframe_live_pipeline():
-    """Run the multi-timeframe forex pipeline end to end and return the model outputs."""
+def run_multi_timeframe_live_pipeline() -> dict:
+    """Run the multi-timeframe forex pipeline end to end; return the model outputs.
+
+    Not a test itself (pytest collects only ``test_*``): the unittest wrapper below
+    asserts on the returned outputs.
+    """
     print("\n" + "=" * 80, flush=True)
     print(" [MT5 INFERENCE TEST] Starting Multi-Timeframe Forex Inference Suite", flush=True)
     print("=" * 80, flush=True)
