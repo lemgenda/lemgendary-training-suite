@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.191-STABLE`
+- **Version**: `v16.9.192-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,38 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.192 - MQL5 EA Computes the Model's Input Features
+
+- New `data/mt5_feature_spec.py` is the one feature specification: the 14
+  column names in model order, the indicator windows (RSI 14, MACD 12/26/9,
+  ATR 14, Bollinger 20 / 2 sigma, ATR rank 100, volume z-score 50), the
+  epsilon, the flat-band tolerance and the 300 warm-up bars.
+  `data/mt5_features.py` computes the training shards from it (values
+  unchanged) and `export/mt5_signal.py` live signals use its warm-up and all
+  14 columns (they fed the first 10, which the 14-feature model rejects).
+- New `training/export/mql5_features.py` renders the EA's `BuildFeatures`
+  from that specification: `#define` constants and one `COL_<NAME>` column
+  per feature in order; rendering fails (`FeatureSpecMismatch`) when a
+  specified column is not written. `BuildFeatures` copies `lookback + 300`
+  closed bars (`CopyRates` from shift 1, oldest first) and reproduces
+  `compute_indicators` (the pinned `pandas_ta_classic` path: SMA-seeded
+  Wilder RSI/ATR and EMA MACD/signal, population-std Bollinger width) and
+  `normalize_ohlcv` bar for bar. The EA no longer stops at a placeholder.
+- `ea_spec` refuses a model whose `in_features` differs from the
+  specification width.
+- Tests: `tests/unit/test_mql5_features.py` (a Python mirror of the MQL5
+  loops against the pandas pipeline, spec order, missing-column refusal,
+  golden text `tests/fixtures/golden/LemGendaryForexEA.mq5`; regenerate with
+  `python -m export.mt5_signal --mode mql5_ea --out
+  tests/fixtures/golden/LemGendaryForexEA.mq5`).
+- Owner check (no MetaEditor here): compile the EA in MetaEditor (0 errors,
+  0 warnings), copy the FP16 `ForexPredictor.onnx` to `MQL5\Files`, and run
+  the Strategy Tester (Every tick based on real ticks, M1 chart of a model
+  pair, a recent month). Expect no `CopyRates` or `OnnxRun` errors in the
+  journal and trades with SL/TP; for a feature spot check, print one
+  `BuildFeatures` row and compare it with `compute_indicators` +
+  `normalize_ohlcv` on the same closed bars exported from the terminal.
 
 ### v16.9.191 - Shared Single-Shard Dataset Test Fixture
 

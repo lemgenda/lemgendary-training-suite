@@ -34,8 +34,9 @@ from pathlib import Path
 import numpy as np
 
 from data.forex_spec import PAIR_INDEX, TIMEFRAME_LOOKBACK
+from data.mt5_feature_spec import WARMUP_BARS
 from data.mt5_features import (
-    PRICE_INDICATOR_FEATURES,
+    FEATURES,
     compute_indicators,
     normalize_ohlcv,
 )
@@ -252,15 +253,15 @@ def generate_signal(
 
         for tf in active_timeframes:
             seq_len = TIMEFRAME_LOOKBACK[tf]
-            # Pull enough bars to compute indicators + window
-            n_bars = seq_len + 300  # Extra for indicator warmup
+            # Pull enough bars to compute indicators + window (same warm-up as the EA)
+            n_bars = seq_len + WARMUP_BARS
 
             df = download_bars(pair, tf, n_bars=n_bars)
             df = compute_indicators(df)
             df = normalize_ohlcv(df)
 
-            avail = [c for c in PRICE_INDICATOR_FEATURES if c in df.columns]
-            arr = df[avail].values.astype(np.float32)
+            # Every model input column in specification order (data.mt5_feature_spec).
+            arr = df[FEATURES].to_numpy(dtype=np.float32)
 
             # Take last seq_len bars
             if len(arr) < seq_len:
@@ -303,7 +304,7 @@ def generate_mql5_ea(out_path: str, model_key: str = FOREX_MODEL_KEY) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_mql5_ea(ea_spec(spec.raw_config, model_file)), encoding="utf-8")
     print(f" [MQL5] Expert Advisor written: {target}")
-    print(" [MQL5] Port BuildFeatures (data/mt5_features.py) before live trading.")
+    print(" [MQL5] Compile it in MetaEditor and run the Strategy Tester before live trading.")
     return target
 
 

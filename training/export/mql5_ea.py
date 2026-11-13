@@ -18,8 +18,9 @@ source of each value:
 The EA loads the single-file IR 9 model with ``OnnxCreate`` (``MQL5\\Files``), fixes the batch
 axis to 1 with ``OnnxSetInputShape`` / ``OnnxSetOutputShape``, runs it with ``OnnxRun`` on every
 new bar and trades through ``CTrade`` with risk-based position sizing. The feature builder
-(``BuildFeatures``) must reproduce ``data.mt5_features`` (indicators and normalisation) bar
-for bar; until it is ported the EA logs that once and places no trade.
+(``BuildFeatures``) is rendered by :mod:`training.export.mql5_features` from the feature
+specification :mod:`data.mt5_feature_spec` that :mod:`data.mt5_features` computes the
+training shards with; the model's ``in_features`` must equal that specification's width.
 """
 
 from __future__ import annotations
@@ -29,8 +30,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from data.forex_spec import MT5_SYMBOLS, PAIR_INDEX, PAIR_PIP_SCALE, TIMEFRAME_LOOKBACK
+from data.mt5_feature_spec import FEATURE_NAMES
 from data.mt5_features import pair_pip_size
 from models.forex_predictor import FOREX_FEATURES_PER_BAR
+from training.export.mql5_features import render_feature_builder
 from training.export.mt5_signal import DEFAULT_TIMEFRAMES, DIRECTION_LABELS
 from training.registry.forex_risk import risk_per_trade
 
@@ -100,11 +103,16 @@ def ea_spec(model_info: Mapping[str, Any], model_file: str) -> EaSpec:
     unknown = [tf for tf in timeframes if tf not in MQL5_PERIODS]
     if unknown:
         raise ValueError(f"No MQL5 timeframe for {unknown} minutes")
+    features = int(kwargs.get("in_features") or FOREX_FEATURES_PER_BAR)
+    if features != len(FEATURE_NAMES):
+        raise ValueError(
+            f"in_features {features} differs from the {len(FEATURE_NAMES)} specified features"
+        )
     pairs = list(kwargs.get("pairs") or PAIR_INDEX)
     return EaSpec(
         model_file=model_file,
         timeframes=timeframes,
-        features=int(kwargs.get("in_features") or FOREX_FEATURES_PER_BAR),
+        features=features,
         risk_pct=risk_per_trade(model_info) * 100.0,
         symbols=_symbols(pairs),
     )
@@ -159,7 +167,6 @@ def _header(spec: EaSpec) -> list[str]:
         "datetime g_last_bar = 0;",
         "long     g_pair_index = -1;",
         "double   g_unit_price = 0.0;",
-        "bool     g_features_warned = false;",
         "",
     ]
 
@@ -230,16 +237,6 @@ void OnDeinit(const int reason)
    if(g_model != INVALID_HANDLE)
       OnnxRelease(g_model);
    g_model = INVALID_HANDLE;
-  }
-
-// Must reproduce data/mt5_features.py (compute_indicators, normalize_ohlcv) for the last
-// `lookback` closed bars of `period`, oldest first, FEATURES columns per bar.
-bool BuildFeatures(const ENUM_TIMEFRAMES period, const int lookback, matrixf &x)
-  {
-   if(!g_features_warned)
-      Print("BuildFeatures is not ported from data/mt5_features.py yet; no trade is placed.");
-   g_features_warned = true;
-   return(false);
   }
 
 double LotsForRisk(const double stop_distance)
@@ -334,5 +331,12 @@ def _on_tick(spec: EaSpec) -> list[str]:
 
 def render_mql5_ea(spec: EaSpec) -> str:
     """The ``.mq5`` source of the Expert Advisor for ``spec``."""
-    lines = [*_header(spec), *_set_shapes(spec), _LIFECYCLE.rstrip("\n"), "", *_on_tick(spec)]
+    lines = [
+        *_header(spec),
+        *render_feature_builder(),
+        *_set_shapes(spec),
+        _LIFECYCLE.rstrip("\n"),
+        "",
+        *_on_tick(spec),
+    ]
     return "\n".join(lines) + "\n"
