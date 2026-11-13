@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.220-STABLE`
+- **Version**: `v16.9.221-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.221 - Registry Parameter Counts Measured From The Code
+
+- **Bug**: `parameters_m` in `unified_models_v2.yaml` was not measured:
+  `retinaface` said 27.2 M for a 935,663-parameter network, `upn_v2` 88.5 M
+  for 928,739, `mprnet_deraining` 20.1 M for 4,582. Every value is now the
+  parameter count of the model the code builds on the CPU from the registry
+  (millions, 4 decimals); `yolov8n` is counted from Ultralytics
+  `yolov8n.yaml` (3,157,200). `ai_helper_lemgend` (a fine-tuned external
+  base) still has no value.
+- **Bug**: `lemtrain sync push --all` help said "22 registered models" while
+  the registry has 23. The help now takes the count from the registry
+  (`push_all_help`).
+- Checked, unchanged: the `LemGendizedForexUniverse` count 26,818,700 matches
+  the dataset's `dataset_info.yaml` and the sum of its `index.json` (765
+  chunks: 21,015,570 train, 5,803,130 val). The 24,850,000 in the docs
+  dataset compiler paper is the stale figure.
+- Tests: each registry `parameters_m` equals the instantiated model's count;
+  the push help names the registry's model count.
 
 ### v16.9.220 - Decode Warnings Name The Sample Key And Shard
 

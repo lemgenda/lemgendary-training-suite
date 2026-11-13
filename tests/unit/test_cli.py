@@ -13,7 +13,9 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from training.cli.lemtrain import app
+from training.cli.sync_commands import push_all_help
 from training.model_soup import SoupCheckpointsMissing, SoupResult
+from training.registry import get_model_registry
 from training.version import __version__
 
 runner = CliRunner()
@@ -35,6 +37,16 @@ class TestLemTrainCLI(unittest.TestCase):
         self.assertIn("audit", result.output)
         self.assertIn("sync", result.output)
         self.assertIn("version", result.output)
+
+    def test_sync_push_all_help_counts_the_registry(self) -> None:
+        """``sync push --all`` help names the registry's model count, not a fixed number."""
+        count = len(get_model_registry().list_keys())
+        self.assertEqual(
+            push_all_help(), f"Push all {count} registered models to Kaggle Models Hub."
+        )
+        result = runner.invoke(app, ["sync", "push", "--help"], env={"COLUMNS": "200"})
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn(f"Push all {count} registered models", result.output)
 
     def test_cli_version(self) -> None:
         """Verify version command."""

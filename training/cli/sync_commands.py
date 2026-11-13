@@ -67,13 +67,20 @@ def sync_run(
         typer.echo(f"[ERROR] Cloud sync failed: {res.get('message', '')}")
 
 
+def push_all_help() -> str:
+    """``--all`` help naming the registry's current model count (never a fixed number)."""
+    return (
+        f"Push all {len(get_model_registry().list_keys())} registered models to Kaggle Models Hub."
+    )
+
+
 @dataclass(frozen=True)
 class PushOptions:
     """Options of ``lemtrain sync push``."""
 
     all_models: Annotated[
         bool,
-        typer.Option("--all", "-a", help="Push all 22 registered models to Kaggle Models Hub."),
+        typer.Option("--all", "-a", help=push_all_help()),
     ] = False
     variation: Annotated[
         str,
