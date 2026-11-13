@@ -99,12 +99,53 @@ def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     return make_code_cell(source)
 
 
+_INTERRUPT_LINES = [
+    "except KeyboardInterrupt:\n",
+    (
+        "    print('\\n[TERMINATED] Training interrupted by user. Terminating training "
+        "subprocess safely...')\n"
+    ),
+    "    try:\n",
+    "        p.terminate()\n",
+    "        p.wait(timeout=5)\n",
+    "    except subprocess.TimeoutExpired:\n",
+    "        p.kill()\n",
+    "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n",
+]
+
+
+def _exit_gate_lines(meta: ModelNotebookMeta, target: str) -> list[str]:
+    """Stop the notebook unless the trainer exited 0 (``training.cloud.trainer_exit``).
+
+    A non-zero exit (failure, interruption, resume refusal) raises ``TrainerExitError``, so
+    the kernel ends with an error and the publish cells never run. Exit 0 with the session
+    deadline marker is the intentional deadline stop the next session resumes.
+    """
+    model_dir = f"{platform_paths(target).hub_root}/{meta.identity.model_key}"
+    return [
+        "\n",
+        "if active_suite_dir not in sys.path:\n",
+        "    sys.path.insert(0, active_suite_dir)\n",
+        "from pathlib import Path\n",
+        "from training.cloud.trainer_exit import TrainerOutcome, check_trainer_exit\n",
+        f"trainer_outcome = check_trainer_exit(p.wait(), Path({model_dir!r}))\n",
+        "if trainer_outcome is TrainerOutcome.DEADLINE_STOP:\n",
+        (
+            "    print('[DEADLINE] Training stopped at the session deadline; progress is "
+            "synced and the next session resumes it.')\n"
+        ),
+        "else:\n",
+        "    print('[OK] Training finished with exit code 0.')\n",
+    ]
+
+
 def build_training_cell(
     meta: ModelNotebookMeta, target: str = "kaggle", options: LaunchOptions = DEFAULT_LAUNCH
 ) -> dict[str, Any]:
     """Build process janitor and training coordinator launch code cell.
 
-    ``options`` add trainer switches (``--override-frozen``) to every launch path.
+    ``options`` add trainer switches (``--override-frozen``) to every launch path. The cell
+    ends with the trainer exit gate (:func:`_exit_gate_lines`).
     """
     default_dir = platform_paths(target).suite_dir
     suite_candidates = [default_dir]
@@ -148,42 +189,22 @@ def build_training_cell(
         ]
 
     if target == "kaggle":
-        exec_lines = [
+        run_lines = [
             "p = subprocess.Popen(cmd)\n",
             "try:\n",
             "    p.wait()\n",
-            "except KeyboardInterrupt:\n",
-            (
-                "    print('\\n[TERMINATED] Training interrupted by user. Terminating training "
-                "subprocess safely...')\n"
-            ),
-            "    try:\n",
-            "        p.terminate()\n",
-            "        p.wait(timeout=5)\n",
-            "    except subprocess.TimeoutExpired:\n",
-            "        p.kill()\n",
-            "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n",
         ]
     else:
-        exec_lines = [
+        run_lines = [
             "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n",
             "try:\n",
             "    import io\n",
-            "    for line in io.TextIOWrapper(p.stdout, newline=''):\n",
-            "        print(line, end='', flush=True)\n",
+            "    with io.TextIOWrapper(p.stdout, newline='') as trainer_out:\n",
+            "        for line in trainer_out:\n",
+            "            print(line, end='', flush=True)\n",
             "    p.wait()\n",
-            "except KeyboardInterrupt:\n",
-            (
-                "    print('\\n[TERMINATED] Training interrupted by user. Terminating training "
-                "subprocess safely...')\n"
-            ),
-            "    try:\n",
-            "        p.terminate()\n",
-            "        p.wait(timeout=5)\n",
-            "    except subprocess.TimeoutExpired:\n",
-            "        p.kill()\n",
-            "    print('[OK] Subprocess successfully killed. VRAM and CPU are clean.')\n",
         ]
+    exec_lines = run_lines + _INTERRUPT_LINES + _exit_gate_lines(meta, target)
 
     source = (
         [
@@ -191,7 +212,7 @@ def build_training_cell(
             f"suite_candidates = {suite_candidates!r}\n",
             (
                 "active_suite_dir = next((p for p in suite_candidates if "
-                f"os.path.exists(os.path.join(p, 'training', 'train.py'))), '{default_dir}')\n"
+                f"os.path.exists(os.path.join(p, 'training', 'train.py'))), {default_dir!r})\n"
             ),
             "os.chdir(active_suite_dir)\n",
             "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
@@ -209,8 +230,8 @@ def build_training_cell(
                 "{pid})...')\n"
             ),
             "                subprocess.run(['kill', '-9', str(pid)], capture_output=True)\n",
-            "except Exception:\n",
-            "    pass\n",
+            "except (OSError, ValueError, subprocess.SubprocessError) as janitor_err:\n",
+            "    print(f'[JANITOR] Stale process scan skipped: {janitor_err}')\n",
             "\n",
             (
                 f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} "

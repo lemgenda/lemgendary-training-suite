@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.205-STABLE`
+- **Version**: `v16.9.206-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,35 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.206 - Training Notebooks Stop On A Failed Trainer
+
+- The generated Kaggle and Colab training cell ignored the trainer's exit
+  code, so a failed, interrupted or refused training (the `resume_refusal.json`
+  of v16.9.202) let the kernel end `COMPLETE` and run the release-publish
+  cell. The cell now ends with an exit gate,
+  `training.cloud.trainer_exit.check_trainer_exit`:
+  - a non-zero exit raises `TrainerExitError`, which stops the notebook; the
+    kernel ends with an error and no later cell (release publish, Google
+    Drive mirror) runs. A resume refusal keeps its `resume_refusal.json`
+    record for the Kaggle job watcher and its text is the exception message,
+    so the job `error_message` is unchanged;
+  - exit 0 with the session deadline marker (`session_deadline.json`) is the
+    intentional 12 h session-guard stop that the next session (or the
+    `auto_resume` chain) resumes. It is reported as a deadline stop, not a
+    failure, and the publish cell still skips itself on the marker. The
+    deadline stop keeps exit code 0 so `tools/launch_ddp.py` (torchrun) and
+    the forex curriculum pass it through unchanged; a non-zero exit is a
+    failure even when the marker exists.
+- The cell's default suite folder is rendered with `repr` (it broke on
+  Windows-style test paths), the Colab trainer output pipe is closed after
+  streaming, and the stale-process scan catches `OSError`, `ValueError` and
+  `SubprocessError` and prints the reason instead of a bare
+  `except Exception: pass`.
+- New `tests/unit/test_notebook_trainer_exit_gate.py` runs the generated
+  training cell against a stub trainer (failure on Kaggle and Colab, refusal,
+  deadline stop, completion) and checks that the gate sits in the training
+  cell before the publish cell.
 
 ### v16.9.205 - Ruff Format Pass
 
