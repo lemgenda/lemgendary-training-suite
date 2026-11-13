@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.198-STABLE`
+- **Version**: `v16.9.199-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,12 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.199 - Ruff Clean Test Suite
+
+- `tests/test_vram_safety_governor.py` calls the governor's rung hook with
+  `operator.methodcaller` (ruff B009 flagged `getattr` with a constant name);
+  `tests/unit/test_fid_reeval.py` imports sorted (ruff I001) and formatted.
 
 ### v16.9.198 - Kaggle Launches Forward --override-frozen
 
