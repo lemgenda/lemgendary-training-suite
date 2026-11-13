@@ -34,6 +34,7 @@ from training.ecosystem import (
 )
 from training.notebooks.builders.base import write_notebook
 from training.notebooks.builders.kaggle import build_training_notebook
+from training.notebooks.launch_options import LaunchOptions
 from training.notebooks.registry import ModelNotebookMeta, load_registry, resolve_model_metadata
 from training.registry.kaggle_datasets import model_kaggle_dataset_handles
 
@@ -155,6 +156,8 @@ class BundleRequest:
     accelerator_id: str | None = None
     resume_version: int | None = None
     """Latest ``pytorch/default`` Hub version to mount (None: the Hub has none)."""
+    override_frozen: bool = False
+    """Trainer ``--override-frozen``: resume although a frozen run setting changed."""
 
 
 def _registry_entry(model_key: str, registry: dict[str, Any]) -> dict[str, Any]:
@@ -193,7 +196,9 @@ def build_kernel_bundle(
     """
     spec, meta = bundle_spec(request, registry)
     out_dir.mkdir(parents=True, exist_ok=True)
-    if write_notebook(build_training_notebook(meta), out_dir / spec.notebook_file) is None:
+    options = LaunchOptions(override_frozen=request.override_frozen)
+    notebook = build_training_notebook(meta, options)
+    if write_notebook(notebook, out_dir / spec.notebook_file) is None:
         raise KernelBundleError(f"Could not write the training notebook of {spec.model_key}")
     metadata = kernel_metadata(spec)
     (out_dir / METADATA_FILE).write_text(json.dumps(metadata, indent=2), encoding="utf-8")

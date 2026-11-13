@@ -10,6 +10,7 @@ from typing import Any
 from training.cloud.session_deadline import DEADLINE_MARKER
 from training.platform_paths import platform_paths
 
+from ..launch_options import DEFAULT_LAUNCH, LaunchOptions
 from ..registry import ModelNotebookMeta
 from .base import make_code_cell
 
@@ -98,8 +99,13 @@ def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     return make_code_cell(source)
 
 
-def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
-    """Build process janitor and training coordinator launch code cell."""
+def build_training_cell(
+    meta: ModelNotebookMeta, target: str = "kaggle", options: LaunchOptions = DEFAULT_LAUNCH
+) -> dict[str, Any]:
+    """Build process janitor and training coordinator launch code cell.
+
+    ``options`` add trainer switches (``--override-frozen``) to every launch path.
+    """
     default_dir = platform_paths(target).suite_dir
     suite_candidates = [default_dir]
     env_flag = "kaggle" if target == "kaggle" else "colab"
@@ -134,6 +140,12 @@ def build_training_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
             f"'--env', '{env_flag}', '--auto_sync']\n"
         ),
     ]
+    flags = options.trainer_flags()
+    if flags:
+        cmd_dispatch += [
+            f"cmd += {flags!r}\n",
+            f"print('[LAUNCH] Trainer switches: {' '.join(flags)}')\n",
+        ]
 
     if target == "kaggle":
         exec_lines = [

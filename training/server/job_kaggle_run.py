@@ -206,7 +206,12 @@ class KaggleRunJobsMixin:
         """Push the model's kernel bundle and return the watch of the new session."""
         launch = launch_kernel(
             api,
-            BundleRequest(model_key, kernel_owner=user, accelerator_id=params.get("accelerator")),
+            BundleRequest(
+                model_key,
+                kernel_owner=user,
+                accelerator_id=params.get("accelerator"),
+                override_frozen=bool(params.get("override_frozen", False)),
+            ),
         )
         self._broadcast_log(
             job_id,

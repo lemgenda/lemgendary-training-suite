@@ -16,10 +16,14 @@ def add_clean_argument(parser: argparse.ArgumentParser, help_text: str) -> None:
     )
 
 
+OVERRIDE_FROZEN_FLAG = "--override-frozen"
+"""Trainer switch accepting a changed frozen run setting on resume (default off)."""
+
+
 def add_override_frozen_argument(parser: argparse.ArgumentParser) -> None:
     """Add the ``--override-frozen`` switch (``dest="override_frozen"``)."""
     parser.add_argument(
-        "--override-frozen",
+        OVERRIDE_FROZEN_FLAG,
         dest="override_frozen",
         action="store_true",
         help=(

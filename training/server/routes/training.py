@@ -150,6 +150,13 @@ class KaggleTrainRequest(BaseModel):
     """Payload for launching Kaggle cloud training."""
 
     model: str = Field(..., description="Target model key")
+    override_frozen: bool = Field(
+        False,
+        description=(
+            "Pass --override-frozen to the kernel's trainer: resume although a frozen run "
+            "setting changed (logged and recorded)"
+        ),
+    )
     accelerator: str | None = Field(
         None,
         description=(

@@ -11,6 +11,7 @@ from ..cells.base import make_markdown_cell
 from ..cells.data import build_symlink_cell
 from ..cells.model import build_checkpoint_recovery_cell
 from ..cells.sync import build_push_cell, build_training_cell
+from ..launch_options import DEFAULT_LAUNCH, LaunchOptions
 from ..registry import ModelNotebookMeta, resolve_model_metadata
 from .base import (
     notebook_document,
@@ -21,8 +22,13 @@ from .base import (
 )
 
 
-def training_cells(meta: ModelNotebookMeta) -> list[dict[str, Any]]:
-    """The cells of the Kaggle training notebook of ``meta`` (no file is written)."""
+def training_cells(
+    meta: ModelNotebookMeta, options: LaunchOptions = DEFAULT_LAUNCH
+) -> list[dict[str, Any]]:
+    """The cells of the Kaggle training notebook of ``meta`` (no file is written).
+
+    ``options`` are the trainer switches of the launch (all off by default).
+    """
     return [
         *training_preamble_cells(meta, "kaggle", "Nuclear-Hardened"),
         make_markdown_cell(["## 6. Multi-Path Data Resolution\n"]),
@@ -30,13 +36,15 @@ def training_cells(meta: ModelNotebookMeta) -> list[dict[str, Any]]:
         make_markdown_cell(["## 7. Checkpoint & Metric Recovery\n"]),
         build_checkpoint_recovery_cell(meta, "kaggle"),
         make_markdown_cell(["## 8. Nuclear Training Matrix\n"]),
-        build_training_cell(meta, "kaggle"),
+        build_training_cell(meta, "kaggle", options),
         make_markdown_cell(["## 9. SOTA Models Hub & Google Drive Publishing (4 Variations)\n"]),
         build_push_cell(meta, "kaggle"),
     ]
 
 
-def build_training_notebook(meta: ModelNotebookMeta) -> dict[str, Any]:
+def build_training_notebook(
+    meta: ModelNotebookMeta, options: LaunchOptions = DEFAULT_LAUNCH
+) -> dict[str, Any]:
     """The Kaggle training notebook document of ``meta``.
 
     The one generator of the Kaggle training notebook: the notebook files written by
@@ -44,7 +52,7 @@ def build_training_notebook(meta: ModelNotebookMeta) -> dict[str, Any]:
     :mod:`training.cloud.kernel_bundle` (GUI, CLI) are built from it, so a kernel launched
     from the GUI runs exactly the notebook a user would upload.
     """
-    return notebook_document(training_cells(meta))
+    return notebook_document(training_cells(meta, options))
 
 
 def generate_inference_notebook(

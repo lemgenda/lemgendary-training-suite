@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.197-STABLE`
+- **Version**: `v16.9.198-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.198 - Kaggle Launches Forward --override-frozen
+
+- New `training/notebooks/launch_options.py` `LaunchOptions` (default: no
+  switch). `build_training_cell`, `training_cells` and
+  `build_training_notebook` take it; with `override_frozen` the generated
+  training cell appends `--override-frozen` to the trainer command on every
+  path (single process, `tools/launch_ddp.py`, Forex curriculum).
+- `BundleRequest.override_frozen` carries it into the kernel bundle; the GUI
+  route `POST /kaggle/train` (`KaggleTrainRequest.override_frozen`, default
+  false, also for auto-resume sessions), `lemtrain kaggle bundle|launch
+  --override-frozen` and `python -m training.kaggle_cloud_manager --action
+  launch --override-frozen` forward it. `training/cli_args.py`
+  `OVERRIDE_FROZEN_FLAG` and `training/cli/shared_options.py`
+  `OverrideFrozenOption` are the one flag definition.
+- `openapi.json` regenerated (`python -m tools.export_openapi`).
+- Tests: `tests/unit/test_override_frozen_launch.py`.
 
 ### v16.9.197 - DirectML Discovery Through torch_directml
 

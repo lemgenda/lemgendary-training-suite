@@ -6,6 +6,7 @@ import argparse
 import logging
 from typing import Any
 
+from training.cli_args import add_override_frozen_argument
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_api
@@ -31,12 +32,17 @@ def launch_kaggle_training(
     username: str | None = None,
     key: str | None = None,
     accelerator: str | None = None,
+    override_frozen: bool = False,
 ) -> KernelLaunch:
-    """Push the model's generated kernel bundle (notebook plus metadata) to Kaggle."""
+    """Push the model's generated kernel bundle (notebook plus metadata) to Kaggle.
+
+    ``override_frozen`` passes ``--override-frozen`` to the kernel's trainer.
+    """
     api, user = _authenticated_api(username, key)
-    launch = launch_kernel(
-        api, BundleRequest(model_name, kernel_owner=user, accelerator_id=accelerator)
+    request = BundleRequest(
+        model_name, kernel_owner=user, accelerator_id=accelerator, override_frozen=override_frozen
     )
+    launch = launch_kernel(api, request)
     logger.info("Kernel %s pushed (version %s)", launch.handle, launch.version_number)
     return launch
 
@@ -140,6 +146,7 @@ def main() -> None:
         default=None,
         help="Hub root for pulled artifacts (pull only; default: sibling LemGendaryModels)",
     )
+    add_override_frozen_argument(parser)
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -151,7 +158,11 @@ def main() -> None:
         logger.info("Authentication verified for Kaggle user: %s", u)
     elif args.action == "launch":
         launch_kaggle_training(
-            args.model, username=args.username, key=args.key, accelerator=args.accelerator
+            args.model,
+            username=args.username,
+            key=args.key,
+            accelerator=args.accelerator,
+            override_frozen=args.override_frozen,
         )
     elif args.action in ("monitor", "monitor_interactive"):
         monitor_kaggle_training(args.model, username=args.username)

@@ -8,6 +8,7 @@ from typing import Annotated
 
 import typer
 
+from training.cli.shared_options import OverrideFrozenOption
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS
 from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_api
@@ -50,10 +51,11 @@ def kaggle_bundle(
             "--resume-version", help="pytorch/default Hub version to mount (model_sources)."
         ),
     ] = None,
+    override_frozen: OverrideFrozenOption = False,
 ) -> None:
     """Write the kernel bundle of MODEL without pushing it (for review or a manual push)."""
     user, _ = resolve_kaggle_credentials()
-    request = BundleRequest(model, user, accelerator, resume_version)
+    request = BundleRequest(model, user, accelerator, resume_version, override_frozen)
     try:
         bundle = build_kernel_bundle(request, out)
     except KernelBundleError as exc:
@@ -67,12 +69,14 @@ def kaggle_bundle(
 def kaggle_launch(
     model: str = typer.Argument(..., help="Model key."),
     accelerator: str | None = typer.Option(None, "--accelerator", "-a", help=_ACCELERATOR_HELP),
+    override_frozen: OverrideFrozenOption = False,
 ) -> None:
     """Push the kernel bundle of MODEL to Kaggle (runs the session)."""
     user, token = resolve_kaggle_credentials()
     try:
         api = authenticated_kaggle_api(user, token)
-        launch = launch_kernel(api, BundleRequest(model, user, accelerator))
+        request = BundleRequest(model, user, accelerator, override_frozen=override_frozen)
+        launch = launch_kernel(api, request)
     except (KaggleAuthError, KernelBundleError, KernelLaunchError, *KAGGLE_API_ERRORS) as exc:
         typer.echo(f"[ERROR] {exc}", err=True)
         raise typer.Exit(code=1) from exc
