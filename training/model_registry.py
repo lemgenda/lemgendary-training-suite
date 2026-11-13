@@ -1,11 +1,14 @@
 """Legacy model utilities: VRAM audit re-export, pruned path search, robust state-dict loading."""
 
+import logging
 import os
 
 from training.hardware.probe import audit_hardware_vram
 from training.utils.model_payload import model_payload_of
 
 __all__ = ["audit_hardware_vram", "find_paths_pruned", "load_state_dict_robust"]
+
+logger = logging.getLogger("lemtrain.model_registry")
 
 
 def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
@@ -37,7 +40,8 @@ def find_paths_pruned(root_path, target_sub, max_depth=8, is_dir=False):
 
         try:
             items = os.listdir(curr)
-        except OSError:
+        except OSError as exc:
+            logger.debug("Path search skips unreadable directory %s: %s", curr, exc)
             continue
 
         for item in items:

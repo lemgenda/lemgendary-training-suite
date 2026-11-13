@@ -8,11 +8,14 @@ rewritten. ``metrics.csv`` is read, never written.
 from __future__ import annotations
 
 import csv
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("lemtrain.fid_reeval.ledger")
 
 LEDGER_NAME = "fid_provenance.csv"
 METRICS_NAME = "metrics.csv"
@@ -214,7 +217,12 @@ def reevaluated_fid_by_epoch(hub_dir: Path) -> dict[str, float]:
         try:
             out[ep] = float(val_str)
         except ValueError:
-            continue
+            logger.warning(
+                "FID ledger in %s: epoch %s value %r is not a number; row ignored.",
+                hub_dir,
+                ep,
+                val_str,
+            )
     return out
 
 

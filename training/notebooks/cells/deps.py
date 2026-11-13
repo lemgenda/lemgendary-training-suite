@@ -56,7 +56,7 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "            torch_index = f'https://download.pytorch.org/whl/{rocm_tag}'\n",
             "            accel_type = f'rocm_{rocm_tag}'\n",
             "    except ImportError:\n",
-            "        pass\n",
+            "        print('[ENV] torch is not installed yet; using the CPU index.')\n",
             "\n",
             "if accel_type == 'cpu' and platform.system() == 'Windows':\n",
             "    torch_index = 'https://download.pytorch.org/whl/cpu'\n",
@@ -86,8 +86,8 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "            import torch as _t\n",
             "            dev = 'CUDA ' + _t.version.cuda if _t.cuda.is_available() else 'CPU'\n",
             "            print(f'[OK] torch {_t.__version__} on {dev}')\n",
-            "        except Exception:\n",
-            "            pass\n",
+            "        except (ImportError, AttributeError, TypeError) as probe_err:\n",
+            "            print(f'[WARNING] Installed torch could not be probed: {probe_err}')\n",
             "    else:\n",
             (
                 "        print('[WARNING] Dependency installation finished with non-zero exit "
@@ -148,7 +148,7 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "            torch_index = f'https://download.pytorch.org/whl/{rocm_tag}'\n",
             "            accel_type = f'rocm_{rocm_tag}'\n",
             "    except ImportError:\n",
-            "        pass\n",
+            "        print('[ENV] torch is not installed yet; using the CPU index.')\n",
             "\n",
             "print(f'[ENV] Accelerator: {accel_type}')\n",
             "print(f'[ENV] PyTorch index: {torch_index}')\n",
@@ -171,8 +171,8 @@ def build_install_cell(target: str = "kaggle") -> dict[str, Any]:
             "            import torch as _t\n",
             "            dev = 'CUDA ' + _t.version.cuda if _t.cuda.is_available() else 'CPU'\n",
             "            print(f'[OK] torch {_t.__version__} on {dev}')\n",
-            "        except Exception:\n",
-            "            pass\n",
+            "        except (ImportError, AttributeError, TypeError) as probe_err:\n",
+            "            print(f'[WARNING] Installed torch could not be probed: {probe_err}')\n",
             "    else:\n",
             (
                 "        print('[WARNING] Dependency installation finished with non-zero exit "

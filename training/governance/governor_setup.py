@@ -106,6 +106,7 @@ def _initial_resolution(model_info: dict[str, Any]) -> int:
     try:
         return int(current_res) if current_res is not None else 224
     except (ValueError, TypeError):
+        logger.warning("Registry input_size %r is not an integer size; starting at 224.", raw_size)
         return 224
 
 

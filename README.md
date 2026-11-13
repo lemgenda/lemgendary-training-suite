@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.208-STABLE`
+- **Version**: `v16.9.209-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,33 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.209 - No Silent Error Swallowing In Notebook Cells And Helpers
+
+- **Colab background Drive sync**: the worker caught `Exception` and passed, so
+  an unmounted Drive or a full quota stopped checkpoint backups without a
+  word. It now catches `OSError` (which covers `shutil.Error`), prints each
+  new failure once with its type, and retries on the next 30 s pass.
+- Repo-wide search for `except ...: pass` and other silent handlers. Fixed in
+  the generated cells:
+  - `cells/data.py`: nine handlers (Forex directory listing, composite,
+    metadata, alias and flat symlinks, the Google Drive symlink, the
+    kagglehub symlink-or-copy fallback) now catch `OSError` and print what
+    failed.
+  - `cells/deps.py` (Kaggle and Colab): the torch probe before install
+    prints that torch is not installed yet; the probe after install catches
+    `ImportError`, `AttributeError` and `TypeError` and prints the cause.
+- Fixed in suite modules (typed catches that hid data): the FID ledger
+  warns when a re-evaluated value is not a number, the pruned path search
+  logs unreadable directories at debug level, the governor warns when the
+  registry `input_size` is not an integer before starting at 224, and the
+  server warns about a PID file without a process id.
+- Kept as they are: typed parse helpers whose `None` / `False` result is the
+  documented answer (number parsing, optional imports, the sidecar health
+  probe), and the handlers that log and re-raise.
+- New `tests/unit/test_notebook_silent_errors.py` parses every code cell of
+  the Kaggle and Colab training notebooks (image, Forex and RetinaFace
+  models) and fails on an untyped `except` or a handler that only passes.
 
 ### v16.9.208 - RetinaFace Measures Box IoU, AP And Landmark NME
 
