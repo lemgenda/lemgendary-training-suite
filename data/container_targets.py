@@ -51,7 +51,7 @@ from training.data.degrade import (
     apply_synthetic_degradation,
     synthesize_degradation,
 )
-from training.ignored_targets import IGNORE_TARGET
+from training.ignored_targets import IGNORE_TARGET, check_class_id
 
 logger = logging.getLogger("lemtrain.dataset")
 
@@ -237,6 +237,8 @@ class ContainerTargetsMixin:
             # No class: ignored by the loss and the accuracy instead of training as class 0.
             self.catalog.unlabeled.record(decoded.ds_name, self.spec.model_key, decoded.sample.name)
             class_idx = IGNORE_TARGET
+        else:
+            class_idx = check_class_id(class_idx, decoded.sample.name)
         return decoded.img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
     def _container_class_index(self, decoded: DecodedSample) -> int | None:

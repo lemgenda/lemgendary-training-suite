@@ -34,7 +34,7 @@ from training.data.degrade import (
     apply_synthetic_degradation,
     synthesize_degradation,
 )
-from training.ignored_targets import IGNORE_TARGET
+from training.ignored_targets import IGNORE_TARGET, check_class_id
 
 logger = logging.getLogger("lemtrain.dataset")
 
@@ -280,6 +280,8 @@ class DatasetTargetsMixin:
             ds_name = os.path.basename(sample.paths.ds_path.rstrip("/\\")) or "dataset"
             self.catalog.unlabeled.record(ds_name, self.spec.model_key, sample.paths.fname)
             class_idx = IGNORE_TARGET
+        else:
+            class_idx = check_class_id(class_idx, sample.paths.fname)
         return sample.img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
     def _label_class(self, sample: DirectorySample) -> int | None:

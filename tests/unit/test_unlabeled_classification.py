@@ -7,9 +7,11 @@ validation accuracy leaves it out and ``catalog.unlabeled`` counts it per datase
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import torch
@@ -19,7 +21,15 @@ from torch import nn
 from data.dataset import MultiTaskDataset
 from data.dataset_targets import DirectorySample, SamplePaths
 from tests.fixtures.webdataset import json_bytes, single_shard_config, webp_bytes
-from training.ignored_targets import IGNORE_TARGET, UnlabeledLog
+from training.context_data import RunSpec
+from training.core_loop import build_criterion
+from training.ignored_targets import (
+    IGNORE_TARGET,
+    IgnoreTargetCollision,
+    UnlabeledLog,
+    check_class_count,
+    check_class_id,
+)
 from training.losses import CombinedLoss
 from training.training.val_accumulators import ValAccumulators
 from training.training.val_metrics import ValBatch, update_classification
@@ -114,3 +124,48 @@ def test_log_reports_powers_of_two(caplog: pytest.LogCaptureFixture) -> None:
             log.record("ds", "m", f"s{i}")
     counts = [r.args[2] for r in caplog.records if isinstance(r.args, tuple)]
     assert counts == [1, 2, 4, 8]
+
+
+def _classifier(count: int) -> dict[str, Any]:
+    return {"kwargs": {"num_classes": count}}
+
+
+def test_class_count_must_leave_the_ignore_target_free() -> None:
+    """Up to IGNORE_TARGET classes (ids below it) pass; one more is refused clearly."""
+    check_class_count(_classifier(IGNORE_TARGET), "wide")
+    check_class_count({"class_names": [f"c{i}" for i in range(IGNORE_TARGET)]}, "named")
+    check_class_count({}, "undeclared")
+    with pytest.raises(IgnoreTargetCollision, match="declares 256 classes"):
+        check_class_count(_classifier(IGNORE_TARGET + 1), "too_wide")
+    with pytest.raises(IgnoreTargetCollision, match="declares 300 classes"):
+        check_class_count({"class_names": [f"c{i}" for i in range(300)]}, "too_wide")
+
+
+def test_criterion_setup_refuses_too_many_classes() -> None:
+    """Building a classifier's criterion fails before training starts."""
+    spec = SimpleNamespace(
+        model_info=_classifier(IGNORE_TARGET + 1),
+        model_key="too_wide",
+        task_type="classification",
+        args=SimpleNamespace(model="too_wide"),
+        device=torch.device("cpu"),
+    )
+    with pytest.raises(IgnoreTargetCollision):
+        build_criterion(cast(RunSpec, spec))
+
+
+def test_class_id_at_the_ignore_target_is_refused() -> None:
+    """A resolved class id equal to IGNORE_TARGET would be skipped, so it raises."""
+    assert check_class_id(IGNORE_TARGET - 1, "s") == IGNORE_TARGET - 1
+    with pytest.raises(IgnoreTargetCollision, match="Class id 255 of s"):
+        check_class_id(IGNORE_TARGET, "s")
+
+
+def test_directory_class_folder_at_the_ignore_target_raises(tmp_path: Path) -> None:
+    """Without registry class names, a class folder ``255`` raises instead of being ignored."""
+    dataset = _dataset(tmp_path, {"a_0001.webp": _IMAGE})
+    dataset.spec = dataclasses.replace(dataset.spec, class_names=())
+    paths = SamplePaths(fname="255/x.png", ds_path=str(tmp_path), img_path="", tgt_path="")
+    sample = DirectorySample(paths=paths, task_str="classification", img_tensor=torch.zeros(3))
+    with pytest.raises(IgnoreTargetCollision):
+        dataset.classification_item(sample)

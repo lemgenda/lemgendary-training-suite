@@ -63,3 +63,12 @@ def class_names(model_info: Mapping[str, Any] | None) -> tuple[str, ...]:
             f"class_names lists {len(names)} classes but kwargs.num_classes is {expected}"
         )
     return names
+
+
+def declared_class_count(model_info: Mapping[str, Any] | None) -> int | None:
+    """Classes the entry declares: ``kwargs.num_classes``, else its ``class_names`` count.
+
+    ``None`` when it declares neither; ``ClassNamesError`` as :func:`class_names`.
+    """
+    info = model_info or {}
+    return _num_classes(info) or len(class_names(info)) or None

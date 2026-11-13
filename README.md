@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.202-STABLE`
+- **Version**: `v16.9.203-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.203 - Class Ids Stay Below The Ignore Target
+
+- Unlabeled classification samples carry `IGNORE_TARGET` (255), the
+  cross-entropy `ignore_index`, so a real class id must stay below it. Setup
+  of a classifier's criterion now raises `IgnoreTargetCollision` when the
+  registry declares more than 255 classes (`kwargs.num_classes`, else the
+  `class_names` count; new `declared_class_count` in
+  `training/registry/class_names.py`). A model with up to 255 classes (ids
+  0..254) is unaffected.
+- Both dataset readers (loose folders and WebDataset shards) raise
+  `IgnoreTargetCollision` for a resolved class id of 255 or more (a numeric
+  label or folder, a `classes.txt` or `dataset_info.yaml` position) instead of
+  silently skipping the sample as unlabeled.
 
 ### v16.9.202 - Kaggle Jobs Report The Resume Refusal Text
 

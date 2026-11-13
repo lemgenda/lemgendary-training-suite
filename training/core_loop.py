@@ -53,6 +53,7 @@ from training.governance.yolo_governor import run_governed_yolo_training
 from training.hardware.discovery import discover_device
 from training.hardware.policy import apply_hardware_policy
 from training.hardware.sentinel import SentinelGuard
+from training.ignored_targets import check_class_count
 from training.loss_emd import registry_emd_form
 from training.losses import CombinedLoss, ForexDualLoss
 from training.model_card import build_model_readme
@@ -300,7 +301,11 @@ def uses_perceptual_loss(model_info: dict[str, Any]) -> bool:
 
 
 def build_criterion(spec: RunSpec):
-    """Forex models train on ``ForexDualLoss``; everything else on ``CombinedLoss``."""
+    """Forex models train on ``ForexDualLoss``; everything else on ``CombinedLoss``.
+
+    A classifier declaring more classes than ids below ``IGNORE_TARGET`` raises
+    ``IgnoreTargetCollision`` (``training.ignored_targets``).
+    """
     loss_fn_name = str(spec.model_info.get("loss_fn") or "").lower()
     if (
         loss_fn_name == "forex_dual"
@@ -309,6 +314,8 @@ def build_criterion(spec: RunSpec):
     ):
         criterion = ForexDualLoss()
     else:
+        if spec.task_type == "classification":
+            check_class_count(spec.model_info, spec.model_key)
         criterion = CombinedLoss(
             task_type=spec.task_type,
             stabilizers=spec.model_info.get("stabilizers"),
