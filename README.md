@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.200-STABLE`
+- **Version**: `v16.9.201-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.201 - YOLOv8n Trains From WebDataset Shards
+
+- New `data/yolo_shard_cache.py` materialises an Ultralytics dataset from a
+  manifold's shards (`shards/<split>/`, or a flat `shards/` as train) under
+  `.cache/yolo_datasets/<manifold>/`: `images/<split>/` holds the image
+  members, `labels/<split>/<key>.txt` the YOLO rows built from the JSON
+  `objects`, and `data.yaml` names the classes from `dataset_info.yaml`
+  `classes`. Without val shards, val reuses the train images.
+- Idempotent and resumable: each finished shard leaves a progress record
+  (size, modification time, files), so a rerun skips unchanged shards, redoes
+  an interrupted one, and removes a changed shard's earlier files first.
+- A sample without a JSON label is a background image (counted and logged);
+  an unreadable label, a label without `objects`, an unknown class name or a
+  class id outside `classes` raises `YoloCacheError`. A manifold without
+  `classes` raises too.
+- `generate_yolo_yaml` (the YOLOv8n governor's dataset YAML) returns the
+  cache's `data.yaml` for a sharded manifold; loose image folders keep the
+  previous config.
 
 ### v16.9.200 - Shard Labels Read Only From JSON
 
