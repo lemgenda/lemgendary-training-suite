@@ -51,6 +51,33 @@ class ProbeResult:
     max_abs_diff: float = float("nan")
     detail: str = ""
 
+    def summary(self, tolerance: ProbeTolerance) -> str:
+        """One line for the run log: verdict, worst difference and the tolerance used."""
+        verdict = "passed" if self.ok else f"failed ({self.detail})"
+        return (
+            f"{verdict}, max abs diff {self.max_abs_diff:.3g} "
+            f"(atol {tolerance.atol:g}, rtol {tolerance.rtol:g})"
+        )
+
+
+def report_parity(result: ProbeResult | None, tolerance: ProbeTolerance, shapes: str) -> str:
+    """Print the ONNX FP32 parity line of an export and return it.
+
+    The trainer configures no INFO handler, so a passed probe logged only through
+    ``logging`` never reached the Kaggle log (run 6 of ``upn_v2`` showed no parity result).
+    """
+    if result is None:
+        line = "[EXPORT] ONNX FP32 parity probe not run: the graph has no dynamic axes."
+    else:
+        line = f"[EXPORT] ONNX FP32 parity probe at {shapes}: {result.summary(tolerance)}"
+    print(line, flush=True)
+    return line
+
+
+def _shapes_text(inputs: Sequence[torch.Tensor]) -> str:
+    """Input shapes of a probe for the run log, e.g. ``1x3x192x192``."""
+    return ", ".join("x".join(str(d) for d in t.shape) for t in inputs)
+
 
 def flatten_outputs(outputs: Any) -> list[torch.Tensor]:
     """Tensors of a (nested) model output in the order the ONNX exporter flattens them."""
@@ -252,10 +279,13 @@ def build_verified_program(
     for spec in specs:
         program = capture_program(model, inputs, spec)
         if not spec.dynamic_axes:
+            report_parity(None, tolerance, "")
             return VerifiedProgram(program, spec, probes)
-        result = run_probe(model, program, probe_inputs(inputs, spec), tolerance)
+        shaped = probe_inputs(inputs, spec)
+        result = run_probe(model, program, shaped, tolerance)
         probes.append(result)
         if result.ok:
+            report_parity(result, tolerance, _shapes_text(shaped))
             return VerifiedProgram(program, spec, probes)
         logger.warning(
             "Exported graph does not generalise over dynamic axes %s (%s, max abs diff %.3g); "

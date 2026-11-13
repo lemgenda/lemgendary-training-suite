@@ -45,7 +45,7 @@ from training.checkpoint.preflight_generator import (
     generate_preflight_assets,
 )
 from training.export.base import EXPORT_ERRORS
-from training.export.universal_exporter import export_universal_model
+from training.export.universal_exporter import export_summary, export_universal_model
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
 from training.governance.measurement import drop_target_echoes
 from training.governance.metrics import (
@@ -607,10 +607,11 @@ class CheckpointLifecycleManager:
                 dummy_input=source.dummy_input,
                 stage_dist=True,
             )
-            return exported
         except EXPORT_ERRORS as exc:
             logger.error("Universal tri-format export failed for %s: %s", self.model_name, exc)
             return {}
+        print(export_summary(self.model_name, exported), flush=True)
+        return exported
 
     def refresh_readme(self, epoch: int, best_metrics: dict[str, float]) -> None:
         """Update LemGendaryModels/[ModelName]/README.md with current best metrics."""

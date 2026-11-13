@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.222-STABLE`
+- **Version**: `v16.9.223-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,22 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.223 - Export Parity And Release Files In The Run Log
+
+- **Bug**: Kaggle run 6 of `upn_v2` (v16.9.222) exported `.pt`, ONNX FP32
+  and ONNX FP16 at the end of epoch 2, but the log showed only `[EXPORT]
+  Initiating ...`. The trainer configures no INFO handler, so the passed
+  parity probe and the written files went to `logging` only and never
+  appeared.
+- `build_verified_program` now prints `[EXPORT] ONNX FP32 parity probe at
+  <shape>: passed, max abs diff <x> (atol <a>, rtol <r>)`, or says the
+  probe was not run for a graph without dynamic axes (`report_parity` in
+  `training/export/dynamo_onnx.py`).
+- `export_tri_format` prints the release files it wrote, or that it wrote
+  none (`export_summary` in `training/export/universal_exporter.py`).
+- Tests: the parity line for passed, failed and skipped probes; a verified
+  export prints it; the export summary for written and empty exports.
 
 ### v16.9.222 - Export Probe Compares Outputs On The CPU
 

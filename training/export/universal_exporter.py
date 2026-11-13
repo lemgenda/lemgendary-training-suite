@@ -112,6 +112,14 @@ def export_tri_format_yolo(
     return exported
 
 
+def export_summary(model_key: str, exported: dict[str, Path]) -> str:
+    """One run-log line naming the release files an export wrote (or that it wrote none)."""
+    if not exported:
+        return f"[EXPORT] {model_key}: no release files were written."
+    names = ", ".join(f"{key}={path.name}" for key, path in sorted(exported.items()))
+    return f"[EXPORT] {model_key}: {len(exported)} release file(s) written: {names}"
+
+
 def export_universal_model(
     model_key: str,
     model: Any | None = None,
