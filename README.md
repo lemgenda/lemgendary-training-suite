@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.213-STABLE`
+- **Version**: `v16.9.214-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,19 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.214 - The lemtrain Console Script Finds The tools Package
+
+- **Bug**: the installed `lemtrain` script failed with
+  `ModuleNotFoundError: No module named 'tools'` when started outside the
+  checkout. `training.cli.lemtrain` imports `tools.judicial_audit`, but
+  `[tool.setuptools.packages.find] include` listed only `training*`,
+  `models*`, `data*` and `export*`, so the distribution (and the editable
+  install's import map) had no `tools`.
+- `pyproject.toml` now includes `tools*`. Reinstall the suite once
+  (`pip install -e .`) so the editable import map picks it up.
+- Tests: every top-level suite package matches an include pattern, and the
+  installed `lemtrain --help` exits 0 from an unrelated folder.
 
 ### v16.9.213 - Cloud Notebooks Install The cu126 Torch Build
 
