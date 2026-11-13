@@ -14,8 +14,10 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from training.run_settings.policy import FrozenSettingsChanged
+if TYPE_CHECKING:
+    from training.run_settings.policy import FrozenSettingsChanged
 
 logger = logging.getLogger("lemtrain.run_settings")
 

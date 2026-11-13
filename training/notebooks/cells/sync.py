@@ -121,6 +121,22 @@ _INTERRUPT_LINES = [
 ]
 
 
+_GPU_COUNT_LINES = [
+    "# GPUs are counted in a fresh interpreter: torch in this kernel process may be older\n",
+    "# than the build the dependency cell installed.\n",
+    "gpu_probe = subprocess.run(\n",
+    "    [sys.executable, '-c',\n",
+    "     'import torch; print(torch.cuda.device_count() if torch.cuda.is_available() else 0)'],\n",
+    "    capture_output=True, text=True)\n",
+    "if gpu_probe.returncode == 0 and gpu_probe.stdout.strip():\n",
+    "    num_gpus = int(gpu_probe.stdout.split()[-1])\n",
+    "else:\n",
+    "    num_gpus = 0\n",
+    "    print(f'[WARNING] GPU count probe failed with exit code {gpu_probe.returncode}: '\n",
+    "          f'{gpu_probe.stderr[-1000:]}')\n",
+]
+
+
 def _exit_gate_lines(meta: ModelNotebookMeta, target: str) -> list[str]:
     """Stop the notebook unless the trainer exited 0 (``training.cloud.trainer_exit``).
 
@@ -169,8 +185,7 @@ def build_training_cell(
         "is_forex = " + str(meta.identity.is_forex) + "\n",
         f"model_key = '{meta.identity.model_key}'\n",
         f"preferred_parallel = '{meta.preferred_parallel}'\n",
-        "import torch\n",
-        "num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0\n",
+        *_GPU_COUNT_LINES,
         (
             "use_ddp = (num_gpus > 1) and (preferred_parallel == 'ddp' or (preferred_parallel != "
             "'single' and not is_forex and 'yolo' not in model_key.lower()))\n"
@@ -263,42 +278,59 @@ def build_training_cell(
     return make_code_cell(source)
 
 
+_RUN_SUITE_LINES = [
+    "\n",
+    "def _run_suite(module, *args):\n",
+    "    # Suite code that may load torch runs in a fresh interpreter, never in this kernel\n",
+    "    # process: its torch may be older than the build the dependency cell installed.\n",
+    "    with subprocess.Popen([sys.executable, '-u', '-m', module, *args], cwd=suite_dir,\n",
+    "                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,\n",
+    "                          text=True) as proc:\n",
+    "        for line in proc.stdout:\n",
+    "            print(line, end='', flush=True)\n",
+    "    return proc.returncode\n",
+]
+"""Generated helper of the publish cell: run ``python -m <module>`` from the suite checkout,
+stream its output into the cell and return its exit code."""
+
+
 def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build the release cell: one call into the suite's publish policy, then Google Drive.
 
-    ``publish_release`` exports every format and runs ``KaggleModelSyncManager.push_model``,
-    the same policy as the GUI and CLI push (model page first, license, unchanged variations
-    skipped, version notes with epoch, metrics and suite version). An export or upload failure
-    stops the cell with exit code 1.
+    ``training.cloud.release_publish_cli`` runs ``publish_release``, which exports every format
+    and runs ``KaggleModelSyncManager.push_model``, the same policy as the GUI and CLI push
+    (model page first, license, unchanged variations skipped, version notes with epoch, metrics
+    and suite version). Both steps run in a fresh interpreter (:data:`_RUN_SUITE_LINES`), never
+    in the notebook's own kernel process. A failed export or upload raises ``RuntimeError``,
+    so the kernel ends with an error; a failed Google Drive mirror is reported only.
     """
     model_key = meta.identity.model_key
-    local_path = f"{platform_paths(target).hub_root}/{model_key}"
+    paths = platform_paths(target)
+    local_path = f"{paths.hub_root}/{model_key}"
     source = [
-        "import os, sys\n",
+        "import os, subprocess, sys\n",
         f"model_key = {model_key!r}\n",
         f"local_path = {local_path!r}\n",
+        f"suite_dir = {paths.suite_dir!r}\n",
+        *_RUN_SUITE_LINES,
         "\n",
         "print(f'[PUBLISH] Exporting and publishing {model_key} to the Kaggle Models Hub...')\n",
-        "from training.cloud.release_publish import publish_release\n",
-        "release = publish_release(model_key)\n",
-        "for var_key, var_res in release.variations.items():\n",
-        "    if not var_res.success:\n",
-        "        print(f'   [ERROR] {var_key}: {var_res.error}')\n",
-        "    elif var_res.skipped:\n",
-        "        print(f'   [UNCHANGED] {var_key}: no new version ({var_res.handle})')\n",
-        "    else:\n",
-        "        print(f'   [OK] {var_key} -> {var_res.handle}')\n",
-        "if not release.success:\n",
-        "    print(f'[ERROR] Release publish failed: {release.errors}')\n",
-        "    sys.exit(1)\n",
-        "print(f'[SUCCESS] Release of {model_key} published to the Kaggle Models Hub.')\n",
+        "publish_code = _run_suite('training.cloud.release_publish_cli', model_key)\n",
+        "if publish_code != 0:\n",
+        (
+            "    raise RuntimeError(f'[ERROR] Release publish of {model_key} failed with exit "
+            "code {publish_code}; see the log above.')\n"
+        ),
         "\n",
         "print('[GDRIVE] Synchronizing production artifacts to Google Drive...')\n",
-        "from training.gdrive_cloud_manager import GDriveCloudManager\n",
-        "if GDriveCloudManager(model_key).sync():\n",
+        "gdrive_code = _run_suite('training.gdrive_cloud_manager', '--model', model_key)\n",
+        "if gdrive_code == 0:\n",
         "    print('[GDRIVE] Google Drive mirror updated.')\n",
         "else:\n",
-        "    print('[GDRIVE] Google Drive mirror not updated (see the log above).')\n",
+        (
+            "    print(f'[GDRIVE] Google Drive mirror not updated (exit code {gdrive_code}; see "
+            "the log above).')\n"
+        ),
     ]
     return make_code_cell(_skip_after_deadline(source, local_path))
 

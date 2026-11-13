@@ -90,7 +90,7 @@ def test_gate_sits_in_training_cell_before_publish() -> None:
     meta = resolve_model_metadata(_KEY, load_registry(), {})
     sources = [_source(c) for c in build_training_notebook(meta)["cells"]]
     training = next(i for i, s in enumerate(sources) if "subprocess.Popen(cmd" in s)
-    publish = next(i for i, s in enumerate(sources) if "publish_release(model_key)" in s)
+    publish = next(i for i, s in enumerate(sources) if "release_publish_cli" in s)
     assert training < publish
     gate = sources[training]
     assert "check_trainer_exit(p.wait(), Path(" in gate

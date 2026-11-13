@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.211-STABLE`
+- **Version**: `v16.9.212-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,32 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.212 - Notebook Cells Run Torch Code In A Fresh Interpreter
+
+- **Live run finding**: the kernel process of a Kaggle or Colab notebook
+  imported the preinstalled torch in the hardware sentinel, before the
+  dependency cell installed the suite build. Any later cell that imported
+  torch or suite code reaching torchvision in that process got a stale
+  torch (`operator torchvision::nms does not exist`), and the dependency
+  cell's `[OK] torch ...` line reported the old in-memory build.
+- No generated training cell imports torch or torch-loading suite code in
+  the kernel process any more. The hardware sentinel, the accelerator
+  fallback and the post-install torch version run as `python -c` probes;
+  the training cell counts GPUs in a probe; the recovery cell reads stored
+  epochs with the new `python -m training.utils.epoch_probe`; the publish
+  cell runs the new `python -m training.cloud.release_publish_cli` and
+  `python -m training.gdrive_cloud_manager --model`. Every subprocess exit
+  code is checked: a failed sentinel, epoch probe or release publish raises
+  `RuntimeError`; a failed Google Drive mirror is reported.
+- The one in-process suite import left is the trainer exit gate.
+  `training.run_settings.refusal` now imports its policy type for type
+  checking only, so `training.cloud.trainer_exit` loads neither torch nor
+  numpy.
+- Tests: an AST audit of every Kaggle and Colab training cell (no torch, no
+  suite import but the exit gate), a fresh-interpreter check that the gate
+  is torch-free, the epoch probe and release CLI exit codes, and the
+  publish cell against a stub checkout.
 
 ### v16.9.211 - Trainer Exit Gate No Longer Imports Torchvision
 

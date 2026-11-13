@@ -38,13 +38,25 @@ def build_hub_prep_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
 
 
 def _suite_import_lines(target: str) -> list[str]:
-    """Put the suite checkout on ``sys.path`` and import the one model-file loader."""
+    """Put the suite checkout on ``sys.path`` and import the one model-file loader.
+
+    Only the interactive loader cell uses this: it loads weights into the notebook process on
+    purpose. The training notebook's recovery cell reads epochs in a fresh interpreter.
+    """
     return [
         "import glob, os, shutil, sys\n",
         f"suite_path = {platform_paths(target).suite_dir!r}\n",
         "if suite_path not in sys.path:\n",
         "    sys.path.insert(0, suite_path)\n",
         "from training.utils.model_payload import checkpoint_epoch, load_model_payload\n",
+    ]
+
+
+def _recovery_preamble_lines(target: str) -> list[str]:
+    """The suite checkout the recovery cell runs its epoch probe in (no suite import here)."""
+    return [
+        "import json, os, shutil, subprocess, sys\n",
+        f"suite_path = {platform_paths(target).suite_dir!r}\n",
     ]
 
 
@@ -101,26 +113,47 @@ _RECOVERY_HELPERS = [
     "                queue.append((entry.path, depth + 1))\n",
     "    return hits\n",
     "\n",
+    "def _stored_epochs(paths):\n",
+    "    # The suite reads the epochs in a fresh interpreter: torch in this kernel process may\n",
+    "    # be older than the build the dependency cell installed.\n",
+    "    if not paths:\n",
+    "        return {}\n",
+    "    probe = subprocess.run([sys.executable, '-m', 'training.utils.epoch_probe', *paths],\n",
+    "                           cwd=suite_path, capture_output=True, text=True)\n",
+    "    if probe.stderr.strip():\n",
+    "        print(probe.stderr.rstrip()[-2000:])\n",
+    "    if probe.returncode != 0 or not probe.stdout.strip():\n",
+    "        raise RuntimeError(f'[RECOVERY] Epoch probe failed with exit code '\n",
+    "                           f'{probe.returncode}')\n",
+    "    return json.loads(probe.stdout.strip().splitlines()[-1])\n",
+    "\n",
+    "candidates = []\n",
     "adopted = {}\n",
-    "def _adopt(src, label):\n",
+    "def _adopt_candidates():\n",
     "    # Keep the checkpoint with the newest stored epoch; never compare file sizes.\n",
-    "    name = _target_name(os.path.basename(src))\n",
-    "    dst = os.path.join(ckpt_hub_dir, name)\n",
-    "    src_epoch = checkpoint_epoch(src)\n",
-    "    if src_epoch is None:\n",
-    "        print(f'   -> [SKIP] {src}: no readable epoch')\n",
-    "        return\n",
-    "    dst_epoch = checkpoint_epoch(dst) if os.path.exists(dst) else None\n",
-    "    if dst_epoch is not None and src_epoch <= dst_epoch:\n",
-    "        return\n",
-    "    shutil.copy2(src, dst)\n",
-    "    adopted[name] = (src_epoch, os.path.dirname(src))\n",
-    "    print(f'   -> [OK] {label}: {os.path.basename(src)} (epoch {src_epoch}) -> {name}')\n",
+    "    names = [_target_name(os.path.basename(src)) for src, _ in candidates]\n",
+    "    held = {os.path.join(ckpt_hub_dir, n) for n in names}\n",
+    "    probed = {src for src, _ in candidates} | {p for p in held if os.path.exists(p)}\n",
+    "    epochs = _stored_epochs(sorted(probed))\n",
+    "    for (src, label), name in zip(candidates, names):\n",
+    "        dst = os.path.join(ckpt_hub_dir, name)\n",
+    "        src_epoch = epochs.get(src)\n",
+    "        if src_epoch is None:\n",
+    "            print(f'   -> [SKIP] {src}: no readable epoch')\n",
+    "            continue\n",
+    "        dst_epoch = epochs.get(dst) if os.path.exists(dst) else None\n",
+    "        if dst_epoch is not None and src_epoch <= dst_epoch:\n",
+    "            continue\n",
+    "        shutil.copy2(src, dst)\n",
+    "        epochs[dst] = src_epoch\n",
+    "        adopted[name] = (src_epoch, os.path.dirname(src))\n",
+    "        print(f'   -> [OK] {label}: {os.path.basename(src)} (epoch {src_epoch}) -> {name}')\n",
     "\n",
 ]
 
 _METRICS_LINES = [
     "\n",
+    "_adopt_candidates()\n",
     "latest = adopted.get('latest.pth') or adopted.get('latest.pt')\n",
     "if latest:\n",
     "    src_dir = latest[1]\n",
@@ -145,10 +178,12 @@ def build_checkpoint_recovery_cell(
     Kaggle slug or the model key are used only when their checkpoints are newer. Colab: Google
     Drive folders named after the slug or key. Every choice compares the epoch stored in the
     checkpoint (``training.utils.model_payload.checkpoint_epoch``), never the file size, so a
-    pinned old ``model_sources`` version cannot replace newer weights.
+    pinned old ``model_sources`` version cannot replace newer weights. The epochs are read
+    by ``training.utils.epoch_probe`` in a fresh interpreter, never by torch in the notebook's
+    own kernel process.
     """
     source = [
-        *_suite_import_lines(target),
+        *_recovery_preamble_lines(target),
         *_model_dir_lines(meta, target),
         "print(f'[RECOVERY] Looking for {model_key} checkpoints ({model_slug})...')\n",
         *_RECOVERY_HELPERS,
@@ -167,11 +202,11 @@ def build_checkpoint_recovery_cell(
             "    print(f'   -> [KAGGLEHUB] No Hub version: {kh_err}')\n",
             "if hub_dir and os.path.isdir(hub_dir):\n",
             "    for src in _model_files(hub_dir):\n",
-            "        _adopt(src, 'Hub latest')\n",
+            "        candidates.append((src, 'Hub latest'))\n",
             "if os.path.isdir('/kaggle/input'):\n",
             "    for mount in _model_dirs('/kaggle/input'):\n",
             "        for src in _model_files(mount):\n",
-            "            _adopt(src, 'Input mount (newer)')\n",
+            "            candidates.append((src, 'Input mount (newer)'))\n",
         ]
     else:
         source += [
@@ -179,7 +214,7 @@ def build_checkpoint_recovery_cell(
             "if os.path.isdir(drive_root):\n",
             "    for folder in _model_dirs(drive_root):\n",
             "        for src in _model_files(folder):\n",
-            "            _adopt(src, 'Google Drive')\n",
+            "            candidates.append((src, 'Google Drive'))\n",
         ]
     source += _METRICS_LINES
     return make_code_cell(source)

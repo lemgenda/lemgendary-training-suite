@@ -27,6 +27,7 @@ from training.platform_paths import PlatformPaths, platform_paths
 from training.utils.model_payload import checkpoint_epoch
 
 _KEY = "nima_aesthetic_mobile"
+_SUITE_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _source(cell: dict[str, Any]) -> str:
@@ -107,6 +108,10 @@ def _recovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path
     monkeypatch.setitem(sys.modules, "kagglehub", fake)
     monkeypatch.setitem(sys.modules, "kagglehub.exceptions", fake.exceptions)
     monkeypatch.setattr(sys, "path", list(sys.path))
+    # The cell runs the epoch probe from the (empty) temporary checkout; the real suite
+    # package resolves through PYTHONPATH in that fresh interpreter.
+    Path(paths.suite_dir).mkdir(parents=True)
+    monkeypatch.setenv("PYTHONPATH", str(_SUITE_ROOT))
     return {"ckpt_dir": ckpt_dir, "model_dir": ckpt_dir.parent}
 
 

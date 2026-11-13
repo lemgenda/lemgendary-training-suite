@@ -168,7 +168,8 @@ def test_routes_accept_only_variation_keys(fake_workspace: Path) -> None:
 def test_notebook_release_calls_the_suite() -> None:
     """The publish cell has no upload loop of its own: it calls ``publish_release``."""
     source = "".join(build_push_cell(resolve_model_metadata(_MODEL), "kaggle")["source"])
-    assert "publish_release(model_key)" in source
+    assert "release_publish_cli" in source
+    assert "from training" not in source
     assert "model_upload" not in source
     assert "except Exception" not in source
 
