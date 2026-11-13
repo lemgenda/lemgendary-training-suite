@@ -13,6 +13,7 @@ import yaml
 
 from training.ecosystem import kaggle_dataset_handle, kaggle_owner
 from training.registry.kaggle_datasets import model_kaggle_dataset_handles
+from training.registry.preprocessing import UNIT, ImagePreprocessing, image_preprocessing
 from training.utils.lazy_imports import load_cloud_module
 
 logger = logging.getLogger("lemtrain.notebooks.registry")
@@ -76,6 +77,7 @@ class ModelNotebookMeta:
     kaggle: KaggleNotebookHandles
     input_size: tuple[int, int]
     preferred_parallel: str = ""
+    preprocessing: ImagePreprocessing = UNIT
 
 
 def model_dataset_list(model_info: dict[str, Any]) -> list[str]:
@@ -206,6 +208,7 @@ def resolve_model_metadata(
         ),
         input_size=_notebook_input_size(model_info.get("input_size", [3, 256, 256])),
         preferred_parallel=str(model_info.get("preferred_parallel", "") or ""),
+        preprocessing=image_preprocessing(model_info),
     )
 
 

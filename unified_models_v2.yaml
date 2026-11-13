@@ -1424,6 +1424,8 @@ universal_nsfw_classification:
     - neutral
     - porn
     - sexy
+  preprocessing:
+    normalization: unit
   datasets:
     - LemGendizedClassificationMaster
   sota_targets:

@@ -25,9 +25,10 @@ from tests.fixtures.webdataset import json_bytes, single_shard_config, webp_byte
 from training.core_loop import load_model_info
 from training.export.pytorch_exporter import pt_metadata
 from training.model_card import build_model_readme
-from training.model_card_snippets import usage_snippet
+from training.model_card_snippets import SnippetInput, usage_snippet
 from training.registry import get_model_registry
 from training.registry.class_names import ClassNamesError, class_names
+from training.registry.preprocessing import UNIT
 
 MODEL_KEY = "universal_nsfw_classification"
 NSFW_CLASSES = ("drawings", "hentai", "neutral", "porn", "sexy")
@@ -170,7 +171,7 @@ def test_model_card_lists_the_classes() -> None:
 
 def test_usage_snippet_without_names_prints_ids() -> None:
     """A classifier without registry names gets an id-only snippet."""
-    snippet = usage_snippet("classification", "toy", 32, 32)
+    snippet = usage_snippet("classification", "toy", SnippetInput(32, 32))
     assert "CLASS_NAMES = None" in snippet
     assert 'get_model("toy")' in snippet
 
@@ -179,5 +180,12 @@ def test_pt_export_metadata_carries_the_class_names() -> None:
     """The ``.pt`` metadata maps logit indices to class names; other models carry none."""
     registry = get_model_registry()
     metadata = pt_metadata(MODEL_KEY, registry.get_model(MODEL_KEY))
-    assert metadata == {"model_key": MODEL_KEY, "class_names": list(NSFW_CLASSES)}
-    assert pt_metadata("ultrazoom", registry.get_model("ultrazoom")) == {"model_key": "ultrazoom"}
+    assert metadata == {
+        "model_key": MODEL_KEY,
+        "preprocessing": UNIT.metadata(),
+        "class_names": list(NSFW_CLASSES),
+    }
+    assert pt_metadata("ultrazoom", registry.get_model("ultrazoom")) == {
+        "model_key": "ultrazoom",
+        "preprocessing": UNIT.metadata(),
+    }

@@ -12,10 +12,11 @@ from typing import Any
 import yaml
 
 from training.loss_emd import registry_emd_form
-from training.model_card_snippets import topology_mermaid, usage_snippet
+from training.model_card_snippets import SnippetInput, topology_mermaid, usage_snippet
 from training.registry import get_model_registry
 from training.registry.class_names import class_names
 from training.registry.forex_risk import risk_label, risk_per_trade
+from training.registry.preprocessing import image_preprocessing
 from training.utils.lazy_imports import load_cloud_module
 
 logger = logging.getLogger("lemtrain.docs.doc_generator")
@@ -314,8 +315,11 @@ def _metrics_summary(card: ModelCard) -> tuple[str, str]:
     return _restoration_summary(card)
 
 
-def _evaluation_profile(task: Any) -> tuple[str, str, str]:
-    """Return the input requirements, the validation protocol and the metrics label."""
+def _evaluation_profile(task: Any, image_input: str) -> tuple[str, str, str]:
+    """Return the input requirements, the validation protocol and the metrics label.
+
+    ``image_input`` describes the model's image preprocessing (vision tasks).
+    """
     if task == "forex":
         return (
             "\n".join(
@@ -340,9 +344,7 @@ def _evaluation_profile(task: Any) -> tuple[str, str, str]:
         return (
             "\n".join(
                 [
-                    _wrap_md_bullet(
-                        "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats."
-                    ),
+                    _wrap_md_bullet(f"- **Input Requirements**: {image_input}"),
                     _wrap_md_bullet(
                         "- **Failures**: Small bounding box occlusion and extreme aspect ratio "
                         "distortions."
@@ -358,9 +360,7 @@ def _evaluation_profile(task: Any) -> tuple[str, str, str]:
     return (
         "\n".join(
             [
-                _wrap_md_bullet(
-                    "- **Input Requirements**: RGB Image Tensors normalized to ImageNet stats."
-                ),
+                _wrap_md_bullet(f"- **Input Requirements**: {image_input}"),
                 _wrap_md_bullet(
                     "- **Failures**: Large aspect ratio distortions during standard resize phases."
                 ),
@@ -563,7 +563,13 @@ def build_model_readme(
     # Sections are rendered in the original order so warnings are logged in that order.
     fields = {
         "usage_snippet": usage_snippet(
-            card.task, model_key, *card.size, classes=class_names(card.info)
+            card.task,
+            model_key,
+            SnippetInput(
+                *card.size,
+                classes=class_names(card.info),
+                preprocessing=image_preprocessing(card.info),
+            ),
         ),
         "badge_str": _badges(card.res_str, epochs_trained),
         "topology_mermaid": topology_mermaid(card.task, card.res_str, card.arch),
@@ -572,7 +578,7 @@ def build_model_readme(
     metrics_summary, fields["vector_section"] = _metrics_summary(card)
     fields["ds_str"] = _dataset_manifest(card, unified_models)
     fields["input_reqs_str"], fields["eval_split_str"], metrics_label = _evaluation_profile(
-        card.task
+        card.task, image_preprocessing(card.info).describe()
     )
     fields["eval_metrics_bullet"] = _wrap_md_bullet(f"- **{metrics_label}**: {metrics_summary}")
     fields["paper_section"] = _paper_section(model_key)

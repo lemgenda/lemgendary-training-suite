@@ -22,6 +22,7 @@ from PIL import Image
 from torchvision import transforms
 
 from models.nima import NIMAModel
+from training.registry.preprocessing import IMAGENET
 from training.utils.model_payload import load_model_payload
 
 
@@ -52,7 +53,8 @@ class SimpleDataset(torch.utils.data.Dataset):
             [
                 transforms.Resize((224, 224)),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                # NIMA preprocessing (training/registry/preprocessing.py).
+                transforms.Normalize(mean=list(IMAGENET.mean), std=list(IMAGENET.std)),
             ]
         )
 

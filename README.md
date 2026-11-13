@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.192-STABLE`
+- **Version**: `v16.9.193-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,27 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.193 - One Image Preprocessing per Model
+
+- New `training/registry/preprocessing.py` is the single reader of a model's
+  image preprocessing: the registry `preprocessing.normalization` (`unit` or
+  `imagenet`), else the task default (`quality` models are ImageNet-normalized,
+  every other task trains on `[0, 1]` pixels). `load_model_info` validates it
+  (`PreprocessingError`). `universal_nsfw_classification` declares `unit`.
+- The training and validation transforms (`data/dataset.py`), the `.pt`
+  export metadata (`preprocessing`), the model card (input requirements and
+  usage snippet) and the generated notebook inference cells all follow it
+  through `training/registry/preprocessing_source.py`. The NSFW cells applied
+  ImageNet statistics to a model trained on `[0, 1]` pixels, and the ONNX cells
+  fed float64 arrays; the NIMA card snippet left out the ImageNet step.
+- `usage_snippet` takes one `SnippetInput` (size, class names, preprocessing);
+  the quality snippet resizes to `(width, height)` like the others.
+- `tools/judicial_audit.py` takes the NIMA ImageNet statistics from the
+  same module.
+- Tests: `tests/unit/test_preprocessing_parity.py` (registry defaults and
+  override, typed errors, generated input code equal to the validation
+  transform, cells and card per model).
 
 ### v16.9.192 - MQL5 EA Computes the Model's Input Features
 

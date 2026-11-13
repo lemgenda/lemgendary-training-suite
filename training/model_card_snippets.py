@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+from training.registry.preprocessing import UNIT, ImagePreprocessing
+from training.registry.preprocessing_source import torch_input_source
 from training.utils.model_payload import pt_load_source
 
 _PT_LOAD = "".join(pt_load_source("model_path", "device"))
@@ -9,7 +13,25 @@ _PT_LOAD = "".join(pt_load_source("model_path", "device"))
 _PT_LOAD_INDENTED = "".join("    " + line for line in pt_load_source("model_path", "device"))
 
 
-def _quality_usage(model_key: str, h: int, w: int) -> str:
+@dataclass(frozen=True)
+class SnippetInput:
+    """The model input a usage snippet feeds: size, class names and image preprocessing.
+
+    ``classes`` are the registry class names of a classifier (``()`` otherwise) and
+    ``preprocessing`` the model's image preprocessing (training/registry/preprocessing.py).
+    """
+
+    height: int
+    width: int
+    classes: tuple[str, ...] = ()
+    preprocessing: ImagePreprocessing = UNIT
+
+    def input_source(self) -> str:
+        """``img`` to ``input_tensor`` with the model's preprocessing."""
+        return "".join(torch_input_source(self.preprocessing))
+
+
+def _quality_usage(model_key: str, inp: SnippetInput) -> str:
     """Return the NIMA quality-scoring usage snippet."""
     return (
         "```"
@@ -32,10 +54,8 @@ model.load_state_dict(state)
 model.eval()
 
 # 4. Forward Pass
-img = Image.open("photo.jpg").convert('RGB').resize(({h}, {w}))
-arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
-input_tensor = arr.unsqueeze(0).to(device) / 255.0
-with torch.no_grad():
+img = Image.open("photo.jpg").convert('RGB').resize(({inp.width}, {inp.height}))
+{inp.input_source()}with torch.no_grad():
     probs = model(input_tensor)
 
 # 5. Score Calculation
@@ -46,7 +66,7 @@ print(f"Quality Score: {{mean_score:.2f}}")
     )
 
 
-def _restoration_usage(model_key: str) -> str:
+def _restoration_usage(model_key: str, inp: SnippetInput) -> str:
     """Return the image restoration usage snippet."""
     return (
         "```"
@@ -70,9 +90,7 @@ model.eval()
 
 # 4. Restoration Pass
 img = Image.open("degraded.jpg").convert('RGB')
-arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
-input_tensor = arr.unsqueeze(0).to(device) / 255.0
-with torch.no_grad():
+{inp.input_source()}with torch.no_grad():
     restored = model(input_tensor)
 
 # 5. Ejection
@@ -124,9 +142,9 @@ with torch.no_grad():
     )
 
 
-def _classification_usage(model_key: str, h: int, w: int, classes: tuple[str, ...]) -> str:
-    """Return the classifier usage snippet; ``classes`` are the registry class names."""
-    names = repr(list(classes)) if classes else "None  # class ids only"
+def _classification_usage(model_key: str, inp: SnippetInput) -> str:
+    """Return the classifier usage snippet with the registry class names."""
+    names = repr(list(inp.classes)) if inp.classes else "None  # class ids only"
     return (
         "```"
         + f"""python
@@ -146,12 +164,10 @@ model = get_model("{model_key}").to(device)
 model.load_state_dict(state)
 model.eval()
 
-# 4. Forward Pass (inputs in [0, 1], as in training)
+# 4. Forward Pass (the preprocessing of training)
 CLASS_NAMES = {names}
-img = Image.open("photo.jpg").convert('RGB').resize(({w}, {h}))
-arr = torch.from_numpy(np.array(img)).permute(2, 0, 1).float()
-input_tensor = arr.unsqueeze(0).to(device) / 255.0
-with torch.no_grad():
+img = Image.open("photo.jpg").convert('RGB').resize(({inp.width}, {inp.height}))
+{inp.input_source()}with torch.no_grad():
     probs = torch.softmax(model(input_tensor), dim=-1)[0]
 
 # 5. Top-1 Class
@@ -165,19 +181,16 @@ print(f"Class: {{label}} ({{probs[top].item():.2%}})")
 _GENERIC_USAGE = "```python\n# Premium CLI Integration provided for generative/VLM tasks.\n```"
 
 
-def usage_snippet(task: str, model_key: str, h: int, w: int, classes: tuple[str, ...] = ()) -> str:
-    """Return the fenced usage snippet of ``task`` for ``model_key`` at ``h`` x ``w``.
-
-    ``classes`` are the registry class names of a classification model.
-    """
+def usage_snippet(task: str, model_key: str, inp: SnippetInput) -> str:
+    """Return the fenced usage snippet of ``task`` for ``model_key`` fed ``inp``."""
     if task == "quality":
-        return _quality_usage(model_key, h, w)
+        return _quality_usage(model_key, inp)
     if task in ["restoration", "enhancement"]:
-        return _restoration_usage(model_key)
+        return _restoration_usage(model_key, inp)
     if task == "forex":
         return _forex_usage(model_key)
     if task == "classification":
-        return _classification_usage(model_key, h, w, classes)
+        return _classification_usage(model_key, inp)
     return _GENERIC_USAGE
 
 

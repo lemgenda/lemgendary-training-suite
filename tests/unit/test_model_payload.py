@@ -22,7 +22,8 @@ from training.cloud.variations import PYTORCH_FP32
 from training.export.common import load_checkpoint_weights
 from training.export.soup import create_pareto_model_soup
 from training.export.torch_standalone import export_torch_standalone
-from training.model_card_snippets import _quality_usage
+from training.model_card_snippets import SnippetInput, _quality_usage
+from training.registry.preprocessing import IMAGENET
 from training.services.checkpoint_service import CheckpointService
 from training.utils.model_payload import (
     ModelPayloadError,
@@ -141,7 +142,7 @@ def test_generated_loader_reads_both_formats(tmp_path: Path, writer: Any) -> Non
 def test_generated_code_uses_the_shared_loader() -> None:
     """Model cards and the Kaggle README embed the shared loader, nothing else."""
     loader = "".join(pt_load_source("model_path", "device"))
-    assert loader in _quality_usage("nima", 224, 224)
+    assert loader in _quality_usage("nima", SnippetInput(224, 224, preprocessing=IMAGENET))
     readme = KaggleMetadataService.variation_usage("owner", "slug", "Tiny", PYTORCH_FP32)
     assert "".join(pt_load_source("model_path", '"cpu"')) in readme
     assert "weights_only=True" in readme

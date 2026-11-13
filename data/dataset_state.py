@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from training.registry.preprocessing import UNIT, ImagePreprocessing
+
 
 @dataclass
 class DatasetOptions:
@@ -29,6 +31,8 @@ class ModelSpec:
     task_type: str
     # Registry ``class_names`` of a classifier in id order (``()`` when none are declared).
     class_names: tuple[str, ...] = ()
+    # Image preprocessing of the model (training/registry/preprocessing.py).
+    preprocessing: ImagePreprocessing = UNIT
 
 
 @dataclass

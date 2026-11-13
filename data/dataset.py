@@ -17,6 +17,7 @@ from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, Transfo
 from data.dataset_targets import DatasetTargetsMixin
 from training.data.sample_seed import AugmentationSeed, seeded_sample_rngs
 from training.registry.class_names import class_names
+from training.registry.preprocessing import image_preprocessing, task_type_of
 
 Image.MAX_IMAGE_PIXELS = None  # Disable PIL DecompressionBombWarning for large datasets
 
@@ -87,13 +88,13 @@ class MultiTaskDataset(
 
         model_key = model_key or next(iter(unified_models))
         model_info = unified_models[model_key]
-        raw_type = model_info.get("dataset_type", "restoration")
         self.spec = ModelSpec(
             unified_models=unified_models,
             model_key=model_key,
             model_info=model_info,
-            task_type=raw_type[0] if isinstance(raw_type, list) else raw_type,
+            task_type=task_type_of(model_info),
             class_names=class_names(model_info),
+            preprocessing=image_preprocessing(model_info),
         )
         self.opts = DatasetOptions(
             is_train=is_train,
@@ -192,9 +193,11 @@ class MultiTaskDataset(
                 transform_list.append(transforms.ColorJitter(brightness=0.05, contrast=0.05))
 
         transform_list.append(transforms.ToTensor())
-        if self.spec.task_type == "quality":
+        # The model's one preprocessing (registry ``preprocessing`` / task type default).
+        preprocessing = self.spec.preprocessing
+        if preprocessing.normalizes:
             transform_list.append(
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                transforms.Normalize(mean=list(preprocessing.mean), std=list(preprocessing.std))
             )
 
         self.pipes.transform = transforms.Compose(transform_list)

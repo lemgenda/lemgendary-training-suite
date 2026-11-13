@@ -28,6 +28,7 @@ from training.export.torch_standalone import export_torch_standalone
 from training.export.validation import resolve_model_stem
 from training.registry import ModelSpecification
 from training.registry.class_names import class_names
+from training.registry.preprocessing import image_preprocessing
 
 logger = logging.getLogger("lemtrain.export.pytorch")
 
@@ -48,12 +49,17 @@ def _dummy_input(resolved_spec: ModelSpecification | None, kwargs: dict[str, Any
 
 
 def pt_metadata(model_key: str, spec: ModelSpecification | None) -> dict[str, Any]:
-    """``.pt`` metadata: the model key and, for a classifier, its registry ``class_names``.
+    """``.pt`` metadata: model key, image preprocessing and a classifier's ``class_names``.
 
-    The names map each logit index of the output to its class without the registry.
+    The names map each logit index of the output to its class without the registry; the
+    preprocessing (``training.registry.preprocessing``) is the one the model was trained with.
     """
-    metadata: dict[str, Any] = {"model_key": model_key}
-    names = class_names(spec.raw_config if spec else None)
+    raw_config = spec.raw_config if spec else None
+    metadata: dict[str, Any] = {
+        "model_key": model_key,
+        "preprocessing": image_preprocessing(raw_config).metadata(),
+    }
+    names = class_names(raw_config)
     if names:
         metadata["class_names"] = list(names)
     return metadata

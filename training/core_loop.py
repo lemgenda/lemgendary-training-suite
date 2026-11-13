@@ -64,6 +64,7 @@ from training.notebook_generator import (
 from training.parallel import build_parallel_strategy
 from training.registry.class_names import class_names
 from training.registry.forex_risk import risk_per_trade
+from training.registry.preprocessing import image_preprocessing
 from training.registry.task_type import resolve_task_type
 from training.run_settings.capture import (
     SettingsInputs,
@@ -226,10 +227,11 @@ def load_model_info(project_root: Path, config: dict, model_key: str) -> dict:
         models_dict = unified_models_registry
     model_info = models_dict.get(model_key, {})
     # Rejects an invalid ``evaluation.risk_per_trade`` / ``stabilizers.emd_form`` /
-    # ``class_names`` at load time.
+    # ``class_names`` / ``preprocessing`` at load time.
     risk_per_trade(model_info)
     registry_emd_form(model_info.get("stabilizers"))
     class_names(model_info)
+    image_preprocessing(model_info)
     return model_info
 
 

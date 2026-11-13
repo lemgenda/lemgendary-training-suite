@@ -7,6 +7,11 @@ and ONNX FP16 embedded inference across vision and Forex time-series models.
 from typing import Any
 
 from training.cloud.variations import ONNX_FP16_SUFFIX, ONNX_FP32_SUFFIX, PT_SUFFIX
+from training.registry.preprocessing_source import (
+    indented,
+    numpy_input_source,
+    torch_input_source,
+)
 from training.utils.model_payload import pt_load_source
 
 from ..registry import ModelNotebookMeta
@@ -92,14 +97,7 @@ def build_pth_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    model.eval()\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            (
-                "    input_tensor = torch.from_numpy(np.array(img)).permute(2, 0, "
-                "1).float().unsqueeze(0).to(device) / 255.0\n"
-            ),
-            "    \n",
-            "    mean = torch.tensor([0.485, 0.456, 0.406]).to(device).view(1, 3, 1, 1)\n",
-            "    std = torch.tensor([0.229, 0.224, 0.225]).to(device).view(1, 3, 1, 1)\n",
-            "    input_tensor = (input_tensor - mean) / std\n",
+            *indented(torch_input_source(meta.preprocessing)),
             "\n",
             "    with torch.no_grad():\n",
             "        output = model(input_tensor)\n",
@@ -157,11 +155,7 @@ def build_onnx_fp32_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            (
-                "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, "
-                "0.406]) / [0.229, 0.224, 0.225]\n"
-            ),
-            "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
+            *indented(numpy_input_source(meta.preprocessing)),
             "\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",
@@ -218,11 +212,7 @@ def build_onnx_fp16_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
             "    session = ort.InferenceSession(onnx_path)\n",
             "\n",
             f"    img = Image.open('photo.jpg').convert('RGB').resize(({w}, {h}))\n",
-            (
-                "    input_data = (np.array(img).astype(np.float32) / 255.0 - [0.485, 0.456, "
-                "0.406]) / [0.229, 0.224, 0.225]\n"
-            ),
-            "    input_data = input_data.transpose(2, 0, 1)[np.newaxis, :]\n",
+            *indented(numpy_input_source(meta.preprocessing)),
             "\n",
             "    output = session.run(None, {'input': input_data})[0]\n",
             "    print(f'Prediction Raw: {output}')\n",
