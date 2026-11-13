@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.196-STABLE`
+- **Version**: `v16.9.197-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,22 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.197 - DirectML Discovery Through torch_directml
+
+- `training/hardware/discovery.py` `dml_device_info` (was `_dml_device_info`)
+  read `torch.dml`, which torch-directml never defines, and built
+  `torch.device("dml")`, which is not a torch device type: DirectML was never
+  discovered. It now loads the `torch_directml` module
+  (`training.utils.lazy_imports.load_torch_directml`) and uses its 0.2.x API:
+  `is_available()`, `device_count()`, `device_name(index)`,
+  `default_device()` and `device(index)` (a `privateuseone:<index>` device).
+  A missing package or a DLL that does not load against the installed torch
+  is logged at debug level and skipped. `device_memory.directml_device_name`
+  uses the same loader.
+- Tests: `tests/unit/test_dml_discovery.py` (mocked `torch_directml`:
+  device and names, unavailable adapter, missing or broken backend, auto
+  discovery).
 
 ### v16.9.196 - Usage Snippets Import What Exists
 

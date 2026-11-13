@@ -30,7 +30,6 @@ XPU query that failed) is logged when it is taken.
 from __future__ import annotations
 
 import gc
-import importlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -46,6 +45,7 @@ from training.hardware.dxgi_memory import (
     default_adapter_reader,
     is_unified_memory,
 )
+from training.utils.lazy_imports import load_torch_directml
 
 logger = logging.getLogger("lemtrain.hardware.device_memory")
 
@@ -282,8 +282,7 @@ class MpsMemory(DeviceMemory):
 def directml_device_name(index: int) -> str | None:
     """``torch_directml.device_name(index)``, or ``None`` without torch-directml (logged)."""
     try:
-        torch_directml = importlib.import_module("torch_directml")
-        return str(torch_directml.device_name(index))
+        return str(load_torch_directml().device_name(index))
     except (ImportError, AttributeError, RuntimeError) as exc:
         logger.debug("[VRAM] torch-directml device name unavailable: %s", exc)
         return None
