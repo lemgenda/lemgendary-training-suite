@@ -65,8 +65,10 @@ def test_yolo_rows_without_objects_and_with_none() -> None:
         ({"objects": [_obj(class_name="truck")]}, "not a manifold class"),
         ({"objects": [_obj()]}, "neither category_id nor class_name"),
         ({"objects": [_obj(category_id=-1)]}, "non-negative"),
-        ({"objects": [{"category_id": 0, "bbox_cxcywh_normalized": [0.5, 2.0, 0.1, 0.1]}]},
-         "4 numbers in 0..1"),
+        (
+            {"objects": [{"category_id": 0, "bbox_cxcywh_normalized": [0.5, 2.0, 0.1, 0.1]}]},
+            "4 numbers in 0..1",
+        ),
         ({"objects": {"category_id": 0}}, "not a list of objects"),
     ],
 )

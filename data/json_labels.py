@@ -40,11 +40,7 @@ YoloRow = tuple[int, float, float, float, float]
 
 
 def _is_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def object_class_id(obj: Mapping[str, Any], classes: Sequence[str]) -> int:

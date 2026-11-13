@@ -286,8 +286,9 @@ def test_ultrazoom_input_is_aligned_downscale(tmp_path: Path) -> None:
 def test_face_box_only_label_masks_landmarks(tmp_path: Path) -> None:
     """A JSON face object without landmarks is a positive face with absent landmarks."""
     members = _image_members(paired=False)
-    members.update(_label({"face_count": 1, "objects": [
-        {"category_id": 0, "bbox_cxcywh_normalized": BOX}]}))
+    members.update(
+        _label({"face_count": 1, "objects": [{"category_id": 0, "bbox_cxcywh_normalized": BOX}]})
+    )
     _, target = _tensor_item(_dataset_from(tmp_path, "retinaface", members))
     assert float(target[0]) == 1.0
     assert torch.allclose(target[1:5], torch.tensor(BOX))

@@ -83,9 +83,11 @@ class TestDynamicWorkers(unittest.TestCase):
 
     def test_persistent_workers_dynamic_activation(self) -> None:
         """Verify persistent workers activate dynamically when RAM headroom is sufficient."""
-        with patch("training.data.workers._system_ram_gb", return_value=32.0), \
-             patch("training.data.workers._available_ram_gb", return_value=12.0), \
-             patch("training.data.workers._default_train_workers", return_value=4):
+        with (
+            patch("training.data.workers._system_ram_gb", return_value=32.0),
+            patch("training.data.workers._available_ram_gb", return_value=12.0),
+            patch("training.data.workers._default_train_workers", return_value=4),
+        ):
             topo = compute_worker_topology(
                 env="local",
                 device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),

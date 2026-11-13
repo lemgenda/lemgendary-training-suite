@@ -30,21 +30,29 @@ def _manifold(tmp_path: Path, split_dirs: bool = True, classes: list[str] | None
     root = tmp_path / "LemGendizedYoloV8n"
     train = root / "shards" / "train" if split_dirs else root / "shards"
     train.mkdir(parents=True)
-    write_tar(train / "shard-000000.tar", {
-        "a.webp": _IMAGE,
-        "a.json": _doc({"category_id": 1, "bbox_cxcywh_normalized": [0.5, 0.5, 0.25, 0.5]},
-                       {"class_name": "dog", "bbox_cxcywh_normalized": [0.1, 0.2, 0.1, 0.1]}),
-        "b.webp": _IMAGE,
-        "b.json": _doc(),
-        "c.webp": _IMAGE,
-    })
+    write_tar(
+        train / "shard-000000.tar",
+        {
+            "a.webp": _IMAGE,
+            "a.json": _doc(
+                {"category_id": 1, "bbox_cxcywh_normalized": [0.5, 0.5, 0.25, 0.5]},
+                {"class_name": "dog", "bbox_cxcywh_normalized": [0.1, 0.2, 0.1, 0.1]},
+            ),
+            "b.webp": _IMAGE,
+            "b.json": _doc(),
+            "c.webp": _IMAGE,
+        },
+    )
     if split_dirs:
         val = root / "shards" / "val"
         val.mkdir(parents=True)
-        write_tar(val / "shard-000000.tar", {
-            "v.webp": _IMAGE,
-            "v.json": _doc({"category_id": 0, "bbox_cxcywh_normalized": [0.3, 0.3, 0.2, 0.2]}),
-        })
+        write_tar(
+            val / "shard-000000.tar",
+            {
+                "v.webp": _IMAGE,
+                "v.json": _doc({"category_id": 0, "bbox_cxcywh_normalized": [0.3, 0.3, 0.2, 0.2]}),
+            },
+        )
     info = {"name": root.name, "classes": CLASSES if classes is None else classes}
     (root / "dataset_info.yaml").write_text(yaml.safe_dump(info), encoding="utf-8")
     return root
@@ -55,17 +63,26 @@ def test_materialises_images_labels_and_data_yaml(tmp_path: Path) -> None:
     cache = materialise_yolo_cache(_manifold(tmp_path), tmp_path / "cache")
     root = tmp_path / "cache"
     assert sorted(p.name for p in (root / "images" / "train").iterdir()) == [
-        "a.webp", "b.webp", "c.webp"]
+        "a.webp",
+        "b.webp",
+        "c.webp",
+    ]
     assert (root / "images" / "train" / "a.webp").read_bytes() == _IMAGE
     assert (root / "labels" / "train" / "a.txt").read_text(encoding="utf-8") == (
-        "1 0.500000 0.500000 0.250000 0.500000\n2 0.100000 0.200000 0.100000 0.100000\n")
+        "1 0.500000 0.500000 0.250000 0.500000\n2 0.100000 0.200000 0.100000 0.100000\n"
+    )
     assert (root / "labels" / "train" / "b.txt").read_text(encoding="utf-8") == ""
     assert not (root / "labels" / "train" / "c.txt").exists()
     assert (root / "labels" / "val" / "v.txt").read_text(encoding="utf-8").startswith("0 ")
     assert cache.images == {"train": 3, "val": 1} and cache.unlabeled == 1
     data = yaml.safe_load((root / DATA_YAML).read_text(encoding="utf-8"))
-    assert data == {"path": str(root), "train": "images/train", "val": "images/val",
-                    "nc": 3, "names": dict(enumerate(CLASSES))}
+    assert data == {
+        "path": str(root),
+        "train": "images/train",
+        "val": "images/val",
+        "nc": 3,
+        "names": dict(enumerate(CLASSES)),
+    }
 
 
 def test_rerun_skips_finished_shards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,10 +143,14 @@ def test_missing_classes_raise(tmp_path: Path) -> None:
     [
         (b"{oops", "unreadable JSON label"),
         (json_bytes({"caption": "no objects"}), "no objects list"),
-        (_doc({"category_id": 7, "bbox_cxcywh_normalized": [0.5, 0.5, 0.1, 0.1]}),
-         "outside the 3 dataset_info.yaml classes"),
-        (_doc({"class_name": "cat", "bbox_cxcywh_normalized": [0.5, 0.5, 0.1, 0.1]}),
-         "not a manifold class"),
+        (
+            _doc({"category_id": 7, "bbox_cxcywh_normalized": [0.5, 0.5, 0.1, 0.1]}),
+            "outside the 3 dataset_info.yaml classes",
+        ),
+        (
+            _doc({"class_name": "cat", "bbox_cxcywh_normalized": [0.5, 0.5, 0.1, 0.1]}),
+            "not a manifold class",
+        ),
     ],
 )
 def test_bad_labels_raise(tmp_path: Path, label: bytes, match: str) -> None:

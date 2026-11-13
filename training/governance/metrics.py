@@ -138,9 +138,7 @@ def is_lower_better(metric_name: str) -> bool:
         return True
     if norm in DEFAULT_METRIC_DIRECTIONS:
         return not DEFAULT_METRIC_DIRECTIONS[norm]
-    return any(
-        sub in norm for sub in ("loss", "mae", "mse", "drawdown", "lpips", "fid", "margin")
-    )
+    return any(sub in norm for sub in ("loss", "mae", "mse", "drawdown", "lpips", "fid", "margin"))
 
 
 def _lower_is_better_contribution(metric_key: str, val: float) -> float:

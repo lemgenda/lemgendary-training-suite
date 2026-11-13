@@ -193,14 +193,10 @@ def unverified_fid_epochs(hub_dir: Path) -> set[str]:
     """Epochs marked ``unverified`` without a ``reevaluated`` row in ``fid_provenance.csv``."""
     rows = _safe_read_ledger(hub_dir)
     unv = {
-        r["epoch"].strip()
-        for r in rows
-        if r.get("status") == STATUS_UNVERIFIED and r.get("epoch")
+        r["epoch"].strip() for r in rows if r.get("status") == STATUS_UNVERIFIED and r.get("epoch")
     }
     reeval = {
-        r["epoch"].strip()
-        for r in rows
-        if r.get("status") == STATUS_REEVALUATED and r.get("epoch")
+        r["epoch"].strip() for r in rows if r.get("status") == STATUS_REEVALUATED and r.get("epoch")
     }
     return unv - reeval
 
@@ -240,8 +236,7 @@ def filter_metrics_row_for_fid_provenance(row: Mapping[str, Any], hub_dir: Path)
     if not rows:
         return filtered
     was_unverified = any(
-        (r.get("epoch") or "").strip() == ep and r.get("status") == STATUS_UNVERIFIED
-        for r in rows
+        (r.get("epoch") or "").strip() == ep and r.get("status") == STATUS_UNVERIFIED for r in rows
     )
     reeval = reevaluated_fid_by_epoch(hub_dir)
     if ep in reeval:

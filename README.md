@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.204-STABLE`
+- **Version**: `v16.9.205-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,13 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.205 - Ruff Format Pass
+
+- `ruff format` applied to the nine files that `ruff format --check`
+  flagged: `data/json_labels.py`, `models/encoder.py`,
+  `training/fid_reeval/ledger.py`, `training/governance/metrics.py` and five
+  unit test modules. Formatting only; no behaviour change.
 
 ### v16.9.204 - Imports No Longer Load The Kaggle Package
 

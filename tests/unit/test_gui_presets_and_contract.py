@@ -235,10 +235,13 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
 
         # Case 1: When request fields are None, model registry overrides preset
         with patch("training.server.routes.gui._load_registry", return_value=fake_registry):
-            resp1 = self.client.post("/api/gui/quick-train", json={
-                "model_key": "custom_model",
-                "preset": "quick-sota",
-            })
+            resp1 = self.client.post(
+                "/api/gui/quick-train",
+                json={
+                    "model_key": "custom_model",
+                    "preset": "quick-sota",
+                },
+            )
             self.assertEqual(resp1.status_code, 200)
             params1 = resp1.json()["params"]
             self.assertEqual(params1.get("epochs"), 42)
@@ -247,13 +250,16 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
 
         # Case 2: Request payload explicitly overrides both model registry and preset
         with patch("training.server.routes.gui._load_registry", return_value=fake_registry):
-            resp2 = self.client.post("/api/gui/quick-train", json={
-                "model_key": "custom_model",
-                "preset": "quick-sota",
-                "epochs": 99,
-                "batch_size": 32,
-                "learning_rate": 0.001,
-            })
+            resp2 = self.client.post(
+                "/api/gui/quick-train",
+                json={
+                    "model_key": "custom_model",
+                    "preset": "quick-sota",
+                    "epochs": 99,
+                    "batch_size": 32,
+                    "learning_rate": 0.001,
+                },
+            )
             self.assertEqual(resp2.status_code, 200)
             params2 = resp2.json()["params"]
             self.assertEqual(params2.get("epochs"), 99)
@@ -262,10 +268,13 @@ class TestDesktopGUIAndPresets(unittest.TestCase):
 
         # Case 3: When model registry has no overrides, preset values are used
         with patch("training.server.routes.gui._load_registry", return_value={}):
-            resp3 = self.client.post("/api/gui/quick-train", json={
-                "model_key": "custom_model",
-                "preset": "quick-sota",
-            })
+            resp3 = self.client.post(
+                "/api/gui/quick-train",
+                json={
+                    "model_key": "custom_model",
+                    "preset": "quick-sota",
+                },
+            )
             self.assertEqual(resp3.status_code, 200)
             params3 = resp3.json()["params"]
             self.assertEqual(params3.get("epochs"), 50)
