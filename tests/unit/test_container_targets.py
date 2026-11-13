@@ -1,10 +1,14 @@
 """Container (WebDataset) target shapes and values for every registered model.
 
-Each image model is served from a tiny synthetic tar shard in both shard layouts:
+Each image model is served from a tiny synthetic tar shard in two JSON label layouts:
 
-* ``legacy``: labels inside the ``.json`` sidecar (the layout of the published manifolds),
-* ``current``: ``.txt`` label sidecars and lossless ``.mask.webp`` masks (the compiler's
-  current output).
+* ``schema``: the compiler's JSON label documents (lemgendary-datasets
+  ``utils/label_json.py``: ``objects`` with ``category_id``, ``class_id``,
+  ``nima_scores``, ``face_count`` / ``landmark_source``) and lossless ``.mask.webp`` masks,
+* ``legacy``: the older JSON sidecars of the published manifolds (``label``, point-pair
+  landmarks, no ``objects`` for restoration).
+
+Labels are read only from the ``.json`` member; a ``.txt`` member is not a label.
 
 Models trained outside ``MultiTaskDataset`` (Forex, YOLOv8n, the instruction LLM) are
 checked for their routing instead.
@@ -35,7 +39,7 @@ REGISTRY = yaml.safe_load((PROJECT_ROOT / "unified_models_v2.yaml").read_text(en
 MODEL_KEYS = sorted(k for k, v in REGISTRY.items() if not k.startswith("_") and isinstance(v, dict))
 NON_CONTAINER_MODELS = ("forex_predictor", "yolov8n", "ai_helper_lemgend")
 CONTAINER_MODELS = [k for k in MODEL_KEYS if k not in NON_CONTAINER_MODELS]
-LAYOUTS = ("legacy", "current")
+LAYOUTS = ("schema", "legacy")
 
 DISTRIBUTION = [0.0, 0.05, 0.05, 0.1, 0.2, 0.3, 0.2, 0.05, 0.05, 0.0]
 BOX = [0.5, 0.4, 0.2, 0.3]
@@ -62,41 +66,55 @@ def _image_members(paired: bool) -> Members:
     return members
 
 
+FFANET_OBJECTS = [
+    {"category_id": 0, "bbox_cxcywh_normalized": [0.5, 0.5, 0.2, 0.2]},
+    {"category_id": 1, "bbox_cxcywh_normalized": [0.3, 0.3, 0.1, 0.1]},
+]
+
+
+def _label(doc: dict[str, Any]) -> Members:
+    return {f"{SAMPLE_KEY}.json": json_bytes(doc)}
+
+
 def _quality_members(layout: str) -> Members:
     if layout == "legacy":
-        return {f"{SAMPLE_KEY}.json": json_bytes({"nima_scores": {"distribution": DISTRIBUTION}})}
-    return {f"{SAMPLE_KEY}.txt": " ".join(str(v) for v in DISTRIBUTION).encode("utf-8")}
+        return _label({"nima_scores": {"distribution": DISTRIBUTION}})
+    return _label({"nima_scores": {"distribution": DISTRIBUTION, "mean_score": 5.6}})
+
+
+def _face_object(layout: str) -> dict[str, Any]:
+    if layout == "legacy":
+        points = [LANDMARKS[i : i + 2] for i in range(0, 10, 2)]
+        return {"bbox_cxcywh_normalized": BOX, "landmarks_normalized": points}
+    return {"category_id": 0, "bbox_cxcywh_normalized": BOX, "landmarks_normalized": LANDMARKS}
 
 
 def _face_members(layout: str) -> Members:
-    if layout == "legacy":
-        points = [LANDMARKS[i : i + 2] for i in range(0, 10, 2)]
-        obj = {"bbox_cxcywh_normalized": BOX, "landmarks_normalized": points}
-        return {f"{SAMPLE_KEY}.json": json_bytes({"objects": [obj]})}
-    line = " ".join(str(v) for v in [0, *BOX, *LANDMARKS])
-    return {f"{SAMPLE_KEY}.txt": line.encode("utf-8")}
+    doc: dict[str, Any] = {"objects": [_face_object(layout)]}
+    if layout == "schema":
+        doc.update(face_count=1, landmark_source="sfhq-110pt")
+    return _label(doc)
 
 
 def _classification_members(layout: str) -> Members:
-    if layout == "legacy":
-        return {f"{SAMPLE_KEY}.json": json_bytes({"label": CLASS_INDEX})}
-    return {f"{SAMPLE_KEY}.txt": str(CLASS_INDEX).encode("utf-8")}
+    return _label({"label" if layout == "legacy" else "class_id": CLASS_INDEX})
 
 
 def _segmentation_members(layout: str) -> Members:
     mask = webp_bytes(MASK_CLASS, size=SHARD_SIZE, mode="L", lossless=True)
-    meta = (
-        {f"{SAMPLE_KEY}.json": json_bytes({"task": "segmentation"})} if layout == "legacy" else {}
+    doc = (
+        {"task": "segmentation"}
+        if layout == "legacy"
+        else {"num_classes": 19, "class_names": [f"c{i}" for i in range(19)]}
     )
-    return {f"{SAMPLE_KEY}.mask.webp": mask, **meta}
+    return {f"{SAMPLE_KEY}.mask.webp": mask, **_label(doc)}
 
 
 def _restoration_members(model_key: str, layout: str) -> Members:
-    if model_key.startswith("ffanet") and layout == "current":
-        return {f"{SAMPLE_KEY}.txt": b"0 0.5 0.5 0.2 0.2\n1 0.3 0.3 0.1 0.1"}
     if layout == "legacy":
-        return {f"{SAMPLE_KEY}.json": json_bytes({"task": "restoration"})}
-    return {}
+        return _label({"task": "restoration"})
+    objects = FFANET_OBJECTS if model_key.startswith("ffanet") else []
+    return _label({"object_count": len(objects), "objects": objects})
 
 
 def _members(model_key: str, layout: str) -> Members:
@@ -174,7 +192,7 @@ def _assert_restoration(model_key: str, layout: str, target: Any, task_id: str) 
         assert set(target) == {"image", "bboxes"}
         boxes = target["bboxes"]
         assert boxes.shape == (MAX_FFANET_BOXES, 5)
-        assert int((boxes.abs().sum(dim=1) > 0).sum()) == (2 if layout == "current" else 0)
+        assert int((boxes.abs().sum(dim=1) > 0).sum()) == (2 if layout == "schema" else 0)
         target = target["image"]
     assert target.dim() == 3 and target.shape[0] == 3
     expected = "derain" if model_key == "professional_multitask_restoration" else _task(model_key)
@@ -266,9 +284,10 @@ def test_ultrazoom_input_is_aligned_downscale(tmp_path: Path) -> None:
 
 
 def test_face_box_only_label_masks_landmarks(tmp_path: Path) -> None:
-    """A YOLO face label without landmarks is a positive face with absent landmarks."""
+    """A JSON face object without landmarks is a positive face with absent landmarks."""
     members = _image_members(paired=False)
-    members[f"{SAMPLE_KEY}.txt"] = " ".join(str(v) for v in [0, *BOX]).encode("utf-8")
+    members.update(_label({"face_count": 1, "objects": [
+        {"category_id": 0, "bbox_cxcywh_normalized": BOX}]}))
     _, target = _tensor_item(_dataset_from(tmp_path, "retinaface", members))
     assert float(target[0]) == 1.0
     assert torch.allclose(target[1:5], torch.tensor(BOX))

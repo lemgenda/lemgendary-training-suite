@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.199-STABLE`
+- **Version**: `v16.9.200-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,28 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.200 - Shard Labels Read Only From JSON
+
+- The datasets compiler writes every shard label as `<key>.json`; the training
+  decoders now read labels only from that document. `WebDatasetReader` has no
+  text label role: `.txt` and `.caption` members are not read, and an
+  unreadable `.json` member is recorded under `metadata["json_error"]`
+  instead of being dropped.
+- New `data/json_labels.py` reads the label schema (lemgendary-datasets
+  `utils/label_json.py`): boxes from `objects` (`category_id`, or
+  `class_name` mapped through the manifold's `dataset_info.yaml` `classes`,
+  read by the new `data/manifold_classes.py`), `class_id` / `class_name`,
+  and `caption`. A schema break raises `LabelDocumentError` naming the sample.
+- FFA-Net boxes come from the JSON `objects`; a sample without `objects`
+  has no boxes (warned once per dataset). RetinaFace reads faces only from
+  JSON: an empty `objects` list is a face-free image, while a missing JSON
+  label or one without `objects` raises. Classification names resolve
+  through the registry `class_names`, then `dataset_info.yaml` `classes`,
+  then `classes.txt`; a sample without a label still trains as
+  `IGNORE_TARGET`, a malformed one raises.
+- Loose image folders (directory mode, `DirectoryReader`) keep their
+  `labels/<name>.txt` files; only shard samples changed.
 
 ### v16.9.199 - Ruff Clean Test Suite
 

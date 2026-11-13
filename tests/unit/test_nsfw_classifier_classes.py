@@ -135,8 +135,8 @@ def _members(label: dict[str, bytes]) -> dict[str, bytes]:
     [
         ({"nsfw_0001.json": json_bytes({"label": 4})}, 4),
         ({"nsfw_0001.json": json_bytes({"label": "porn"})}, 3),
-        ({"nsfw_0001.txt": b"0"}, 0),
-        ({"nsfw_0001.txt": b"hentai"}, 1),
+        ({"nsfw_0001.json": json_bytes({"class_id": 0})}, 0),
+        ({"nsfw_0001.json": json_bytes({"class_name": "hentai"})}, 1),
     ],
 )
 def test_container_labels_decode_to_registry_ids(

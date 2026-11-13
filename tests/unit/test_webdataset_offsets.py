@@ -37,13 +37,13 @@ def _published_layout(shard: int, count: int) -> Members:
 
 
 def _compiler_layout(shard: int, count: int) -> Members:
-    """Current compiler output: image, lossless mask and a text label sidecar."""
+    """Current compiler output: image, lossless mask and a JSON label document."""
     members: Members = []
     for i in range(count):
         key = f"c{shard:02d}_{i:04d}"
         members.append((f"{key}.webp", os.urandom(48 + i)))
         members.append((f"{key}.mask.webp", os.urandom(16 + i)))
-        members.append((f"{key}.txt", f"{i % 5}".encode()))
+        members.append((f"{key}.json", json.dumps({"class_id": i % 5}).encode("utf-8")))
     return members
 
 
@@ -81,7 +81,7 @@ def test_offset_reads_match_tarfile_reads(tmp_path: Path, layout) -> None:
     try:
         assert len(reader) == 12
         for index, entry in enumerate(reader.index_map):
-            mode, shard_path, img, tgt, mask, _txt, _json = entry
+            mode, shard_path, img, tgt, mask, _json = entry
             assert mode == MODE_OFFSET and shard_path is not None
             sample = reader[index]
             assert sample.image_bytes == _reference_bytes(shard_path, _ref_name(img))
@@ -277,14 +277,56 @@ def test_falsy_json_labels_survive(tmp_path: Path, sidecar: dict, expected: obje
         reader.close()
 
 
-def test_text_label_takes_precedence_over_json(tmp_path: Path) -> None:
-    """A text sidecar label wins; the JSON still lands in metadata."""
-    members = [("k.webp", b"img"), ("k.txt", b"3"), ("k.json", b'{"label": 0}')]
+def test_text_member_is_not_a_label(tmp_path: Path) -> None:
+    """Labels come only from the JSON document; a ``.txt`` member is not read."""
+    members = [("k.webp", b"img"), ("k.txt", b"3"), ("k.json", b'{"class_id": 0}')]
     _write_shard(tmp_path / "shards" / "shard-00000.tar", members)
     reader = WebDatasetReader(tmp_path)
     try:
         sample = reader[0]
-        assert sample.label == "3"
-        assert sample.metadata["json"] == {"label": 0}
+        assert sample.label == 0
+        assert sample.metadata["json"] == {"class_id": 0}
+    finally:
+        reader.close()
+
+
+def test_text_member_without_json_gives_no_label(tmp_path: Path) -> None:
+    """A sample with only a ``.txt`` member has no label and no JSON document."""
+    members = [("k.webp", b"img"), ("k.txt", b"3")]
+    _write_shard(tmp_path / "shards" / "shard-00000.tar", members)
+    reader = WebDatasetReader(tmp_path)
+    try:
+        sample = reader[0]
+        assert sample.label is None
+        assert "json" not in sample.metadata
+    finally:
+        reader.close()
+
+
+@pytest.mark.parametrize(
+    ("doc", "expected"),
+    [({"class_name": "cat"}, "cat"), ({"caption": "a red house"}, "a red house")],
+)
+def test_schema_label_keys(tmp_path: Path, doc: dict, expected: object) -> None:
+    """``class_name`` and ``caption`` documents give their label value."""
+    members = [("k.webp", b"img"), ("k.json", json.dumps(doc).encode("utf-8"))]
+    _write_shard(tmp_path / "shards" / "shard-00000.tar", members)
+    reader = WebDatasetReader(tmp_path)
+    try:
+        assert reader[0].label == expected
+    finally:
+        reader.close()
+
+
+def test_malformed_json_is_recorded_not_dropped(tmp_path: Path) -> None:
+    """An unreadable JSON member is reported under ``json_error`` (no silent label)."""
+    members = [("k.webp", b"img"), ("k.json", b"{not json")]
+    _write_shard(tmp_path / "shards" / "shard-00000.tar", members)
+    reader = WebDatasetReader(tmp_path)
+    try:
+        sample = reader[0]
+        assert sample.label is None
+        assert "json" not in sample.metadata
+        assert sample.metadata["json_error"]
     finally:
         reader.close()

@@ -175,18 +175,23 @@ def _flat_floats(values: Any) -> list[float] | None:
     return _floats(values)
 
 
+def box_tensor(rows: Sequence[Sequence[float]]) -> torch.Tensor:
+    """Up to 50 five-value ``cls cx cy w h`` rows, zero-padded to ``[50, 5]``."""
+    tensor = torch.zeros((MAX_FFANET_BOXES, 5), dtype=torch.float32)
+    boxes = [[float(v) for v in row[:5]] for row in rows[:MAX_FFANET_BOXES]]
+    if boxes:
+        tensor[: len(boxes)] = torch.tensor(boxes, dtype=torch.float32)
+    return tensor
+
+
 def ffanet_boxes(text: str | None) -> torch.Tensor:
-    """Up to 50 five-value YOLO boxes from label text, zero-padded to ``[50, 5]``."""
+    """FFA-Net boxes from a loose folder's YOLO label text (:func:`box_tensor`)."""
     boxes: list[list[float]] = []
     for line in (text or "").splitlines():
         values = _floats(line)
         if values is not None and len(values) >= 5:
             boxes.append(values[:5])
-    tensor = torch.zeros((MAX_FFANET_BOXES, 5), dtype=torch.float32)
-    if boxes:
-        count = min(len(boxes), MAX_FFANET_BOXES)
-        tensor[:count] = torch.tensor(boxes[:count], dtype=torch.float32)
-    return tensor
+    return box_tensor(boxes)
 
 
 class ClassLabelRangeError(ValueError):

@@ -5,6 +5,11 @@ Uncompressed shards are read by byte offset: the member tables come from
 ``seek`` plus one ``read`` on a binary handle from a bounded per-worker
 :class:`~training.data.containers.handle_pool.HandlePool`. Compressed shards keep the
 ``tarfile`` path, with their handles bounded by the same kind of pool.
+
+Labels come only from the sample's ``<key>.json`` member (the compiler's one label
+format): the parsed document is ``metadata["json"]``; an unreadable one is reported
+under ``metadata["json_error"]`` for the target builders to raise on. ``.txt`` members
+are not labels and are not read.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Any
 
-from training.data.containers.base import Sample
+from training.data.containers.base import JSON_ERROR_KEY, JSON_METADATA_KEY, Sample
 from training.data.containers.handle_pool import DEFAULT_MAX_OPEN_HANDLES, HandlePool
 from training.data.containers.tar_offsets import MemberRef, load_member_tables
 
@@ -33,7 +38,7 @@ MODE_FILE = "file"
 def _parse_member_name(name: str) -> tuple[str, str, str]:
     """Parse tar member name into (sample_key, role, extension).
 
-    Roles: 'image', 'target', 'mask', 'text', 'json', 'other'.
+    Roles: 'image', 'target', 'mask', 'json', 'other'.
     """
     p = Path(name)
     parts = p.name.split(".")
@@ -64,8 +69,6 @@ def _parse_member_name(name: str) -> tuple[str, str, str]:
         role = "other"
         if ext in IMAGE_EXTENSIONS:
             role = "image"
-        elif ext in (".txt", ".caption"):
-            role = "text"
         elif ext == ".json":
             role = "json"
         return key, role, ext
@@ -73,7 +76,8 @@ def _parse_member_name(name: str) -> tuple[str, str, str]:
     return p.stem, "image", ext
 
 
-_IndexEntry = tuple[str, Path | None, Any, Any, Any, Any, Any]
+_IndexEntry = tuple[str, Path | None, Any, Any, Any, Any]
+"""(mode, shard path, image, target, mask, JSON) references of one sample."""
 
 
 def _find_tar_files(root: Path, cand_dirs: list[Path]) -> list[Path]:
@@ -111,7 +115,6 @@ def _sample_entries(
                     img_ref,
                     roles.get("target"),
                     roles.get("mask"),
-                    roles.get("text"),
                     roles.get("json"),
                 )
             )
@@ -145,13 +148,13 @@ def _index_tar(t_path: Path) -> list[_IndexEntry]:
 
 
 def _scan_dir_samples(scan_dir: Path) -> dict[str, dict[str, Path]]:
-    """Group the image/caption/json files of ``scan_dir`` by sample key and role."""
+    """Group the image and JSON files of ``scan_dir`` by sample key and role."""
     samples_dir: dict[str, dict[str, Path]] = {}
     for entry in sorted(scan_dir.iterdir()):
         if not entry.is_file():
             continue
         ext = entry.suffix.lower()
-        if ext in IMAGE_EXTENSIONS or ext in (".txt", ".caption", ".json"):
+        if ext in IMAGE_EXTENSIONS or ext == ".json":
             key, role, _ = _parse_member_name(entry.name)
             samples_dir.setdefault(key, {})[role] = entry
     return samples_dir
@@ -192,19 +195,37 @@ def _first_present(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
     return None
 
 
-def _json_label(parsed_json: Any, label: Any) -> Any:
-    """Fill a missing ``label`` from a JSON sidecar (NIMA scores first, then generic keys).
+_LABEL_KEYS = ("distribution", "scores", "class_id", "class_name", "label", "score", "caption")
+"""Top-level label keys of a JSON document, first match wins (after ``nima_scores``)."""
 
-    A text sidecar label, when present, takes precedence over the JSON one.
-    """
-    if label is not None or not isinstance(parsed_json, dict):
-        return label
+
+def _json_label(parsed_json: Any) -> Any:
+    """The label value of a JSON document (NIMA scores first, then :data:`_LABEL_KEYS`)."""
+    if not isinstance(parsed_json, dict):
+        return None
+    label = None
     nima_data = parsed_json.get("nima_scores")
     if isinstance(nima_data, dict):
         label = _first_present(nima_data, ("distribution", "scores", "mean_score"))
     if label is None:
-        label = _first_present(parsed_json, ("distribution", "scores", "label", "score"))
+        label = _first_present(parsed_json, _LABEL_KEYS)
     return label
+
+
+def _record_json(payload: bytes, meta: dict[str, Any], where: str) -> Any:
+    """Parse a ``.json`` member into ``meta`` and return its label value.
+
+    An unreadable document is logged and recorded under ``JSON_ERROR_KEY`` (the target
+    builders raise on it) instead of becoming an empty label.
+    """
+    try:
+        parsed_json = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        logger.warning("Unreadable JSON label %s: %s", where, exc)
+        meta[JSON_ERROR_KEY] = str(exc)
+        return None
+    meta[JSON_METADATA_KEY] = parsed_json
+    return _json_label(parsed_json)
 
 
 def _make_sample(
@@ -269,66 +290,39 @@ def _member_name(ref: Any) -> str:
 
 
 def _file_sample(entry: tuple) -> Sample:
-    """Read one extracted-directory sample (image plus target, mask, text and JSON files)."""
-    _, _, img_path, tgt_path, mask_path, txt_path, json_path = entry
+    """Read one extracted-directory sample (image plus target, mask and JSON files)."""
+    _, _, img_path, tgt_path, mask_path, json_path = entry
     image_bytes = img_path.read_bytes()
     payload = (image_bytes, _existing_bytes(tgt_path), _existing_bytes(mask_path))
 
     label: Any = None
     meta: dict[str, Any] = {"file": str(img_path)}
 
-    if txt_path is not None and txt_path.exists():
-        try:
-            label = txt_path.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeDecodeError) as exc:
-            logger.warning("Unreadable text label %s; sample has no text label: %s", txt_path, exc)
-
     if json_path is not None and json_path.exists():
         try:
-            parsed_json = json.loads(json_path.read_text(encoding="utf-8"))
-            meta["json"] = parsed_json
-            label = _json_label(parsed_json, label)
-        except (OSError, ValueError) as exc:
-            logger.warning("Unreadable JSON sidecar %s; metadata skipped: %s", json_path, exc)
+            label = _record_json(json_path.read_bytes(), meta, str(json_path))
+        except OSError as exc:
+            logger.warning("Unreadable JSON label %s: %s", json_path, exc)
+            meta[JSON_ERROR_KEY] = str(exc)
 
     return _make_sample(img_path, payload, label, meta)
 
 
-def _tar_sidecar_label(
-    read: MemberReader, t_path: Path, sidecars: tuple[Any, Any], meta: dict
-) -> Any:
-    """Label from the text and JSON sidecar members (``sidecars``); JSON goes into ``meta``."""
-    txt_m, json_m = sidecars
-    label = None
-
-    if txt_m is not None:
-        try:
-            txt_bytes = read(txt_m)
-            if txt_bytes is not None:
-                label = txt_bytes.decode("utf-8").strip()
-        except (OSError, tarfile.TarError, UnicodeDecodeError) as exc:
-            logger.warning(
-                "Unreadable text label %s in %s; sample has no text label: %s",
-                _member_name(txt_m),
-                t_path,
-                exc,
-            )
-
-    if json_m is not None:
-        try:
-            json_bytes = read(json_m)
-            if json_bytes is not None:
-                parsed_json = json.loads(json_bytes.decode("utf-8"))
-                meta["json"] = parsed_json
-                label = _json_label(parsed_json, label)
-        except (OSError, tarfile.TarError, ValueError) as exc:
-            logger.warning(
-                "Unreadable JSON sidecar %s in %s; metadata skipped: %s",
-                _member_name(json_m),
-                t_path,
-                exc,
-            )
-    return label
+def _tar_json_label(read: MemberReader, t_path: Path, json_m: Any, meta: dict) -> Any:
+    """Label from the JSON member ``json_m``; the document goes into ``meta``."""
+    if json_m is None:
+        return None
+    where = f"{_member_name(json_m)} in {t_path}"
+    try:
+        json_bytes = read(json_m)
+    except (OSError, tarfile.TarError) as exc:
+        logger.warning("Unreadable JSON label %s: %s", where, exc)
+        meta[JSON_ERROR_KEY] = str(exc)
+        return None
+    if json_bytes is None:
+        meta[JSON_ERROR_KEY] = "the JSON member is not a regular file"
+        return None
+    return _record_json(json_bytes, meta, where)
 
 
 class WebDatasetReader:
@@ -355,7 +349,7 @@ class WebDatasetReader:
         ]
         self.tar_files: list[Path] = _find_tar_files(self.root, cand_dirs)
 
-        # Map sample index -> (mode, tar_path, img_ref, tgt_ref, mask_ref, txt_ref, json_ref)
+        # Map sample index -> (mode, tar_path, img_ref, tgt_ref, mask_ref, json_ref)
         self.index_map: list[_IndexEntry] = []
         self._raw_handles: HandlePool[IO[bytes]] = HandlePool(_open_raw, max_open_handles)
         self._tar_handles: HandlePool[tarfile.TarFile] = HandlePool(_open_tar, max_open_handles)
@@ -418,7 +412,7 @@ class WebDatasetReader:
         return lambda ref: None if ref is None else _read_tar_member(tf, ref)
 
     def _tar_sample(self, entry: tuple, index: int) -> Sample:
-        """Read one sample's members (image, target, mask, text, JSON) from its tar archive."""
+        """Read one sample's members (image, target, mask, JSON) from its tar archive."""
         t_path = entry[1]
         if t_path is None or not isinstance(t_path, Path):
             raise ValueError(
@@ -429,7 +423,7 @@ class WebDatasetReader:
         payload = self._read_payload(read, t_path, entry[2:5])
         img_name = _member_name(entry[2])
         meta: dict[str, Any] = {"tar_file": str(t_path), "member": img_name}
-        label = _tar_sidecar_label(read, t_path, (entry[5], entry[6]), meta)
+        label = _tar_json_label(read, t_path, entry[5], meta)
         return _make_sample(Path(img_name), payload, label, meta)
 
     def _read_payload(
