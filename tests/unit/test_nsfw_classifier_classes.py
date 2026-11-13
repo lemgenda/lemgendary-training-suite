@@ -21,7 +21,7 @@ from torchvision import models as tv_models
 from data.dataset import MultiTaskDataset
 from data.sample_labels import ClassLabelRangeError, class_index
 from models.factory import get_model
-from tests.fixtures.webdataset import json_bytes, webp_bytes, write_tar
+from tests.fixtures.webdataset import json_bytes, single_shard_config, webp_bytes
 from training.core_loop import load_model_info
 from training.export.pytorch_exporter import pt_metadata
 from training.model_card import build_model_readme
@@ -120,14 +120,8 @@ def test_labels_naming_no_class_decode_to_none(label: Any) -> None:
 
 def _dataset(tmp_path: Path, members: dict[str, bytes]) -> MultiTaskDataset:
     """The classifier's dataset served from one WebDataset shard holding ``members``."""
-    data_root = tmp_path / "datasets"
-    shards = data_root / _REGISTRY[MODEL_KEY]["datasets"][0] / "shards"
-    shards.mkdir(parents=True)
-    write_tar(shards / "shard-000000.tar", members)
-    config = {
-        "unified_models": "unified_models_v2.yaml",
-        "paths": {"datasets_root": str(data_root)},
-    }
+    dataset_name = _REGISTRY[MODEL_KEY]["datasets"][0]
+    config = single_shard_config(tmp_path / "datasets", dataset_name, members)
     return MultiTaskDataset(config, model_key=MODEL_KEY, is_train=False, env="local")
 
 

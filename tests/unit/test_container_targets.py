@@ -27,7 +27,7 @@ from PIL import Image
 from data.container_targets import SUPER_RESOLUTION_MODELS
 from data.dataset import MultiTaskDataset
 from data.sample_labels import FACE_TARGET_LEN, LANDMARK_ABSENT, MAX_FFANET_BOXES, NIMA_BINS
-from tests.fixtures.webdataset import json_bytes, webp_bytes, write_tar
+from tests.fixtures.webdataset import json_bytes, single_shard_config, webp_bytes
 from training import context_data, core_loop
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -118,14 +118,8 @@ def _dataset_from(
     tmp_path: Path, model_key: str, members: Members, is_train: bool = False
 ) -> MultiTaskDataset:
     """``model_key``'s dataset served from one tar shard holding ``members``."""
-    data_root = tmp_path / "datasets"
-    shards = data_root / REGISTRY[model_key]["datasets"][0] / "shards"
-    shards.mkdir(parents=True)
-    write_tar(shards / "shard-000000.tar", members)
-    config = {
-        "unified_models": "unified_models_v2.yaml",
-        "paths": {"datasets_root": str(data_root)},
-    }
+    dataset_name = REGISTRY[model_key]["datasets"][0]
+    config = single_shard_config(tmp_path / "datasets", dataset_name, members)
     return MultiTaskDataset(config, model_key=model_key, is_train=is_train, env="local")
 
 

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.190-STABLE`
+- **Version**: `v16.9.191-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,14 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.191 - Shared Single-Shard Dataset Test Fixture
+
+- `tests/fixtures/webdataset.py` `single_shard_config` (new) writes one
+  WebDataset shard for a dataset and returns the config that serves it;
+  `tests/unit/test_container_targets.py` and
+  `tests/unit/test_nsfw_classifier_classes.py` duplicated that code (pylint
+  duplicate-code, env-manager validate lint gate).
 
 ### v16.9.190 - Score Scheme Object, EMD Form in the Resume State
 

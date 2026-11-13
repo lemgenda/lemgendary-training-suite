@@ -27,3 +27,14 @@ def write_tar(path: Path, members: dict[str, bytes]) -> None:
             info = tarfile.TarInfo(name=name)
             info.size = len(payload)
             tf.addfile(info, io.BytesIO(payload))
+
+
+def single_shard_config(data_root: Path, dataset_name: str, members: dict[str, bytes]) -> dict:
+    """Write ``members`` as the one shard of ``dataset_name``; return a config serving it."""
+    shards = data_root / dataset_name / "shards"
+    shards.mkdir(parents=True)
+    write_tar(shards / "shard-000000.tar", members)
+    return {
+        "unified_models": "unified_models_v2.yaml",
+        "paths": {"datasets_root": str(data_root)},
+    }
