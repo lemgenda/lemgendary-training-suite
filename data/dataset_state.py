@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from training.ignored_targets import UnlabeledLog
 from training.registry.preprocessing import UNIT, ImagePreprocessing
 
 
@@ -44,6 +45,8 @@ class SampleCatalog:
     path_cache: dict[str, str | None] = field(default_factory=dict)
     container_readers: dict[str, Any] = field(default_factory=dict)
     nima_scores: dict[str, float] = field(default_factory=dict)
+    # Unlabeled classification samples per dataset (target IGNORE_TARGET, logged count).
+    unlabeled: UnlabeledLog = field(default_factory=UnlabeledLog)
 
 
 @dataclass

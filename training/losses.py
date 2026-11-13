@@ -14,6 +14,7 @@ from torch import nn
 from data.dataset_targets import multitask_head
 from data.sample_labels import FACE_BOX_SLICE, FACE_LANDMARK_SLICE, LANDMARK_ABSENT
 from training.governance.quality_score import RESTORATION_QS_TASKS
+from training.ignored_targets import IGNORE_TARGET, labelled
 from training.loss_emd import emd_loss, registry_emd_form
 from training.utils.lazy_imports import load_lpips_metric, load_optional
 
@@ -367,6 +368,19 @@ def autocast_device_type(device: torch.device) -> str:
     return device.type if device.type in _AUTOCAST_DEVICE_TYPES else "cpu"
 
 
+def _classification_loss(
+    criterion: nn.CrossEntropyLoss, pred: torch.Tensor, target: torch.Tensor
+) -> torch.Tensor:
+    """Cross-entropy over the labelled samples; a zero (graph-connected) loss without any.
+
+    Unlabeled samples carry ``IGNORE_TARGET``; a batch of only those would make the mean
+    cross-entropy NaN.
+    """
+    if not bool(labelled(target).any()):
+        return pred.sum() * 0.0
+    return criterion(pred, target)
+
+
 def _face_detection_loss(pred: Any, target: torch.Tensor) -> torch.Tensor:
     """Confidence BCE plus bbox (x2) and landmark Huber losses on positive anchors.
 
@@ -413,7 +427,9 @@ class _BaseCriteria:
     l1: nn.L1Loss = field(default_factory=lambda: nn.L1Loss(reduction="mean"))
     # Legacy fallback for face and segmentation topology
     mse: nn.MSELoss = field(default_factory=lambda: nn.MSELoss(reduction="mean"))
-    ce: nn.CrossEntropyLoss = field(default_factory=lambda: nn.CrossEntropyLoss(ignore_index=255))
+    ce: nn.CrossEntropyLoss = field(
+        default_factory=lambda: nn.CrossEntropyLoss(ignore_index=IGNORE_TARGET)
+    )
     focal: FocalLoss = field(default_factory=lambda: FocalLoss(gamma=2.0, label_smoothing=0.05))
     soft_spearman: SoftSpearmanLoss = field(
         default_factory=lambda: SoftSpearmanLoss(temperature=0.1)
@@ -632,7 +648,7 @@ class CombinedLoss(nn.Module):
             return F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
 
         if self.task_type == "classification":
-            return self.criteria.ce(pred, target)
+            return _classification_loss(self.criteria.ce, pred, target)
 
         if self.task_type == "segmentation":
             if target.dim() == 4:

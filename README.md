@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.193-STABLE`
+- **Version**: `v16.9.194-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,18 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.194 - Unlabeled Classification Samples Are Ignored
+
+- A classification sample whose label names no class (no label file or
+  metadata label, no class folder, an unknown folder name) trained as class
+  0. It now gets `IGNORE_TARGET` (255, new `training/ignored_targets.py`, the
+  cross-entropy `ignore_index`): the loss skips it (a batch of only such
+  samples gives a zero, graph-connected loss instead of NaN) and the
+  validation accuracy leaves it out. Label decoding is unchanged.
+- `SampleCatalog.unlabeled` (`UnlabeledLog`) counts them per dataset and logs
+  the running count at 1, 2, 4, 8, ... (per data-loading process).
+- Tests: `tests/unit/test_unlabeled_classification.py`.
 
 ### v16.9.193 - One Image Preprocessing per Model
 

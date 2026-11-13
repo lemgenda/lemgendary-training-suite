@@ -15,6 +15,7 @@ from typing import Any
 
 import torch
 
+from training.ignored_targets import labelled
 from training.training.amp import compute_ssim_gpu
 from training.training.forex_equity import risk_multiple
 from training.training.val_accumulators import ImageMetricModules, ValAccumulators
@@ -254,10 +255,13 @@ def update_classification(acc: ValAccumulators, batch: ValBatch) -> None:
             return
         preds, targets = pair
         if preds.ndim >= 2 and (targets.ndim == 1 or targets.shape[-1] == 1):
-            pred_labels = torch.argmax(preds, dim=-1).squeeze()
-            tgt_labels = targets.squeeze().long()
-            acc.tasks.total_cls_correct += int((pred_labels == tgt_labels).sum().item())
-            acc.tasks.total_cls_samples += tgt_labels.numel()
+            pred_labels = torch.argmax(preds, dim=-1).reshape(-1)
+            tgt_labels = targets.reshape(-1).long()
+            # Unlabeled samples (IGNORE_TARGET) count neither as right nor as wrong.
+            known = labelled(tgt_labels)
+            hits = (pred_labels == tgt_labels) & known
+            acc.tasks.total_cls_correct += int(hits.sum().item())
+            acc.tasks.total_cls_samples += int(known.sum().item())
         elif preds.ndim == 1 and targets.ndim == 1:
             pred_bin = (torch.sigmoid(preds) > 0.5).long()
             acc.tasks.total_cls_correct += int((pred_bin == targets.long()).sum().item())

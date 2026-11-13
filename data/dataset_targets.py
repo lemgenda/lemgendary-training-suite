@@ -34,6 +34,7 @@ from training.data.degrade import (
     apply_synthetic_degradation,
     synthesize_degradation,
 )
+from training.ignored_targets import IGNORE_TARGET
 
 logger = logging.getLogger("lemtrain.dataset")
 
@@ -267,10 +268,18 @@ class DatasetTargetsMixin:
         return sample.img_tensor, scores, "quality"
 
     def classification_item(self, sample: DirectorySample):
-        """Class index from the label file, a numeric parent folder or ``classes.txt``."""
+        """Class index from the label file, a numeric parent folder or ``classes.txt``.
+
+        A sample naming no class gets ``IGNORE_TARGET`` (skipped by the loss and the
+        accuracy, counted in ``catalog.unlabeled``) instead of class 0.
+        """
         class_idx = self._label_class(sample)
         if class_idx is None:
             class_idx = self._folder_class(sample)
+        if class_idx is None:
+            ds_name = os.path.basename(sample.paths.ds_path.rstrip("/\\")) or "dataset"
+            self.catalog.unlabeled.record(ds_name, self.spec.model_key, sample.paths.fname)
+            class_idx = IGNORE_TARGET
         return sample.img_tensor, torch.tensor(class_idx, dtype=torch.long), "classification"
 
     def _label_class(self, sample: DirectorySample) -> int | None:
@@ -287,29 +296,29 @@ class DatasetTargetsMixin:
             logger.debug("Invalid classification label in %s: %r", label_path, text)
         return class_idx
 
-    def _folder_class(self, sample: DirectorySample) -> int:
+    def _folder_class(self, sample: DirectorySample) -> int | None:
         """Class index from the parent folder name.
 
         The name is an id or a registry class name; only a model without registry
-        ``class_names`` falls back to a ``classes.txt`` entry. Class 0 when none matches.
+        ``class_names`` falls back to a ``classes.txt`` entry. ``None`` when none matches.
         """
         parent_dir = os.path.dirname(sample.paths.fname)
         if not parent_dir:
-            return 0
+            return None
         class_candidate = os.path.basename(parent_dir)
         class_idx = class_index(class_candidate, self.spec.class_names)
         if class_idx is not None:
             return class_idx
         if self.spec.class_names:
-            logger.debug("Folder %r is not a registry class name; using class 0", class_candidate)
-            return 0
+            logger.debug("Folder %r is not a registry class name; no class", class_candidate)
+            return None
         classes_file = os.path.join(sample.paths.ds_path, "classes.txt")
         try:
             c_lines = [line.strip() for line in read_lines(classes_file) if line.strip()]
         except OSError as cf_err:
             logger.debug("Failed reading classes file %s: %s", classes_file, cf_err)
-            return 0
-        return c_lines.index(class_candidate) if class_candidate in c_lines else 0
+            return None
+        return c_lines.index(class_candidate) if class_candidate in c_lines else None
 
     def segmentation_item(self, sample: DirectorySample):
         """Segmentation items: the class mask is the target."""
