@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.201-STABLE`
+- **Version**: `v16.9.202-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.202 - Kaggle Jobs Report The Resume Refusal Text
+
+- A resume refused because frozen run settings changed now writes
+  `resume_refusal.json` into `LemGendaryModels/<model>` (new
+  `training/run_settings/refusal.py`, main process only) before the refusal
+  ends the run; every resume attempt removes a stale record first. The record
+  holds the `FrozenSettingsChanged` text word for word and the changed
+  setting names.
+- The Kaggle kernel output download includes the record. A Kaggle training or
+  monitor job whose kernel left one fails with that text as its
+  `error_message` (and an `[ERROR]` log line), the same text a local job
+  records, whatever status the kernel ended with. A failed kernel without a
+  record keeps the `Kaggle kernel ended with status ...` error.
 
 ### v16.9.201 - YOLOv8n Trains From WebDataset Shards
 

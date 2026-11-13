@@ -5,6 +5,10 @@
 (:mod:`training.cloud.kernel_watch`) and, when it completes, merges the kernel output's
 checkpoints and metrics into ``LemGendaryModels/<model>``. ``kaggle_monitor`` watches an
 existing kernel without pushing.
+
+A kernel whose trainer refused to resume (frozen run settings changed) leaves the refusal
+record in its output (:mod:`training.run_settings.refusal`); the job then fails with that
+text as its error, the same text a local job records.
 """
 
 from __future__ import annotations
@@ -23,7 +27,11 @@ from training.cloud.kaggle_client import KaggleAuthError, authenticated_kaggle_a
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.kernel_bundle import BundleRequest, model_kernel_handle
 from training.cloud.kernel_launch import launch_kernel
-from training.cloud.kernel_output import retrieve_kernel_output
+from training.cloud.kernel_output import (
+    KernelOutput,
+    retrieve_kernel_output,
+    retrieve_resume_refusal,
+)
 from training.cloud.kernel_status import CANCELLED_STATUSES, COMPLETE, QUEUED, PollBackoff
 from training.cloud.kernel_watch import KernelWatcher, WatchHooks, WatchResult
 from training.cloud.session_deadline import load_session_config
@@ -106,14 +114,14 @@ class KaggleRunJobsMixin:
         backoff = PollBackoff(initial=poll, maximum=max(poll, MAX_POLL_SECONDS))
         return KernelWatcher(watch.api, watch.kernel_slug, backoff, hooks).watch(QUEUED)
 
-    def _retrieve_output(self, watch: _KernelWatch) -> bool:
-        """Merge the kernel output's checkpoints and metrics; True after a deadline stop."""
+    def _retrieve_output(self, watch: _KernelWatch) -> KernelOutput | None:
+        """Merge the kernel output's checkpoints and metrics; ``None`` when retrieval failed."""
         hub_root = self._hub_sync(watch.user).hub_root
         try:
             output = retrieve_kernel_output(watch.api, watch.kernel_slug, watch.model_key, hub_root)
         except KAGGLE_API_ERRORS as exc:
             self._broadcast_log(watch.job_id, f"[WARN] Kernel output retrieval notice: {exc}")
-            return False
+            return None
         self._broadcast_log(
             watch.job_id,
             f"[SYNC] Kernel output merged into LemGendaryModels/{watch.model_key}: "
@@ -122,7 +130,27 @@ class KaggleRunJobsMixin:
         )
         if watch.auto_pull:
             self._pull_newer(watch)
-        return output.deadline_stop
+        return output
+
+    def _resume_refusal(self, watch: _KernelWatch) -> str | None:
+        """The trainer's resume refusal text in the kernel output (``None`` without one)."""
+        if not watch.model_key:
+            return None
+        try:
+            return retrieve_resume_refusal(watch.api, watch.kernel_slug, watch.model_key)
+        except KAGGLE_API_ERRORS as exc:
+            self._broadcast_log(watch.job_id, f"[WARN] Resume refusal lookup notice: {exc}")
+            return None
+
+    def _refused(self, watch: _KernelWatch, status: str, refusal: str) -> None:
+        """Record a kernel whose trainer refused to resume: the refusal text is the error."""
+        self.state.update_job_status(
+            job_id=watch.job_id,
+            status="failed",
+            error_message=refusal,
+            metrics={"kaggle_status": status, "kernel_slug": watch.kernel_slug},
+        )
+        self._broadcast_log(watch.job_id, f"[ERROR] {refusal}")
 
     def _fail(self, watch: _KernelWatch, result: WatchResult) -> None:
         """Record a kernel that ended cancelled or with an error."""
@@ -136,6 +164,10 @@ class KaggleRunJobsMixin:
                 metrics=metrics,
             )
             self._broadcast_log(watch.job_id, f"[CANCEL] Kaggle kernel cancelled: {status}")
+            return
+        refusal = self._resume_refusal(watch)
+        if refusal is not None:
+            self._refused(watch, status, refusal)
             return
         detail = f": {result.failure}" if result.failure else ""
         self.state.update_job_status(
@@ -189,7 +221,11 @@ class KaggleRunJobsMixin:
             if result.status != COMPLETE:
                 self._fail(watch, result)
                 return
-            deadline_stop = self._retrieve_output(watch)
+            output = self._retrieve_output(watch)
+            if output is not None and output.resume_refusal is not None:
+                self._refused(watch, COMPLETE, output.resume_refusal)
+                return
+            deadline_stop = output is not None and output.deadline_stop
             if not (deadline_stop and chain.auto_resume and resumes < chain.max_resumes):
                 self._complete(watch, {"deadline_stop": deadline_stop, "resumes": resumes})
                 return
@@ -252,5 +288,11 @@ class KaggleRunJobsMixin:
             self._fail(watch, result)
             return
         if watch.auto_pull and watch.model_key:
-            self._retrieve_output(watch)
+            output = self._retrieve_output(watch)
+            refusal = output.resume_refusal if output is not None else None
+        else:
+            refusal = self._resume_refusal(watch)
+        if refusal is not None:
+            self._refused(watch, COMPLETE, refusal)
+            return
         self._complete(watch)

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,7 +74,8 @@ from training.run_settings.capture import (
     param_group_layout,
 )
 from training.run_settings.ledger import SettingsLedger
-from training.run_settings.policy import RunSettingsTracker
+from training.run_settings.policy import FrozenSettingsChanged, RunSettingsTracker
+from training.run_settings.refusal import ResumeRefusalRecord
 from training.training import (
     DataComponents,
     GovernanceComponents,
@@ -89,6 +91,7 @@ from training.training import (
     create_grad_scaler,
     run_training,
 )
+from training.training.step_progress import is_main_process
 from training.utils.interrupt import (
     _ACTIVE_PROCESSES,
     cleanup_active_processes,
@@ -464,6 +467,26 @@ def build_data(spec: RunSpec, governor: Any, raw_model: Any, batch_size: int):
     return data, val_loader, test_loader
 
 
+def resume_recording_refusal(resume: Callable[[], Any], refusal: ResumeRefusalRecord) -> Any:
+    """Run ``resume``; record a frozen-settings refusal for the Kaggle job watcher.
+
+    The main process removes a stale record first and writes the refusal text before the
+    refusal ends the run (``training.run_settings.refusal``).
+
+    Raises:
+        FrozenSettingsChanged: a frozen setting changed without ``--override-frozen``.
+    """
+    writer = is_main_process()
+    if writer:
+        refusal.clear()
+    try:
+        return resume()
+    except FrozenSettingsChanged as refused:
+        if writer:
+            refusal.write(refused)
+        raise
+
+
 def build_training_context(args: argparse.Namespace) -> TrainingContext:
     """Construct deterministic TrainingContext from parsed CLI arguments and workspace configs."""
     spec, setup = resolve_run(args)
@@ -487,7 +510,10 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
     if not args.clean:
         hub = setup.paths.models_hub
         metrics_csv = hub.metrics_csv if hub is not None else None
-        resume_state = resume_from_checkpoint(spec, train, data, metrics_csv, run_settings)
+        resume_state = resume_recording_refusal(
+            lambda: resume_from_checkpoint(spec, train, data, metrics_csv, run_settings),
+            ResumeRefusalRecord.in_folder(setup.paths.export_dir),
+        )
         if resume_state is not None and run_settings.legacy_checkpoint:
             pin_resumed_emd_form(resume_state.governance.emd_form, criterion)
     total_epochs = grant_resume_budget(args, resume_state, total_epochs)
