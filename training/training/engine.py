@@ -460,7 +460,7 @@ def _record_epoch_telemetry(
     # Standard LemGendary Telemetry Engine export (metrics.csv)
     if lifecycle_manager is None:
         return
-    task_type = "forex" if _is_forex(ctx) else "image"
+    task_type = "forex" if _is_forex(ctx) else resolve_task_type(ctx.run.model_info)
     telemetry = TelemetryEngine(
         export_dir=str(lifecycle_manager.model_hub_dir), task_type=task_type
     )

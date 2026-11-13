@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +16,7 @@ import torch
 # ==============================================================================
 # Master handler for SOTA metric tracking, Quality Score math, and CSV validation
 # ==============================================================================
+from training.governance.metrics import FACE_DETECTION_METRICS
 from training.governance.quality_score import score_metrics
 from training.utils.lazy_imports import load_mean_average_precision
 
@@ -114,6 +116,8 @@ _VISION_METRICS = (
     "rank_margin",
     "mae",
     "miou",
+    # No model measures these two any more; the columns stay so existing vision logs keep
+    # their 28-column layout.
     "map_medium",
     "map_hard",
     "accuracy_vqa",
@@ -138,17 +142,73 @@ def _forex_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
     return new_line, (str(row.forex.phase), str(row.forex.fold), str(epoch_idx))
 
 
-def _vision_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
-    """Return the 28-column vision CSV line and its (epoch,) key."""
+def _spatial_line(row: EpochRow, names: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+    """Return a spatial-model CSV line with the ``names`` metric columns and its (epoch,) key."""
     gov = row.governor_state
     epoch_idx = _epoch_index(row.epoch)
     res = gov.get("input_size", 512) if gov else 512
     new_line = (
         f"{epoch_idx},{row.losses.train_loss:.8f},{row.losses.val_loss:.8f},{row.losses.lr:.8f},"
-        f"{_metric_columns(row.metrics, _VISION_METRICS)},{_cell(row.quality_score)},"
+        f"{_metric_columns(row.metrics, names)},{_cell(row.quality_score)},"
         f"{res},{_governor_columns(gov)},{row.stress:.6f}\n"
     )
     return new_line, (str(epoch_idx),)
+
+
+def _vision_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
+    """Return the 28-column vision CSV line and its (epoch,) key."""
+    return _spatial_line(row, _VISION_METRICS)
+
+
+def _face_detection_line(row: EpochRow) -> tuple[str, tuple[str, ...]]:
+    """Return the 17-column single-box face detection CSV line and its (epoch,) key."""
+    return _spatial_line(row, FACE_DETECTION_METRICS)
+
+
+@dataclass(frozen=True)
+class CsvLayout:
+    """Header and row writer of one ``metrics.csv`` layout."""
+
+    header: str
+    line: Callable[[EpochRow], tuple[str, tuple[str, ...]]]
+
+    @property
+    def columns(self) -> int:
+        """Number of columns of the layout."""
+        return len(self.header.strip().split(","))
+
+
+_SPATIAL_TAIL = "Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+FOREX_LAYOUT = CsvLayout(
+    header=(
+        "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,"
+        "Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,"
+        "Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
+    ),
+    line=_forex_line,
+)
+VISION_LAYOUT = CsvLayout(
+    header=(
+        "Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,"
+        "Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA," + _SPATIAL_TAIL
+    ),
+    line=_vision_line,
+)
+FACE_DETECTION_LAYOUT = CsvLayout(
+    header=("Epoch,Train_Loss,Val_Loss,LR,Box_IoU,AP50,AP50_95,Landmark_NME," + _SPATIAL_TAIL),
+    line=_face_detection_line,
+)
+"""RetinaFace: the measured single-box metrics (``training.training.face_detection_metrics``)."""
+
+_LAYOUTS: dict[str, CsvLayout] = {
+    "forex": FOREX_LAYOUT,
+    "face_detection": FACE_DETECTION_LAYOUT,
+}
+
+
+def csv_layout(task_type: str) -> CsvLayout:
+    """The ``metrics.csv`` layout of ``task_type`` (the vision layout by default)."""
+    return _LAYOUTS.get(task_type, VISION_LAYOUT)
 
 
 class TelemetryEngine:
@@ -162,22 +222,9 @@ class TelemetryEngine:
     def validate_and_initialize_csv(self):
         """2026 Schema Guard: Force-rebuild or transition the CSV to hardware-aware parity."""
         schema_ok = False
-
-        # Determine expected columns based on task_type
-        if self.task_type == "forex":
-            expected_cols = 24
-            header_str = (
-                "Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,"
-                "Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,"
-                "Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
-            )
-        else:
-            expected_cols = 28
-            header_str = (
-                "Epoch,Train_Loss,Val_Loss,LR,PLCC,SRCC,PSNR,SSIM,LPIPS,FID,mAP50,mAP50-95,"
-                "Accuracy,Rank_Margin,MAE,mIoU,mAP_Medium,mAP_Hard,Accuracy_VQA,"
-                "Quality_Score,Res,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress\n"
-            )
+        layout = csv_layout(self.task_type)
+        expected_cols = layout.columns
+        header_str = layout.header
 
         if os.path.exists(self.metrics_csv_path):
             try:
@@ -219,10 +266,7 @@ class TelemetryEngine:
     def write_epoch_row(self, row: EpochRow) -> None:
         """Append one epoch row to metrics.csv with deduplication and schema safety."""
         self.validate_and_initialize_csv()
-        if self.task_type == "forex":
-            new_line, key_tuple = _forex_line(row)
-        else:
-            new_line, key_tuple = _vision_line(row)
+        new_line, key_tuple = csv_layout(self.task_type).line(row)
         self._upsert_line(new_line, key_tuple)
 
     def _upsert_line(self, new_line: str, key_tuple: tuple[str, ...]) -> None:
@@ -311,8 +355,8 @@ class TelemetryEngine:
             logger.warning("VQA accuracy computation failed; reporting 0.0: %s", exc)
             return 0.0
 
-    # Note: mAP_Medium and mAP_Hard should be calculated via PyCocoTools
-    # This requires intercepting bounding boxes. For now we provide a skeleton.
+    # Multi-box COCO mAP. The single-box RetinaFace metrics live in
+    # ``training.training.face_detection_metrics``.
     def calculate_map(self, preds, targets):
         """2026 mAP Hooks for Detection (YOLO/Face)."""
         try:

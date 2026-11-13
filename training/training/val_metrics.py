@@ -15,8 +15,14 @@ from typing import Any
 
 import torch
 
+from data.sample_labels import FACE_TARGET_LEN
 from training.ignored_targets import labelled
 from training.training.amp import compute_ssim_gpu
+from training.training.face_detection_metrics import (
+    FACE_DETECTION_METRICS,
+    FacePrediction,
+    record_face_batch,
+)
 from training.training.forex_equity import risk_multiple
 from training.training.val_accumulators import ImageMetricModules, ValAccumulators
 from training.utils.error_types import METRIC_INIT_ERRORS
@@ -30,8 +36,6 @@ METRIC_ERRORS: tuple[type[BaseException], ...] = (RuntimeError, ValueError, Type
 
 LearnedPerceptualImagePatchSimilarity = load_optional(load_lpips_metric)
 FrechetInceptionDistance = load_optional(load_fid_metric)
-
-_DETECTION_KEYS = ("map50", "map50_95", "map_easy", "map_medium", "map_hard")
 
 
 @dataclass
@@ -303,25 +307,32 @@ def update_segmentation(acc: ValAccumulators, batch: ValBatch) -> None:
         logger.warning("Segmentation mIoU evaluation error: %s", exc)
 
 
-def update_detection(acc: ValAccumulators, batch: ValBatch) -> None:
-    """Object and face detection (RetinaFace, YOLO) confidence match score."""
-    if not any(k in batch.sota_cfg for k in _DETECTION_KEYS):
-        return
+def _face_prediction(batch: ValBatch) -> FacePrediction | None:
+    """The RetinaFace ``(boxes, confidence, landmarks)`` output of a batch with face targets."""
     preds, targets = batch.preds, batch.targets
+    if not (
+        isinstance(preds, (tuple, list))
+        and len(preds) >= 3
+        and all(isinstance(p, torch.Tensor) for p in preds[:3])
+        and isinstance(targets, torch.Tensor)
+        and targets.ndim == 2
+        and targets.shape[-1] == FACE_TARGET_LEN
+    ):
+        return None
+    return FacePrediction(boxes=preds[0], confidence=preds[1], landmarks=preds[2])
+
+
+def update_face_detection(acc: ValAccumulators, batch: ValBatch) -> None:
+    """Single-box face detection (RetinaFace): box IoU, confidence ranking and landmark NME."""
+    if not any(k in batch.sota_cfg for k in FACE_DETECTION_METRICS):
+        return
+    prediction = _face_prediction(batch)
+    if prediction is None:
+        return
     try:
-        if (
-            isinstance(preds, (tuple, list))
-            and len(preds) >= 2
-            and isinstance(targets, torch.Tensor)
-        ):
-            p_conf = preds[1] if isinstance(preds[1], torch.Tensor) else preds[0]
-            t_conf = targets[:, 0:1] if targets.ndim >= 2 else targets
-            conf_diff = torch.abs(torch.sigmoid(p_conf.float()) - t_conf.float()).mean()
-            acc.tasks.detection_ap_scores.append(
-                float(torch.clamp(1.0 - conf_diff, 0.0, 1.0).item())
-            )
+        record_face_batch(acc.faces, prediction, batch.targets)
     except METRIC_ERRORS as exc:
-        logger.warning("Detection score evaluation error: %s", exc)
+        logger.warning("Face detection metric evaluation error: %s", exc)
 
 
 def _sequence_pair(value: Any) -> tuple[Any, Any] | None:
@@ -447,7 +458,7 @@ BATCH_METRICS: tuple[Callable[[ValAccumulators, ValBatch], None], ...] = (
     update_classification,
     update_parameter_mae,
     update_segmentation,
-    update_detection,
+    update_face_detection,
     update_llm_tokens,
     update_forex,
 )

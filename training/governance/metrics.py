@@ -5,6 +5,10 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("lemtrain.governance.metrics")
 
+FACE_DETECTION_METRICS: tuple[str, ...] = ("box_iou", "ap50", "ap50_95", "landmark_nme")
+"""Measured metrics of the single-box face detector (RetinaFace ``sota_targets`` keys);
+computed by ``training.training.face_detection_metrics``."""
+
 DEFAULT_METRIC_DIRECTIONS: dict[str, bool] = {
     # True = Higher is better, False = Lower is better
     "val_loss": False,
@@ -25,8 +29,11 @@ DEFAULT_METRIC_DIRECTIONS: dict[str, bool] = {
     "mae": False,
     "mse": False,
     "miou": True,
-    "map_medium": True,
-    "map_hard": True,
+    # Single-box face detection (RetinaFace)
+    "box_iou": True,
+    "ap50": True,
+    "ap50_95": True,
+    "landmark_nme": False,
     "accuracy_vqa": True,
     # Forex & Time-Series
     "dir_acc": True,
@@ -53,8 +60,10 @@ DEFAULT_METRIC_WEIGHTS: dict[str, float] = {
     "accuracy": 100.0,
     "mae": 100.0,
     "miou": 100.0,
-    "map_medium": 100.0,
-    "map_hard": 100.0,
+    "box_iou": 100.0,
+    "ap50": 100.0,
+    "ap50_95": 100.0,
+    "landmark_nme": 100.0,
     "accuracy_vqa": 100.0,
     # Forex
     "dir_acc": 5.0,
@@ -86,6 +95,7 @@ LOWER_IS_BETTER_METRICS: set[str] = {
     "rank_margin",
     "entropy",
     "dir_entropy",
+    "landmark_nme",
 }
 
 CANONICAL_METRIC_ALIASES: dict[str, str] = {
@@ -151,6 +161,7 @@ def _lower_is_better_contribution(metric_key: str, val: float) -> float:
         "tp_mae": max(0.0, 50.0 - val),
         "sl_mae": max(0.0, 50.0 - val),
         "dir_entropy": max(0.0, 1.099 - val),
+        "landmark_nme": max(0.0, 1.0 - val),
     }
     return bounded_metrics.get(metric_key, 1.0 / (val + 1e-6))
 

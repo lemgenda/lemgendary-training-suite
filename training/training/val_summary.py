@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from training.registry.forex_risk import DEFAULT_RISK_PER_TRADE, risk_per_trade
+from training.training.face_detection_metrics import face_detection_results
 from training.training.forex_equity import max_drawdown_pct
 from training.training.val_accumulators import ForexTradeTotals, ValAccumulators
 from training.training.val_metrics import METRIC_ERRORS
@@ -175,13 +176,7 @@ def _task_results(acc: ValAccumulators, results: dict[str, float]) -> None:
         results["mae"] = float(tasks.total_upn_mae / tasks.upn_mae_count)
     if tasks.total_miou_union > 0:
         results["miou"] = float(tasks.total_miou_inter / tasks.total_miou_union)
-    if len(tasks.detection_ap_scores) > 0:
-        mean_det = float(np.mean(tasks.detection_ap_scores))
-        results["map50"] = mean_det
-        results["map50_95"] = mean_det * 0.75
-        results["map_easy"] = mean_det
-        results["map_medium"] = mean_det * 0.95
-        results["map_hard"] = mean_det * 0.85
+    results.update(face_detection_results(acc.faces))
 
 
 def _magnitude_mae(trades: ForexTradeTotals) -> tuple[float, float]:

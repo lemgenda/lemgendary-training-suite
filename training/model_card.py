@@ -251,11 +251,14 @@ def _detection_summary(card: ModelCard) -> tuple[str, str]:
 
 
 def _face_summary(card: ModelCard) -> tuple[str, str]:
+    """Measured single-box face metrics (one face per image; not WIDER FACE subsets)."""
     metrics = card.metrics
-    m_easy = measured(metrics, "map_easy")
-    m_med = measured(metrics, "map_medium", "map_med")
-    m_hard = measured(metrics, "map_hard")
-    return f"**mAP (Easy)**: {m_easy} | **mAP (Medium)**: {m_med} | **mAP (Hard)**: {m_hard}", ""
+    iou = measured(metrics, "box_iou", "Box_IoU")
+    ap50 = measured(metrics, "ap50", "AP50")
+    ap50_95 = measured(metrics, "ap50_95", "AP50_95")
+    nme = measured(metrics, "landmark_nme", "Landmark_NME")
+    boxes = f"**Box IoU**: {iou} | **AP50**: {ap50} | **AP50:95**: {ap50_95}"
+    return f"{boxes} | **Landmark NME**: {nme}", ""
 
 
 def _segmentation_summary(card: ModelCard) -> tuple[str, str]:

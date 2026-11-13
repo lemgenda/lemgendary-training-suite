@@ -112,6 +112,13 @@ class ModelWithStats(BaseModel):
     sota_targets_met: int = 0
     sota_all_met: bool = False
     sota_details: list[SotaMetricDetail] = Field(default_factory=list)
+    sota_targets_provisional: bool = Field(
+        default=False,
+        description=(
+            "True when the registry marks the SOTA targets provisional: no cited "
+            "benchmark backs them yet"
+        ),
+    )
     best_metrics_details: list[BestMetricDetail] = Field(default_factory=list)
     sota_reached: bool = False
     status: str = "VALIDATED"

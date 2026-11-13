@@ -43,9 +43,11 @@ METRIC_REGISTRY: dict[str, tuple[str, bool, str, bool]] = {
     "miou": ("mIoU", False, "mIoU", False),
     "map50": ("mAP50", False, "mAP50", False),
     "map50_95": ("mAP50-95", False, "mAP50-95", False),
-    "map_easy": ("mAP_Easy", False, "mAP Easy", False),
-    "map_medium": ("mAP_Medium", False, "mAP Medium", False),
-    "map_hard": ("mAP_Hard", False, "mAP Hard", False),
+    # Single-box face detection (RetinaFace)
+    "box_iou": ("Box_IoU", False, "Box IoU", False),
+    "ap50": ("AP50", False, "AP50", False),
+    "ap50_95": ("AP50_95", False, "AP50:95", False),
+    "landmark_nme": ("Landmark_NME", True, "Landmark NME", False),
     # Forex Trading Telemetry
     "dir_acc": ("DirAcc", False, "Dir Acc (%)", True),
     "win_rate": ("WinRate", False, "Win Rate (%)", True),
@@ -81,7 +83,7 @@ _VISION_PRIORITY: tuple[tuple[str, str, bool], ...] = (
     ("mae", "MAE", True),
     ("auc", "AUC-ROC", False),
     ("ssim", "SSIM", False),
-    ("map_easy", "mAP Easy", False),
+    ("ap50", "AP50", False),
     ("eval_loss", "Eval Loss", True),
     ("perplexity", "Perplexity", True),
 )
@@ -492,6 +494,7 @@ def _sota_fields(
         "sota_targets_met": met,
         "sota_all_met": reached,
         "sota_details": details,
+        "sota_targets_provisional": info.get("sota_targets_provisional") is True,
         "best_metrics_details": _best_metrics_details(details, history, is_forex),
         "sota_reached": reached,
     }

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.207-STABLE`
+- **Version**: `v16.9.208-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,52 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.208 - RetinaFace Measures Box IoU, AP And Landmark NME
+
+- **The RetinaFace `map_*` values were not a metric.** The validation score was
+  `1 - |sigmoid(conf) - target|`, but the model already applies the sigmoid,
+  so the confidence was squashed twice and the score capped near 0.73.
+  `map50_95`, `map_easy`, `map_medium` and `map_hard` were fixed multiples of
+  that score (0.75, 1.0, 0.95, 0.85), so the registry targets 0.915 / 0.89 /
+  0.75 could never be reached and said nothing about the boxes.
+- New `training/training/face_detection_metrics.py` measures the single-box
+  output (one box, one probability and five landmarks per image, no anchors):
+  - `box_iou`: mean IoU of the predicted box with the labelled box over the
+    images that hold a face.
+  - `ap50` and `ap50_95`: single-class AP over images. Each image is one
+    detection ranked by its confidence (used as returned, no second
+    sigmoid); it is a true positive when the image holds a face and the IoU
+    reaches the threshold. All-point interpolated AP; `ap50_95` averages the
+    COCO thresholds 0.50:0.05:0.95.
+  - `landmark_nme`: mean distance of the five points divided by the
+    inter-ocular distance (points 0 and 1); box-only labels are left out.
+- The validation pass keeps one entry per image (`FaceDetectionTotals`, also
+  in the progress-checkpoint snapshot) instead of the old per-batch score.
+  The fake multiples are gone; no model writes `map_easy`, `map_medium` or
+  `map_hard` any more.
+- **Registry**: RetinaFace `sota_targets` are now `box_iou: 0.80`,
+  `ap50: 0.95`, `ap50_95: 0.60`, `landmark_nme: 0.10`, marked
+  `sota_targets_provisional: true` with a `sota_targets_note`. No cited source
+  backs them; WIDER FACE easy / medium / hard AP does not apply to a
+  one-box-per-image model validated on LemGendizedRetinaFace.
+- **Score and governor**: the four keys have directions and weights in
+  `training/governance/metrics.py` (NME is lower-is-better, scored as
+  `1 - NME`). Face detection gets its own score scheme
+  (`face_box_weighted_targets_v1`), so best scores saved under the old fake
+  metrics are not reused as an anchor.
+- **metrics.csv**: RetinaFace writes a 17-column layout
+  (`Box_IoU,AP50,AP50_95,Landmark_NME`); the first run archives the old
+  28-column file as `metrics_legacy.csv`. The vision layout keeps its 28
+  columns (`mAP_Medium` and `mAP_Hard` stay empty).
+- **GUI API**: the model stats map the new columns and labels, the headline
+  metric of RetinaFace is AP50, and `ModelWithStats` has a new
+  `sota_targets_provisional` flag (`openapi.json` regenerated). The model
+  card and `models.md` show the measured metrics.
+- New `tests/unit/test_face_detection_metrics.py`: a perfect prediction
+  gives IoU 1, AP 1 and NME 0; shifted boxes and landmarks lower all three;
+  plus confidence ranking, face-less images, box-only labels, the snapshot,
+  the registry keys, the score scheme and the CSV layout.
 
 ### v16.9.207 - RetinaFace Box Range Check After The Label Rebuild
 

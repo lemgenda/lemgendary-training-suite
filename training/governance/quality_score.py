@@ -47,6 +47,12 @@ The scheme id of a Forex run carries its ``evaluation.risk_per_trade``
 (:func:`forex_scheme`, e.g. ``forex_weighted_targets_v2_risk0.01``): the drawdown, and so
 the score, depends on it. The bare tag was written before the setting existed, at 1 %."""
 FOREX_TASKS = frozenset({"forex"})
+FACE_DETECTION_SCHEME = "face_box_weighted_targets_v1"
+"""Single-box face detection (RetinaFace) scored over the measured box IoU, AP50,
+AP50:95 and landmark NME. Its earlier ``weighted_targets_v1`` scores summed fixed multiples
+of a confidence match (``map_easy`` / ``map_medium`` / ``map_hard``), so they are not
+comparable and are not reused as a best."""
+FACE_DETECTION_TASKS = frozenset({"face_detection"})
 _FOREX_CSV_COLUMNS = {
     "dir_acc": "DirAcc",
     "win_rate": "WinRate",
@@ -75,6 +81,8 @@ _LOWER_IS_BETTER_TERM: dict[str, Callable[[float], float]] = {
     "sl_mae": lambda v: max(0.0, 50.0 - v),
     # Max entropy for 3 classes = ln(3) ~= 1.099: 0 at random, rising with confidence.
     "dir_entropy": lambda v: max(0.0, 1.099 - v),
+    # Inter-ocular normalized landmark error: 1 at a perfect fit, 0 at one eye distance.
+    "landmark_nme": lambda v: max(0.0, 1.0 - v),
 }
 
 
@@ -119,6 +127,8 @@ def quality_scheme(task_type: str, risk_per_trade: float = DEFAULT_RISK_PER_TRAD
     """Name of the score scheme ``task_type`` uses (Forex: at ``risk_per_trade``)."""
     if uses_restoration_formula(task_type):
         return RESTORATION_SCHEME
+    if task_type in FACE_DETECTION_TASKS:
+        return FACE_DETECTION_SCHEME
     return forex_scheme(risk_per_trade) if task_type in FOREX_TASKS else WEIGHTED_SCHEME
 
 

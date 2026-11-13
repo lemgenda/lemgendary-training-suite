@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.207"
+    "version": "16.9.208"
   },
   "paths": {
     "/api/health": {
@@ -2570,6 +2570,12 @@
             },
             "type": "array",
             "title": "Sota Details"
+          },
+          "sota_targets_provisional": {
+            "type": "boolean",
+            "title": "Sota Targets Provisional",
+            "description": "True when the registry marks the SOTA targets provisional: no cited benchmark backs them yet",
+            "default": false
           },
           "best_metrics_details": {
             "items": {
