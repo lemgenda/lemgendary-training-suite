@@ -29,10 +29,14 @@ from training.training.step_progress import (
     resume_iteration,
 )
 from training.training.val_accumulators import ValAccumulators
-from training.training.val_metrics import BATCH_METRICS, ValBatch
+from training.training.val_metrics import BATCH_METRICS, LIGHT_BATCH_METRICS, ValBatch
 from training.training.val_summary import is_llm, summarize
 
 logger = logging.getLogger("lemtrain.training.validation")
+
+# Per-epoch validation runs LPIPS and FID on every Nth batch; the final test pass, SWA
+# evaluation and standalone evaluation keep every batch (stride 1).
+EPOCH_HEAVY_METRIC_STRIDE = 4
 
 
 def _log_due(clock: BatchClock, step: int, now: float) -> bool:
@@ -165,6 +169,22 @@ class _ValidationPass:
         )
         print(line, end="\n" if step == clock.num_batches else "", flush=True)
 
+    def step(self, batch_idx: int, batch: Any, heavy: bool) -> None:
+        """Evaluate one batch; ``heavy`` adds the LPIPS and FID networks to its metrics."""
+        unpacked = _unpack_batch(batch, self.ctx.hardware.device_info.device)
+        outcome = self.guarded_forward(batch_idx, unpacked)
+        if outcome is None:
+            return
+        preds, loss = outcome
+        self.acc.total_loss += float(loss.item())
+        self.step_count += 1
+        self.save_progress()
+        self.log(loss)
+
+        view = self.batch_view(preds, unpacked[1], unpacked[0])
+        for update in BATCH_METRICS if heavy else LIGHT_BATCH_METRICS:
+            update(self.acc, view)
+
     def batch_view(self, preds: Any, targets: Any, inputs: Any = None) -> ValBatch:
         """Bundle one batch with the evaluation settings of the model."""
         ctx = self.ctx
@@ -201,6 +221,7 @@ def validate_one_epoch(
     epoch: int,
     cancel_check: Any = None,
     loader: Any = None,
+    heavy_stride: int = 1,
 ) -> dict[str, float]:
     """Execute validation over the evaluation loader or an explicit loader (e.g. test_loader).
 
@@ -209,10 +230,13 @@ def validate_one_epoch(
         epoch: Epoch index being evaluated.
         cancel_check: Optional callable returning True when cancellation is requested.
         loader: Optional explicit DataLoader; defaults to ctx.data.val_loader.
+        heavy_stride: LPIPS and FID run on every Nth batch (1 = every batch, exact values;
+            larger values give subsampled estimates at a fraction of the cost).
 
     Returns:
         dict[str, float]: Dictionary of validation metrics.
     """
+    heavy_stride = max(1, heavy_stride)
     target_loader = loader if loader is not None else ctx.data.val_loader
     if target_loader is None or len(target_loader) == 0:
         return {"val_loss": 0.0}
@@ -231,18 +255,6 @@ def validate_one_epoch(
             if cancel_check is not None and cancel_check():
                 raise InterruptedError("Validation cancelled by user request.")
 
-            unpacked = _unpack_batch(batch, ctx.hardware.device_info.device)
-            outcome = run.guarded_forward(batch_idx, unpacked)
-            if outcome is None:
-                continue
-            preds, loss = outcome
-            run.acc.total_loss += float(loss.item())
-            run.step_count += 1
-            run.save_progress()
-            run.log(loss)
-
-            view = run.batch_view(preds, unpacked[1], unpacked[0])
-            for update in BATCH_METRICS:
-                update(run.acc, view)
+            run.step(batch_idx, batch, heavy=batch_idx % heavy_stride == 0)
 
     return summarize(ctx, run.acc, run.step_count, time.time() - run.clock.start_time)

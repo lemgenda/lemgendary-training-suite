@@ -18,7 +18,7 @@
 
 ## Changelog
 
-- 2026-11-13: Updated changelog (README, training files).
+- 2026-11-13: Strided LPIPS/FID per epoch, shard index cache, val clock.
 
 - **Version**: `v16.9.139-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification

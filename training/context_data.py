@@ -321,7 +321,8 @@ def build_val_loader_for(spec: RunSpec, val_ds: Any, batch_size: int):
             batch_size=batch_size,
             options=ValLoaderOptions(
                 workers=WorkerOverrides(
-                    num_workers=spec.args.val_num_workers or spec.args.num_workers
+                    # 0 or unset means "auto": the worker topology sizes the loader.
+                    num_workers=spec.args.val_num_workers or spec.args.num_workers or None
                 ),
                 collate_fn=collate_instruction_batch if spec.task_type in LLM_TASKS else None,
             ),

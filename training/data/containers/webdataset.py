@@ -6,13 +6,18 @@ import json
 import logging
 import os
 import tarfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
 from training.data.containers.base import Sample
+from training.data.containers.webdataset_index_cache import load_cached_index, store_cached_index
 
 logger = logging.getLogger("lemtrain.containers.webdataset")
+
+# Threads scanning uncached shards at once (header reads are I/O bound).
+INDEX_THREADS = 8
 
 IMAGE_EXTENSIONS = {".webp", ".png", ".jpg", ".jpeg"}
 
@@ -106,6 +111,29 @@ def _sample_entries(
 
 
 def _index_tar(t_path: Path) -> list[_IndexEntry]:
+    """Sample index of a tar shard, served from the shard's index cache when it is current."""
+    cached = load_cached_index(t_path)
+    if cached is None:
+        entries = _scan_tar(t_path)
+        store_cached_index(t_path, [tuple(entry[2:]) for entry in entries])
+        return entries
+    return [("tar", t_path, *refs) for refs in cached]
+
+
+def _index_all_tars(tar_files: list[Path]) -> list[_IndexEntry]:
+    """Index every shard (header scans overlap on I/O) in shard order."""
+    index_map: list[_IndexEntry] = []
+    with ThreadPoolExecutor(max_workers=INDEX_THREADS) as pool:
+        futures = [(t_path, pool.submit(_index_tar, t_path)) for t_path in tar_files]
+        for t_path, future in futures:
+            try:
+                index_map.extend(future.result())
+            except (OSError, tarfile.TarError, EOFError) as exc:
+                logger.warning("Failed opening tar file %s: %s", t_path, exc)
+    return index_map
+
+
+def _scan_tar(t_path: Path) -> list[_IndexEntry]:
     """Group a tar shard's file members by sample key and role (member names)."""
     with tarfile.open(t_path, mode="r:*") as tf:
         members = tf.getmembers()
@@ -290,11 +318,7 @@ class WebDatasetReader:
         self._tar_stack = ExitStack()
 
         if self.tar_files:
-            for t_path in self.tar_files:
-                try:
-                    self.index_map.extend(_index_tar(t_path))
-                except (OSError, tarfile.TarError, EOFError) as exc:
-                    logger.warning("Failed opening tar file %s: %s", t_path, exc)
+            self.index_map.extend(_index_all_tars(self.tar_files))
         else:
             # Mode B: Extracted shard directories or loose image files
             self.index_map.extend(_index_shard_dirs(cand_dirs))

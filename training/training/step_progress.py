@@ -7,6 +7,7 @@ payload and the batch telemetry line are the same for both loops.
 from __future__ import annotations
 
 import gc
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,6 +43,10 @@ class BatchClock:
                 f"({ff_pct:.1f}%) Skipping processed {phase} batches...",
                 flush=True,
             )
+        if (batch_idx + 1) == self.resume_step:
+            # Fast-forward time must not count towards s/it and ETA of the live batches.
+            self.start_time = time.time()
+            self.last_log_time = self.start_time
         return True
 
     def rate(self, done: int, now: float) -> tuple[float, float]:

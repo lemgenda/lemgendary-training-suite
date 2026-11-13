@@ -45,7 +45,7 @@ from training.training.epoch import train_one_epoch
 from training.training.step_progress import progress_payload
 from training.training.summary import TrainingSummary
 from training.training.swa import attach_swa
-from training.training.validation import validate_one_epoch
+from training.training.validation import EPOCH_HEAVY_METRIC_STRIDE, validate_one_epoch
 from training.utils.error_types import (
     CLOUD_SYNC_START_ERRORS,
     EPOCH_CALLBACK_ERRORS,
@@ -663,7 +663,12 @@ def _run_epoch(
         return _cancelled_summary(ctx, loop, epoch)
 
     # 3. Validate one epoch
-    val_metrics = validate_one_epoch(ctx, epoch, cancel_check=hooks.cancel_check)
+    val_metrics = validate_one_epoch(
+        ctx,
+        epoch,
+        cancel_check=hooks.cancel_check,
+        heavy_stride=EPOCH_HEAVY_METRIC_STRIDE,
+    )
     score = _score_epoch(ctx, train_metrics, val_metrics)
     score.is_best = ctx.governance.sota_tracker.record_epoch(
         current_quality=score.current_quality,

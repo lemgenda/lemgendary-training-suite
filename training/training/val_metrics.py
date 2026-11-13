@@ -93,20 +93,14 @@ def _fid_module(modules: ImageMetricModules, device: torch.device) -> Any:
 def _update_lpips(
     acc: ValAccumulators, batch: ValBatch, pred: torch.Tensor, target: torch.Tensor
 ) -> None:
-    """LPIPS in FP32, one image per forward pass."""
+    """LPIPS in FP32 over the whole batch (mean reduction equals the per-image mean)."""
     metric = _lpips_module(acc.modules, batch.device)
     if metric is None or metric is False:
         return
     try:
         p_scaled = (torch.clamp(pred, 0.0, 1.0) * 2.0 - 1.0).float()
         t_scaled = (torch.clamp(target, 0.0, 1.0) * 2.0 - 1.0).float()
-        b_sz = p_scaled.size(0)
-        chunk_lpips_sum = 0.0
-        for m_idx in range(b_sz):
-            p_chunk = p_scaled[m_idx : m_idx + 1]
-            t_chunk = t_scaled[m_idx : m_idx + 1]
-            chunk_lpips_sum += float(metric(p_chunk, t_chunk).item()) * p_chunk.size(0)
-        acc.image.total_lpips += chunk_lpips_sum / max(1, b_sz)
+        acc.image.total_lpips += float(metric(p_scaled, t_scaled).item())
         acc.image.lpips_count += 1
     except METRIC_ERRORS as exc:
         logger.warning("LPIPS evaluation error: %s", exc)
@@ -166,11 +160,13 @@ def _image_pair(batch: ValBatch) -> tuple[torch.Tensor, torch.Tensor] | None:
     return None
 
 
-def update_image(acc: ValAccumulators, batch: ValBatch) -> None:
-    """Vision restoration / enhancement: MSE (for PSNR), SSIM, LPIPS and FID."""
+def _update_image_cheap(
+    acc: ValAccumulators, batch: ValBatch
+) -> tuple[torch.Tensor, torch.Tensor] | None:
+    """MSE (for PSNR) and SSIM; returns the image pair, or None when there is none."""
     pair = _image_pair(batch)
     if pair is None:
-        return
+        return None
     pred, target = pair
     acc.image.has_image_metrics = True
     acc.image.total_mse += float(torch.nn.functional.mse_loss(pred, target).item())
@@ -178,6 +174,20 @@ def update_image(acc: ValAccumulators, batch: ValBatch) -> None:
         acc.image.total_ssim += float(compute_ssim_gpu(pred, target).item())
     except METRIC_ERRORS as exc:
         logger.warning("SSIM evaluation error; batch excluded from SSIM: %s", exc)
+    return pred, target
+
+
+def update_image_light(acc: ValAccumulators, batch: ValBatch) -> None:
+    """Vision restoration / enhancement without the costly LPIPS and FID networks."""
+    _update_image_cheap(acc, batch)
+
+
+def update_image(acc: ValAccumulators, batch: ValBatch) -> None:
+    """Vision restoration / enhancement: MSE (for PSNR), SSIM, LPIPS and FID."""
+    pair = _update_image_cheap(acc, batch)
+    if pair is None:
+        return
+    pred, target = pair
     if "lpips" in batch.sota_cfg and LearnedPerceptualImagePatchSimilarity is not None:
         _update_lpips(acc, batch, pred, target)
     if "fid" in batch.sota_cfg and FrechetInceptionDistance is not None:
@@ -441,4 +451,10 @@ BATCH_METRICS: tuple[Callable[[ValAccumulators, ValBatch], None], ...] = (
     update_detection,
     update_llm_tokens,
     update_forex,
+)
+
+
+# The same updaters on batches that skip LPIPS and FID (strided per-epoch evaluation).
+LIGHT_BATCH_METRICS: tuple[Callable[[ValAccumulators, ValBatch], None], ...] = tuple(
+    update_image_light if updater is update_image else updater for updater in BATCH_METRICS
 )

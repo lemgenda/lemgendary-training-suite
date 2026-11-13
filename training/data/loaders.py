@@ -188,7 +188,7 @@ def build_val_loader(
     if opts.collate_fn is not None:
         kwargs["collate_fn"] = opts.collate_fn
 
-    logger.debug(
+    logger.info(
         "Building validation DataLoader: batch_size=%d, num_workers=%d, pin_memory=%s",
         batch_size,
         workers,
