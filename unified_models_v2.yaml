@@ -129,6 +129,17 @@ forex_predictor:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: An Empirical Evaluation of Generic Convolutional and Recurrent Networks
+      for Sequence Modeling
+    authors: Shaojie Bai, J. Zico Kolter, Vladlen Koltun
+    year: 2018
+    venue: arXiv preprint
+    link: https://arxiv.org/abs/1803.01271
+    bibtex: "@article{bai2018empirical,\n  title={An empirical evaluation of generic\
+      \ convolutional and recurrent networks for sequence modeling},\n  author={Bai,\
+      \ Shaojie and Kolter, J Zico and Koltun, Vladlen},\n  journal={arXiv preprint\
+      \ arXiv:1803.01271},\n  year={2018}\n}"
 nima_aesthetic_mobile:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Mobile)
@@ -212,6 +223,15 @@ nima_aesthetic_mobile:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'NIMA: Neural Image Assessment'
+    authors: Hossein Talebi, Peyman Milanfar
+    year: 2018
+    venue: IEEE Transactions on Image Processing (TIP)
+    link: https://arxiv.org/abs/1709.05424
+    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n\
+      \  author={Talebi, Hossein and Milanfar, Peyman},\n  journal={IEEE TIP},\n\
+      \  volume={27},\n  number={8},\n  pages={3998--4011},\n  year={2018}\n}"
 nima_aesthetic_efficientnet:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
@@ -294,6 +314,15 @@ nima_aesthetic_efficientnet:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'NIMA: Neural Image Assessment'
+    authors: Hossein Talebi, Peyman Milanfar
+    year: 2018
+    venue: IEEE Transactions on Image Processing (TIP)
+    link: https://arxiv.org/abs/1709.05424
+    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n\
+      \  author={Talebi, Hossein and Milanfar, Peyman},\n  journal={IEEE TIP},\n\
+      \  volume={27},\n  number={8},\n  pages={3998--4011},\n  year={2018}\n}"
 nima_aesthetic_pro:
   status: VALIDATED
   name: LemGendary NIMA Aesthetic Scorer (Pro ViT)
@@ -374,6 +403,18 @@ nima_aesthetic_pro:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'Swin Transformer V2: Using Larger Models and Images'
+    authors: Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei, Jia
+      Ning, Yue Cao, Zheng Zhang, Li Dong, Furu Wei, Baining Guo
+    year: 2022
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/2111.09883
+    bibtex: "@inproceedings{liu2022swin,\n  title={Swin transformer v2: Using larger\
+      \ models and images},\n  author={Liu, Ze and Hu, Han and Lin, Yutong and Yao,\
+      \ Zhuliang and Xie, Zhenda and Wei, Yixuan and Ning, Jia and Cao, Yue and\
+      \ Zhang, Zheng and Dong, Li and others},\n  booktitle={CVPR},\n  pages={12009--12019},\n\
+      \  year={2022}\n}"
 nima_technical:
   status: VALIDATED
   name: LemGendary NIMA Technical Scorer
@@ -459,6 +500,15 @@ nima_technical:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'NIMA: Neural Image Assessment'
+    authors: Hossein Talebi, Peyman Milanfar
+    year: 2018
+    venue: IEEE Transactions on Image Processing (TIP)
+    link: https://arxiv.org/abs/1709.05424
+    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n\
+      \  author={Talebi, Hossein and Milanfar, Peyman},\n  journal={IEEE TIP},\n\
+      \  volume={27},\n  number={8},\n  pages={3998--4011},\n  year={2018}\n}"
 nima_authenticity:
   status: VALIDATED
   name: LemGendary Authenticity Scorer (AI vs Human)
@@ -525,6 +575,17 @@ nima_authenticity:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: CNN-Generated Images Are Surprisingly Easy to Spot... for Now
+    authors: Sheng-Yu Wang, Oliver Wang, Richard Zhang, Andrew Owens, Alexei A.
+      Efros
+    year: 2020
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/1912.11035
+    bibtex: "@inproceedings{wang2020cnn,\n  title={CNN-generated images are surprisingly\
+      \ easy to spot... for now},\n  author={Wang, Sheng-Yu and Wang, Oliver and\
+      \ Zhang, Richard and Owens, Andrew and Efros, Alexei A},\n  booktitle={CVPR},\n\
+      \  pages={8695--8704},\n  year={2020}\n}"
 upn_v2:
   status: VALIDATED
   name: LemGendary UPN v2 Parameter Predictor
@@ -595,6 +656,17 @@ upn_v2:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'Deep Photo Enhancer: Unpaired Learning for Image Enhancement from Photographs
+      with GANs'
+    authors: Yu-Sheng Chen, Yu-Ching Wang, Man-Hsin Kao, Yung-Yu Chuang
+    year: 2018
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/1712.01021
+    bibtex: "@inproceedings{chen2018deep,\n  title={Deep photo enhancer: Unpaired\
+      \ learning for image enhancement from photographs with gans},\n  author={Chen,\
+      \ Yu-Sheng and Wang, Yu-Ching and Kao, Man-Hsin and Chuang, Yung-Yu},\n  booktitle={CVPR},\n\
+      \  pages={6306--6314},\n  year={2018}\n}"
 film_restorer:
   status: VALIDATED
   name: LemGendary Universal Film Restorer
@@ -656,6 +728,16 @@ film_restorer:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Residual Dense Network for Image Restoration
+    authors: Yulun Zhang, Yapeng Tian, Yu Kong, Bineng Zhong, Yun Fu
+    year: 2020
+    venue: IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)
+    link: https://arxiv.org/abs/1802.08797
+    bibtex: "@article{zhang2020residual,\n  title={Residual dense network for image\
+      \ restoration},\n  author={Zhang, Yulun and Tian, Yapeng and Kong, Yu and\
+      \ Zhong, Bineng and Fu, Yun},\n  journal={IEEE TPAMI},\n  volume={43},\n \
+      \ number={7},\n  pages={2482--2495},\n  year={2020}\n}"
 codeformer:
   status: VALIDATED
   name: LemGendary CodeFormer Face Restoration
@@ -717,6 +799,16 @@ codeformer:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Towards Robust Blind Face Restoration with Codebook Lookup Transformer
+    authors: Shangchen Zhou, Kelvin C.K. Chan, Chongyi Li, Chen Change Loy
+    year: 2022
+    venue: Advances in Neural Information Processing Systems (NeurIPS)
+    link: https://arxiv.org/abs/2206.11253
+    bibtex: "@inproceedings{zhou2022codeformer,\n  title={Towards Robust Blind Face\
+      \ Restoration with Codebook Lookup Transformer},\n  author={Zhou, Shangchen\
+      \ and Chan, Kelvin CK and Li, Chongyi and Loy, Chen Change},\n  booktitle={NeurIPS},\n\
+      \  year={2022}\n}"
 parsenet:
   status: VALIDATED
   name: LemGendary ParseNet Face Parsing
@@ -772,6 +864,16 @@ parsenet:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'MaskGAN: Towards Diverse and Interactive Facial Image Manipulation'
+    authors: Cheng-Han Lee, Ziwei Liu, Lingyun Wu, Ping Luo
+    year: 2020
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/1907.11922
+    bibtex: "@inproceedings{lee2020maskgan,\n  title={MaskGAN: Towards Diverse and\
+      \ Interactive Facial Image Manipulation},\n  author={Lee, Cheng-Han and Liu,\
+      \ Ziwei and Wu, Lingyun and Luo, Ping},\n  booktitle={CVPR},\n  year={2020}\n\
+      }"
 ffanet_indoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Indoor)
@@ -836,6 +938,16 @@ ffanet_indoor:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'FFA-Net: Feature Fusion Attention Network for Single Image Dehazing'
+    authors: Xu Qin, Zhilin Wang, Yuanchao Bai, Xiaodong Xie, Huizhu Jia
+    year: 2020
+    venue: AAAI Conference on Artificial Intelligence (AAAI)
+    link: https://arxiv.org/abs/1911.07559
+    bibtex: "@inproceedings{qin2020ffa,\n  title={FFA-Net: Feature fusion attention\
+      \ network for single image dehazing},\n  author={Qin, Xu and Wang, Zhilin\
+      \ and Bai, Yuanchao and Xie, Xiaodong and Jia, Huizhu},\n  booktitle={AAAI},\n\
+      \  volume={34},\n  pages={11908--11915},\n  year={2020}\n}"
 ffanet_outdoor:
   status: VALIDATED
   name: LemGendary FFANet Dehazing (Outdoor)
@@ -900,6 +1012,16 @@ ffanet_outdoor:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'FFA-Net: Feature Fusion Attention Network for Single Image Dehazing'
+    authors: Xu Qin, Zhilin Wang, Yuanchao Bai, Xiaodong Xie, Huizhu Jia
+    year: 2020
+    venue: AAAI Conference on Artificial Intelligence (AAAI)
+    link: https://arxiv.org/abs/1911.07559
+    bibtex: "@inproceedings{qin2020ffa,\n  title={FFA-Net: Feature fusion attention\
+      \ network for single image dehazing},\n  author={Qin, Xu and Wang, Zhilin\
+      \ and Bai, Yuanchao and Xie, Xiaodong and Jia, Huizhu},\n  booktitle={AAAI},\n\
+      \  volume={34},\n  pages={11908--11915},\n  year={2020}\n}"
 mirnet_lowlight:
   status: VALIDATED
   name: LemGendary MIRNet v2 Low-Light Enhancement
@@ -963,6 +1085,18 @@ mirnet_lowlight:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Learning Enriched Features for Fast Image Restoration and Enhancement
+    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz
+      Khan, Ming-Hsuan Yang, Ling Shao
+    year: 2022
+    venue: IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)
+    link: https://arxiv.org/abs/2003.06792
+    bibtex: "@article{zamir2022learning,\n  title={Learning enriched features for\
+      \ fast image restoration and enhancement},\n  author={Zamir, Syed Waqas and\
+      \ Arora, Aditya and Khan, Salman and Hayat, Munawar and Khan, Fahad Shahbaz\
+      \ and Yang, Ming-Hsuan and Shao, Ling},\n  journal={IEEE TPAMI},\n  year={2022}\n\
+      }"
 mirnet_exposure:
   status: VALIDATED
   name: LemGendary MIRNet v2 Exposure Correction
@@ -1026,6 +1160,18 @@ mirnet_exposure:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Learning Enriched Features for Fast Image Restoration and Enhancement
+    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz
+      Khan, Ming-Hsuan Yang, Ling Shao
+    year: 2022
+    venue: IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)
+    link: https://arxiv.org/abs/2003.06792
+    bibtex: "@article{zamir2022learning,\n  title={Learning enriched features for\
+      \ fast image restoration and enhancement},\n  author={Zamir, Syed Waqas and\
+      \ Arora, Aditya and Khan, Salman and Hayat, Munawar and Khan, Fahad Shahbaz\
+      \ and Yang, Ming-Hsuan and Shao, Ling},\n  journal={IEEE TPAMI},\n  year={2022}\n\
+      }"
 mprnet_deraining:
   status: VALIDATED
   name: LemGendary MPRNet Deraining
@@ -1089,6 +1235,17 @@ mprnet_deraining:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Multi-Stage Progressive Image Restoration
+    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz
+      Khan, Ming-Hsuan Yang, Ling Shao
+    year: 2021
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/2102.02808
+    bibtex: "@inproceedings{zamir2021multi,\n  title={Multi-stage progressive image\
+      \ restoration},\n  author={Zamir, Syed Waqas and Arora, Aditya and Khan, Salman\
+      \ and Hayat, Munawar and Khan, Fahad Shahbaz and Yang, Ming-Hsuan and Shao,\
+      \ Ling},\n  booktitle={CVPR},\n  pages={14821--14831},\n  year={2021}\n}"
 nafnet_debluring:
   status: VALIDATED
   name: LemGendary NAFNet Debluring
@@ -1152,6 +1309,16 @@ nafnet_debluring:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Simple Baselines for Image Restoration
+    authors: Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, Jian Sun
+    year: 2022
+    venue: European Conference on Computer Vision (ECCV)
+    link: https://arxiv.org/abs/2204.04676
+    bibtex: "@inproceedings{chen2022simple,\n  title={Simple baselines for image\
+      \ restoration},\n  author={Chen, Liangyu and Chu, Xiaojie and Zhang, Xiangyu\
+      \ and Sun, Jian},\n  booktitle={ECCV},\n  pages={17--33},\n  year={2022}\n\
+      }"
 nafnet_denoising:
   status: VALIDATED
   name: LemGendary NAFNet Denoising
@@ -1216,6 +1383,16 @@ nafnet_denoising:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Simple Baselines for Image Restoration
+    authors: Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, Jian Sun
+    year: 2022
+    venue: European Conference on Computer Vision (ECCV)
+    link: https://arxiv.org/abs/2204.04676
+    bibtex: "@inproceedings{chen2022simple,\n  title={Simple baselines for image\
+      \ restoration},\n  author={Chen, Liangyu and Chu, Xiaojie and Zhang, Xiangyu\
+      \ and Sun, Jian},\n  booktitle={ECCV},\n  pages={17--33},\n  year={2022}\n\
+      }"
 yolov8n:
   status: PRODUCTION
   name: LemGendary YOLOv8n Multi-Task Model
@@ -1291,6 +1468,16 @@ yolov8n:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'Ultralytics YOLOv8: Real-Time Object Detection, Instance Segmentation,
+      and Pose Estimation'
+    authors: Glenn Jocher, Ayush Chaurasia, Jing Qiu
+    year: 2023
+    venue: Ultralytics Research
+    link: https://github.com/ultralytics/ultralytics
+    bibtex: "@software{yolov8_ultralytics,\n  author = {Jocher, Glenn and Chaurasia,\
+      \ Ayush and Qiu, Jing},\n  title = {Ultralytics YOLOv8},\n  version = {8.0.0},\n\
+      \  year = {2023},\n  url = {https://github.com/ultralytics/ultralytics}\n}"
 professional_multitask_restoration:
   status: DATASET_READY
   name: LemGendary Professional Multi-Task Restoration Model
@@ -1352,6 +1539,16 @@ professional_multitask_restoration:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: All-in-One Image Restoration for Unknown Corruptions
+    authors: Boyun Li, Xiao Liu, Peng Hu, Zitao Zhou, Shuangqing Zhao, Xi Peng
+    year: 2020
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/2004.11700
+    bibtex: "@inproceedings{li2020all,\n  title={All-in-one image restoration for\
+      \ unknown corruptions},\n  author={Li, Boyun and Liu, Xiao and Hu, Peng and\
+      \ Zhou, Zitao and Zhao, Shuangqing and Peng, Xi},\n  booktitle={CVPR},\n \
+      \ pages={2190--2199},\n  year={2020}\n}"
 ultrazoom:
   status: VALIDATED
   name: LemGendary UltraZoom Master Model
@@ -1410,6 +1607,19 @@ ultrazoom:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Real-Time Single Image and Video Super-Resolution Using an Efficient
+      Sub-Pixel Convolutional Neural Network
+    authors: Wenzhe Shi, Jose Caballero, Ferenc Huszár, Johannes Totz, Andrew P.
+      Aitken, Rob Bishop, Daniel Rueckert, Zehan Wang
+    year: 2016
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/1609.05158
+    bibtex: "@inproceedings{shi2016real,\n  title={Real-time single image and video\
+      \ super-resolution using an efficient sub-pixel convolutional neural network},\n\
+      \  author={Shi, Wenzhe and Caballero, Jose and Husz{\\'a}r, Ferenc and Totz,\
+      \ Johannes and Aitken, Andrew P and Bishop, Rob and Rueckert, Daniel and Wang,\
+      \ Zehan},\n  booktitle={CVPR},\n  pages={1874--1883},\n  year={2016}\n}"
 universal_nsfw_classification:
   status: DATASET_READY
   name: LemGendary Universal NSFW Classifier
@@ -1465,6 +1675,15 @@ universal_nsfw_classification:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'EfficientNetV2: Smaller Models and Faster Training'
+    authors: Mingxing Tan, Quoc V. Le
+    year: 2021
+    venue: International Conference on Machine Learning (ICML)
+    link: https://arxiv.org/abs/2104.00298
+    bibtex: "@inproceedings{tan2021efficientnetv2,\n  title={Efficientnetv2: Smaller\
+      \ models and faster training},\n  author={Tan, Mingxing and Le, Quoc},\n \
+      \ booktitle={ICML},\n  pages={10096--10106},\n  year={2021}\n}"
 retinaface:
   status: DATASET_READY
   name: LemGendary RetinaFace Detection
@@ -1528,6 +1747,17 @@ retinaface:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: 'RetinaFace: Single-Shot Multi-Level Face Localisation in the Wild'
+    authors: Jiankang Deng, Jia Guo, Evangelos Ververas, Irene Kotsia, Stefanos
+      Zafeiriou
+    year: 2020
+    venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+    link: https://arxiv.org/abs/1905.00641
+    bibtex: "@inproceedings{deng2020retinaface,\n  title={Retinaface: Single-shot\
+      \ multi-level face localisation in the wild},\n  author={Deng, Jiankang and\
+      \ Guo, Jia and Ververas, Evangelos and Kotsia, Irene and Zafeiriou, Stefanos},\n\
+      \  booktitle={CVPR},\n  pages={5203--5212},\n  year={2020}\n}"
 ai_helper_lemgend:
   status: PRODUCTION
   name: LemGendary AI Studio Assistant (Causal LLM)
@@ -1585,3 +1815,11 @@ ai_helper_lemgend:
     provenance_sources:
       - https://github.com/lemgendary/model-training
       - https://lemgenda.hr
+  academic_reference:
+    title: Qwen2.5 Technical Report
+    authors: Qwen Team
+    year: 2024
+    venue: arXiv preprint
+    link: https://arxiv.org/abs/2412.15115
+    bibtex: "@article{qwen2024,\n  title={Qwen2.5 Technical Report},\n  author={Qwen\
+      \ Team},\n  journal={arXiv preprint arXiv:2412.15115},\n  year={2024}\n}"

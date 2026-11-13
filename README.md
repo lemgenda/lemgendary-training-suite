@@ -16,6 +16,10 @@
 
 ## Current Status
 
+## Changelog
+
+- 2026-11-13: Updated changelog (README, training files).
+
 - **Version**: `v16.9.139-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete

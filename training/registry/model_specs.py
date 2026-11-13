@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import yaml
 
-from training.utils.paths import get_project_root
+from training.utils.paths import get_project_root, get_workspace_root
 
 if TYPE_CHECKING:
     # Annotation-only (postponed evaluation); typing.Self needs Python 3.11.
@@ -254,7 +254,7 @@ class ModelRegistryService:
             manifest_path = project_root / "unified_models.yaml"
 
         caps_path = (
-            project_root.parent / "lemgendary-docs" / "canonical_capabilities.yaml"
+            get_workspace_root() / "lemgendary-docs" / "canonical_capabilities.yaml"
         ).resolve()
 
         caps_by_id: dict[str, Any] = {}

@@ -89,6 +89,8 @@ class SwaAverager:
             return
         if self.scheduler is None:
             self.scheduler = _new_swalr(self._optimizer, schedule)
+        # Ensure PyTorch's internal _opt_called is True when stepping SWALR standalone
+        setattr(self._optimizer, "_opt_called", True)
         self.scheduler.step()
 
     def refresh_bn(self, loader: Iterable[Any], device: torch.device) -> None:

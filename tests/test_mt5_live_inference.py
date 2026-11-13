@@ -60,7 +60,7 @@ def generate_synthetic_candles(n_bars: int = 600) -> pd.DataFrame:
     return df
 
 
-def test_multi_timeframe_live_pipeline():
+def run_multi_timeframe_live_pipeline():
     """Run the multi-timeframe forex pipeline end to end and return the model outputs."""
     print("\n" + "=" * 80, flush=True)
     print(" [MT5 INFERENCE TEST] Starting Multi-Timeframe Forex Inference Suite", flush=True)
@@ -192,7 +192,7 @@ class TestMT5LiveInference(unittest.TestCase):
 
     def test_multi_timeframe_live_pipeline(self) -> None:
         """Verify the pipeline returns direction logits and magnitude predictions."""
-        preds = test_multi_timeframe_live_pipeline()
+        preds = run_multi_timeframe_live_pipeline()
         self.assertIn("direction_logits", preds)
         self.assertIn("magnitude", preds)
         self.assertEqual(tuple(preds["direction_logits"].shape), (1, DIRECTION_CLASSES))
