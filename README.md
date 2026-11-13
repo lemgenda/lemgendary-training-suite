@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.195-STABLE`
+- **Version**: `v16.9.196-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,17 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.196 - Usage Snippets Import What Exists
+
+- The restoration model-card snippet imported `models.factory.create_model`,
+  which does not exist; it and the quality snippet (which built
+  `models.nima.NIMAModel()` with the default backbone whatever the model) now
+  use `models.factory.get_model("<model_key>")`. Both import NumPy (they used
+  `np` without it, and imported `base64` unused) and load the weights before
+  the optional `DataParallel` wrap (the wrap prefixes the state-dict keys).
+- Tests: `tests/unit/test_usage_snippet_imports.py` parses every model-card
+  and Kaggle variation snippet and checks that each import resolves.
 
 ### v16.9.195 - ONNX Files Carry Their Model Metadata
 

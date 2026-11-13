@@ -36,7 +36,8 @@ def _quality_usage(model_key: str, inp: SnippetInput) -> str:
     return (
         "```"
         + f"""python
-import torch, base64
+import numpy as np
+import torch
 from PIL import Image
 
 # 1. Hardware-Agnostic Setup
@@ -46,11 +47,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_path = "{model_key}_latest.pth"
 {_PT_LOAD}
 # 3. Initialization
-from models.nima import NIMAModel
-model = NIMAModel().to(device)
+from models.factory import get_model
+model = get_model("{model_key}").to(device)
+model.load_state_dict(state)
 if device.type == 'cuda' and torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
-model.load_state_dict(state)
 model.eval()
 
 # 4. Forward Pass
@@ -71,7 +72,8 @@ def _restoration_usage(model_key: str, inp: SnippetInput) -> str:
     return (
         "```"
         + f"""python
-import torch, base64
+import numpy as np
+import torch
 from PIL import Image
 
 # 1. Hardware-Agnostic Setup
@@ -81,11 +83,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_path = "{model_key}_latest.pth"
 {_PT_LOAD}
 # 3. Initialization
-from models.factory import create_model
-model = create_model("{model_key}").to(device)
+from models.factory import get_model
+model = get_model("{model_key}").to(device)
+model.load_state_dict(state)
 if device.type == 'cuda' and torch.cuda.device_count() > 1:
     model = torch.nn.DataParallel(model)
-model.load_state_dict(state)
 model.eval()
 
 # 4. Restoration Pass
