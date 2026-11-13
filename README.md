@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.219-STABLE`
+- **Version**: `v16.9.220-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.220 - Decode Warnings Name The Sample Key And Shard
+
+- **Bug**: Kaggle run 4 of `upn_v2` warned `Image decode failed for
+  LemGendizedUpnV2[1147997]` and `[1156981]`, naming only the loader index,
+  which depends on shard order and cannot be traced back to the packed data.
+- `Image decode failed` and `Target decode failed` warnings now add the sample
+  key, its member, the payload size, its first 8 bytes in hex and the shard
+  file (`data/sample_origin.py`), so the dataset compiler can repair the
+  record.
+- Diagnosis (read only, from the two 17 MB shards on Kaggle): train shards
+  hold 5000 samples each. Index 1147997 is `UpnV2_DPED_001208204.jpg` in
+  `shards/train/shard-00229.data`, index 1156981 is
+  `UpnV2_DPED_001217648.jpg` in `shard-00231.data`; both image members are
+  0 bytes. Each of the two shards has 4 such empty DPED `.jpg` members.
+- Tests: an undecodable image member is reported with its key, member, size,
+  head bytes and shard.
 
 ### v16.9.219 - Trainer Lines Appear Once In The Kaggle Log
 

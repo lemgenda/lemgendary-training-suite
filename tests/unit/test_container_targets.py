@@ -349,3 +349,24 @@ def test_registry_has_no_duplicate_datasets() -> None:
         assert len(datasets) == len(set(datasets)), model_key
     forex = REGISTRY["_registry_metadata"]["datasets"]["LemGendizedForexUniverse"]
     assert forex["count"] == 26818700
+
+
+def test_decode_warning_names_key_member_and_shard(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An undecodable image is reported with its key, member, size, head bytes and shard."""
+    members = _image_members(paired=False)
+    image_member = next(name for name in members if name.endswith(".webp"))
+    members[image_member] = b"\x00" * 16
+    dataset = _dataset_from(tmp_path, "upn_v2", members)
+    ds_name = dataset.catalog.samples[0][0]
+    shard = dataset.catalog.container_readers[ds_name].shard_of(0)
+    with caplog.at_level("WARNING", logger="lemtrain.dataset"):
+        dataset.getitem_container(ds_name, 0, seed=0)
+    message = next(
+        r.getMessage() for r in caplog.records if "Image decode failed" in r.getMessage()
+    )
+    assert f"key '{SAMPLE_KEY}'" in message
+    assert f"member '{image_member}'" in message
+    assert "16 bytes, head 0000000000000000" in message
+    assert f"shard '{shard}'" in message

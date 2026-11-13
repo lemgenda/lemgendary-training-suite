@@ -19,6 +19,7 @@ from data.container_targets import SUPER_RESOLUTION_MODELS, DecodedSample
 from data.dataset_sources import claim_manifold, real_manifold_path
 from data.dataset_state import DatasetOptions, ModelSpec, SampleCatalog, TransformSet
 from data.sample_labels import FACE_TARGET_LEN
+from data.sample_origin import describe_sample_origin
 from training.data.containers import resolve_container_reader
 
 logger = logging.getLogger("lemtrain.dataset")
@@ -119,9 +120,10 @@ class DatasetContainerMixin:
             img = Image.open(io.BytesIO(sample.image_bytes)).convert("RGB")
         except (OSError, ValueError) as dec_err:
             logger.warning(
-                "Image decode failed for %s[%d]; substituting neutral gray: %s",
+                "Image decode failed for %s[%d] (%s); substituting neutral gray: %s",
                 ds_name,
                 idx,
+                describe_sample_origin(reader, idx, sample, sample.image_bytes),
                 dec_err,
             )
             img = Image.new("RGB", (self.opts.size[1], self.opts.size[0]), (128, 128, 128))
@@ -131,7 +133,13 @@ class DatasetContainerMixin:
             try:
                 target_img = Image.open(io.BytesIO(sample.target_bytes)).convert("RGB")
             except (OSError, ValueError) as tdec_err:
-                logger.warning("Target decode failed for %s[%d]: %s", ds_name, idx, tdec_err)
+                logger.warning(
+                    "Target decode failed for %s[%d] (%s): %s",
+                    ds_name,
+                    idx,
+                    describe_sample_origin(reader, idx, sample, sample.target_bytes),
+                    tdec_err,
+                )
 
         decoded = DecodedSample(
             ds_name=ds_name,
