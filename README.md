@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.221-STABLE`
+- **Version**: `v16.9.222-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.222 - Export Probe Compares Outputs On The CPU
+
+- **Bug**: Kaggle run 5 of `upn_v2` (v16.9.221) finished epoch 1 and saved
+  `best.pth`, but both ONNX release exports failed with `Expected all tensors
+  to be on the same device, but found at least two devices, cuda:0 and cpu`.
+  The dynamic-axes probe subtracted the model's CUDA outputs from ONNX
+  Runtime's CPU outputs.
+- The probe now moves both sides to `PROBE_DEVICE` (the CPU) before comparing
+  (`compare_outputs` in `training/export/dynamo_onnx.py`); the tolerance is
+  unchanged.
+- Tests: outputs from another device are moved to the CPU on both sides,
+  differing outputs still fail, and with a GPU a CUDA model exports with a
+  verified probe.
 
 ### v16.9.221 - Registry Parameter Counts Measured From The Code
 

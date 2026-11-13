@@ -149,6 +149,10 @@ def probe_inputs(inputs: Sequence[torch.Tensor], graph: OnnxGraphSpec) -> tuple[
     return tuple(probes)
 
 
+PROBE_DEVICE = torch.device("cpu")
+"""Device the probe compares outputs on: where ONNX Runtime's CPU provider returns them."""
+
+
 def _cpu_session(model: str | bytes) -> Any:
     """ONNX Runtime session on the CPU provider (deterministic, available everywhere)."""
     ort = load_onnxruntime()
@@ -183,11 +187,24 @@ def run_probe(
         return ProbeResult(ok=False, detail=f"ONNX Runtime rejected the probe shape: {exc}")
     finally:
         program.release()
+    return compare_outputs(expected, actual, tolerance)
+
+
+def compare_outputs(
+    expected: Sequence[torch.Tensor], actual: Sequence[torch.Tensor], tolerance: ProbeTolerance
+) -> ProbeResult:
+    """Compare PyTorch outputs with ONNX Runtime outputs on the CPU.
+
+    ONNX Runtime returns CPU tensors while a model trained on a GPU returns CUDA tensors;
+    both sides are moved to the CPU before they meet (an end-of-epoch export on Kaggle
+    failed with "Expected all tensors to be on the same device").
+    """
     if len(actual) != len(expected):
         return ProbeResult(ok=False, detail=f"{len(actual)} outputs, expected {len(expected)}")
     worst = 0.0
-    for want, got in zip(expected, actual, strict=True):
-        got_t = got.to(want.dtype)
+    for want_any, got in zip(expected, actual, strict=True):
+        want = want_any.detach().to(PROBE_DEVICE)
+        got_t = got.to(device=PROBE_DEVICE, dtype=want.dtype)
         if want.shape != got_t.shape:
             return ProbeResult(
                 ok=False, detail=f"shape {tuple(got_t.shape)} != {tuple(want.shape)}"
