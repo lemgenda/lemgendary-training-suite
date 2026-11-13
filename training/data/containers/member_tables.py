@@ -13,11 +13,14 @@ The lock is an operating-system file lock (``filelock``), released when its hold
 so a crashed builder never leaves the others waiting. It needs no process group, so it
 works before ``torch.distributed`` is set up and has no collective timeout.
 
-The first missing shard is scanned alone as a probe. When its headers came slower than
+The largest missing shard is scanned alone as a probe. When its headers came slower than
 :data:`LATENCY_BOUND_SECONDS` each, the storage is latency-bound (Kaggle's network-backed
 ``/kaggle/input``: about 0.7 ms per header) and the rest is scanned on :data:`SCAN_THREADS`
 threads, which overlap the waits. On a local disk the scan is CPU-bound, where threads
-only contend for the interpreter lock, so it stays on one thread.
+only contend for the interpreter lock, so it stays on one thread. The largest shard has
+the most payload bytes between its headers, so each header is a fresh read there; a small
+shard's headers share buffered reads and hide the latency (Kaggle run 4 probed a 17 MB
+first shard and scanned 270 shards on one thread in 15 minutes).
 """
 
 from __future__ import annotations
@@ -72,6 +75,20 @@ def _scan_one(shard: Path) -> ScanResult:
         return shard, None, exc
 
 
+def _size_or_zero(shard: Path) -> int:
+    """Size of ``shard``; 0 when it cannot be read (its scan reports the error)."""
+    try:
+        return shard.stat().st_size
+    except OSError as exc:
+        logger.debug("Cannot stat shard %s: %s", shard, exc)
+        return 0
+
+
+def probe_shard_of(missing: list[Path]) -> Path:
+    """The shard scanned first to measure the storage: the largest of ``missing``."""
+    return max(missing, key=_size_or_zero)
+
+
 def scan_workers(probe: ScanResult, seconds: float, remaining: int) -> int:
     """Threads for the ``remaining`` shards after a probe scan that took ``seconds``."""
     table = probe[1]
@@ -101,9 +118,10 @@ def _scan_missing(store: ShardTableStore, missing: list[Path]) -> MemberTables:
     )
     started = time.perf_counter()
     tables: MemberTables = {}
-    probe = _scan_one(missing[0])
+    probe_shard = probe_shard_of(missing)
+    probe = _scan_one(probe_shard)
     _record(store, tables, probe)
-    rest = missing[1:]
+    rest = [shard for shard in missing if shard != probe_shard]
     workers = scan_workers(probe, time.perf_counter() - started, len(rest))
     if workers > 1:
         with ThreadPoolExecutor(max_workers=workers) as pool:

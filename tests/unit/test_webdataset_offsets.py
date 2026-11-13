@@ -13,7 +13,7 @@ from typing import Literal
 
 import pytest
 
-from training.data.containers import shard_tables, tar_offsets
+from training.data.containers import member_tables, shard_tables, tar_offsets
 from training.data.containers.handle_pool import HandlePool
 from training.data.containers.shard_tables import (
     SHIPPED_INDEX_FILENAME,
@@ -467,3 +467,32 @@ def test_malformed_json_is_recorded_not_dropped(tmp_path: Path) -> None:
         assert sample.metadata["json_error"]
     finally:
         reader.close()
+
+
+def test_probe_is_the_largest_missing_shard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The latency probe scans the largest shard first (a small one hides the latency)."""
+    shard_dir = tmp_path / "shards" / "train"
+    for i, count in enumerate((2, 9, 4)):
+        _write_shard(shard_dir / f"shard-{i:05d}.data", _published_layout(i, count))
+    scans = _counting_scans(monkeypatch)
+    reader = WebDatasetReader(tmp_path)
+    try:
+        assert scans[0] == shard_dir / "shard-00001.data"
+        assert sorted(scans) == sorted(shard_dir.glob("*.data"))
+        assert len(reader) == 15
+    finally:
+        reader.close()
+
+
+def test_scan_workers_follow_the_probe_latency(tmp_path: Path) -> None:
+    """A fast probe keeps one thread; a latency-bound one uses up to SCAN_THREADS."""
+    table = [MemberRef(f"m{i}", 512 * (i + 1), 1) for i in range(1000)]
+    probe = (tmp_path / "shard-00000.data", table, None)
+    fast = 1000 * member_tables.LATENCY_BOUND_SECONDS / 4
+    slow = 1000 * member_tables.LATENCY_BOUND_SECONDS * 4
+    assert member_tables.scan_workers(probe, fast, 269) == 1
+    assert member_tables.scan_workers(probe, slow, 269) == member_tables.SCAN_THREADS
+    assert member_tables.scan_workers(probe, slow, 3) == 3
+    assert member_tables.scan_workers((probe[0], None, None), slow, 0) == 1

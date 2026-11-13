@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.217-STABLE`
+- **Version**: `v16.9.218-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,19 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.218 - Shard Scan Probes The Largest Shard
+
+- **Bug**: Kaggle run 4 of `upn_v2` (v16.9.217) indexed the 270 train shards on
+  one thread in 906.6 s (15 minutes, down from 48). The latency probe scanned
+  the first missing shard, a 17 MB shard whose dense headers share buffered
+  reads, so it measured less than 100 microseconds per header and judged the
+  storage CPU-bound; the larger shards then paid one network read per header.
+- The probe is now the largest missing shard, where each header is a fresh
+  read, so latency-bound storage is detected and the rest is scanned on 16
+  threads. A local disk still scans on one thread.
+- Tests: the probe is the largest shard, and the thread count follows the
+  probe's time per header.
 
 ### v16.9.217 - Notebook Sync Skips Read-Only Manifold Folders
 
