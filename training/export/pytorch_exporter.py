@@ -23,7 +23,12 @@ from training.export.common import (
     model_device,
     unwrap_export_model,
 )
-from training.export.onnx_variants import OnnxVariantWriter, write_release_variants
+from training.export.onnx_metadata import metadata_finalizer, onnx_metadata
+from training.export.onnx_variants import (
+    ONNX_VARIANTS,
+    OnnxVariantWriter,
+    write_release_variants,
+)
 from training.export.torch_standalone import export_torch_standalone
 from training.export.validation import resolve_model_stem
 from training.registry import ModelSpecification
@@ -128,6 +133,19 @@ class PyTorchModelExporter(BaseModelExporter):
             target_dir / f"{stem}{PT_SUFFIX}",
             pt_metadata(model_key, resolved_spec),
         )
-        writer = OnnxVariantWriter(model_to_export, (dummy_input,), graph)
+        # Model key, task, input size, preprocessing and class names in metadata_props.
+        stamp = metadata_finalizer(
+            onnx_metadata(
+                model_key,
+                resolved_spec.raw_config if resolved_spec else None,
+                tuple(dummy_input.shape[1:]),
+            )
+        )
+        writer = OnnxVariantWriter(
+            model_to_export,
+            (dummy_input,),
+            graph,
+            finalizers={variant.key: stamp for variant in ONNX_VARIANTS},
+        )
         exported.update(write_release_variants(writer, target_dir, stem))
         return exported

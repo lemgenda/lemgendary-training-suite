@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.194-STABLE`
+- **Version**: `v16.9.195-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,17 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.195 - ONNX Files Carry Their Model Metadata
+
+- New `training/export/onnx_metadata.py`: `PyTorchModelExporter` stamps both
+  ONNX release variants (`metadata_props`, finalizer of `OnnxVariantWriter`)
+  with `model_key`, `task`, `input_size` (`[C, H, W]` of the export sample,
+  JSON), the training preprocessing (`normalization`, `pixel_scale`, `mean`,
+  `std`) and, for a classifier, `class_names` (JSON list in logit order).
+  The FP32 graph is rewritten without loading its `.onnx.data` sidecar, which
+  stays referenced; foreign metadata entries are kept.
+- Tests: `tests/unit/test_onnx_metadata.py`.
 
 ### v16.9.194 - Unlabeled Classification Samples Are Ignored
 
