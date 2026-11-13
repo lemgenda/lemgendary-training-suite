@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.218-STABLE`
+- **Version**: `v16.9.219-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,22 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.219 - Trainer Lines Appear Once In The Kaggle Log
+
+- **Bug**: Kaggle run 4 of `upn_v2` (v16.9.217) printed every trainer line
+  twice, 0.2 s apart, with identical content (the same `BytesIO` address in
+  a decode warning, the same upload rates). The Kaggle training cell started
+  the trainer with inherited file descriptors; ipykernel captures fd 1 and 2
+  and forwards a child's output both to the kernel's terminal and, after its
+  0.2 s flush, as notebook output, and the Kaggle log records both. No
+  logger handler or propagation was doubled.
+- Kaggle now uses the same launch as Colab (`TRAINER_STREAM_LINES`): the
+  trainer's stdout and stderr go through a pipe and the cell prints each line,
+  carriage-return progress updates included.
+- Tests: the generated launch run with a child that logs one record gives
+  that record once in the cell output and never on the raw file descriptors;
+  Kaggle and Colab cells both use the piped launch.
 
 ### v16.9.218 - Shard Scan Probes The Largest Shard
 

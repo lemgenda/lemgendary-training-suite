@@ -121,6 +121,26 @@ _INTERRUPT_LINES = [
 ]
 
 
+TRAINER_STREAM_LINES = [
+    "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n",
+    "try:\n",
+    "    import io\n",
+    "    with io.TextIOWrapper(p.stdout, newline='') as trainer_out:\n",
+    "        for line in trainer_out:\n",
+    "            print(line, end='', flush=True)\n",
+    "    p.wait()\n",
+]
+"""Generated trainer launch of every target: the trainer's stdout and stderr come through a
+pipe and the cell prints each line (carriage-return progress updates kept, ``newline=''``).
+
+The trainer must never inherit the kernel's file descriptors. ipykernel captures fd 1 and 2
+and forwards what a child writes there twice: echoed to the kernel's own terminal and, after
+its 0.2 s flush, as notebook output. Kaggle's log records both, so every trainer line
+appeared twice (Kaggle run 4 of ``upn_v2``). A line printed by the cell is notebook output
+only.
+"""
+
+
 _GPU_COUNT_LINES = [
     "# GPUs are counted in a fresh interpreter: torch in this kernel process may be older\n",
     "# than the build the dependency cell installed.\n",
@@ -222,23 +242,7 @@ def build_training_cell(
             f"print({'[LAUNCH] Session window override: ' + _env_text(session_env)!r})\n",
         ]
 
-    if target == "kaggle":
-        run_lines = [
-            "p = subprocess.Popen(cmd)\n",
-            "try:\n",
-            "    p.wait()\n",
-        ]
-    else:
-        run_lines = [
-            "p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n",
-            "try:\n",
-            "    import io\n",
-            "    with io.TextIOWrapper(p.stdout, newline='') as trainer_out:\n",
-            "        for line in trainer_out:\n",
-            "            print(line, end='', flush=True)\n",
-            "    p.wait()\n",
-        ]
-    exec_lines = run_lines + _INTERRUPT_LINES + _exit_gate_lines(meta, target)
+    exec_lines = TRAINER_STREAM_LINES + _INTERRUPT_LINES + _exit_gate_lines(meta, target)
 
     source = (
         [
