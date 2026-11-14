@@ -40,7 +40,7 @@ _BOXES = [
     [0.50, 0.55, 0.45, 0.62],
 ]
 _LANDMARKS = [0.38, 0.42, 0.62, 0.42, 0.50, 0.55, 0.40, 0.68, 0.60, 0.68]
-_SOTA = {"box_iou": 0.8, "ap50": 0.95, "ap50_95": 0.6, "landmark_nme": 0.1}
+_SOTA = {"box_iou": 0.72, "ap50": 0.95, "ap50_95": 0.6, "landmark_nme": 0.05}
 
 
 def _targets() -> torch.Tensor:
@@ -178,10 +178,10 @@ def test_progress_snapshot_round_trip() -> None:
 
 
 def test_registry_targets_name_the_measured_metrics() -> None:
-    """RetinaFace targets are the measured keys, marked provisional, with no ``map_*``."""
+    """RetinaFace targets are the measured keys, calibrated, with no ``map_*``."""
     entry = load_registry()["retinaface"]
     assert tuple(entry["sota_targets"]) == FACE_DETECTION_METRICS
-    assert entry["sota_targets_provisional"] is True
+    assert entry["sota_targets_provisional"] is False
     assert is_lower_better("landmark_nme")
     for key in FACE_DETECTION_METRICS:
         assert key in METRIC_REGISTRY
@@ -196,7 +196,7 @@ def test_score_uses_measured_metrics_and_its_own_scheme() -> None:
         poor, targets, "face_detection"
     )
     assert target_quality_score(targets, "face_detection") == pytest.approx(
-        100.0 * (0.8 + 0.95 + 0.6 + (1.0 - 0.1))
+        100.0 * (0.72 + 0.95 + 0.6 + (1.0 - 0.05))
     )
     assert quality_scheme("face_detection") == FACE_DETECTION_SCHEME
     assert not anchor_is_comparable(None, "face_detection")

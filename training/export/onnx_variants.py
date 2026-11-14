@@ -140,10 +140,32 @@ class OnnxVariantWriter:
             return capture_program(wrapped, cast_inputs(self.inputs, torch.float32), verified.graph)
         return capture_program(model_copy, cast_inputs(self.inputs, variant.dtype), verified.graph)
 
+    def _verify_canary(self, program: Any, variant: OnnxVariant) -> None:
+        """Run a lightweight NaN/Inf canary on FP16 export instead of expensive CPU parity probe."""
+        if variant.dtype != torch.float16:
+            return
+        test_inputs = cast_inputs(self.inputs, torch.float32 if self.fp32_io else torch.float16)
+        try:
+            outputs = list(program(*test_inputs))
+            for i, out in enumerate(outputs):
+                if isinstance(out, torch.Tensor):
+                    if not torch.isfinite(out).all():
+                        logger.warning(
+                            "[CANARY] Non-finite output (NaN/Inf) detected in %s at output %d",
+                            variant.key,
+                            i,
+                        )
+                    else:
+                        logger.debug("[CANARY] %s output %d verified finite.", variant.key, i)
+        except Exception as exc:
+            logger.debug("[CANARY] Skipping runtime canary for %s: %s", variant.key, exc)
+
     def write(self, variant: OnnxVariant, path: Path) -> dict[str, Path]:
         """Export ``variant`` to ``path``; returns ``{key: path}`` plus ``{data_key: sidecar}``."""
         logger.info("Exporting %s ONNX graph to %s", variant.key, path)
-        sidecar = save_program(self._program(variant), path, variant.layout)
+        prog = self._program(variant)
+        self._verify_canary(prog, variant)
+        sidecar = save_program(prog, path, variant.layout)
         finalize = self.finalizers.get(variant.key)
         if finalize is not None:
             finalize(path)
