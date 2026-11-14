@@ -36,7 +36,8 @@
   507 seconds to 0 seconds; purged 22 corrupt/zero-byte legacy non-WebP records.
 - **Forex MT5 EA Integration**: Added `#property tester_file` and 552 closed D1
   bar lookback tolerance with leading-bar left-padding in
-  `training/export/mql5_features.py` for MetaTrader 5 Strategy Tester.
+  `training/export/mql5_features.py` for MetaTrader 5 Strategy Tester, and
+  upgraded `boto3`/`botocore` to `1.44.3` in `requirements.txt`.
 
 ### v16.9.224 - Strided Epoch Validation & Resume Clock Alignment
 
