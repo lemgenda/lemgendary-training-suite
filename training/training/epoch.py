@@ -21,6 +21,7 @@ from training.data.resumable_sampler import resume_start_batch
 from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import GradClip, get_autocast_context, safe_backward
 from training.training.context import TrainingContext
+from training.utils.lazy_imports import load_torch_xla_model
 from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
@@ -202,11 +203,16 @@ class _TrainingPass:
         )
 
     def apply_update(self, batch_idx: int) -> None:
-        """Step the optimizer (through the AMP scaler when present) at a step boundary."""
+        """Step the optimizer (AMP scaler or XLA barrier when present) at a step boundary."""
         ctx = self.ctx
+        is_xla = getattr(ctx.hardware.device_info, "device_type", "") == "xla"
         if not self.is_boundary(batch_idx, self.totals.accumulated_steps):
+            if is_xla:
+                load_torch_xla_model().mark_step()
             return
-        if ctx.models.scaler is not None:
+        if is_xla:
+            load_torch_xla_model().optimizer_step(ctx.models.optimizer, barrier=True)
+        elif ctx.models.scaler is not None:
             ctx.models.scaler.step(ctx.models.optimizer)
             ctx.models.scaler.update()
         else:

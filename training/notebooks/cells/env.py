@@ -128,12 +128,33 @@ def _hardware_probe_lines(text: _SentinelText) -> list[str]:
     backslash and no triple quote, so the cell embeds them in a triple-quoted string.
     """
     return [
-        "import sys\n",
+        "import os, sys\n",
         "import torch\n",
+        "tpu_detected = bool(\n"
+        "    os.environ.get('TPU_NAME') or os.environ.get('KAGGLE_TPU_NAME')\n"
+        "    or os.path.exists('/dev/vfio/0')\n"
+        ")\n",
+        "xla_devices = []\n",
         "if not torch.cuda.is_available():\n",
-        "    print('[CRITICAL ERROR] [HARDWARE] NO GPU DETECTED! '\n",
+        "    try:\n",
+        "        os.environ.setdefault('PJRT_DEVICE', 'TPU')\n",
+        "        import torch_xla.core.xla_model as xm\n",
+        "        xla_devices = xm.get_xla_supported_devices()\n",
+        "        tpu_detected = bool(xla_devices)\n",
+        "    except Exception:\n",
+        "        pass\n",
+        "if xla_devices:\n",
+        "    print(f'[OK] [HARDWARE] Google Cloud TPU XLA validated '\n",
+        "          f'({len(xla_devices)} cores).')\n",
+        "    sys.exit(0)\n",
+        "if tpu_detected:\n",
+        "    print('[OK] [HARDWARE] TPU VM detected; torch_xla will be initialized in deps.')\n",
+        "    sys.exit(0)\n",
+        "if not torch.cuda.is_available():\n",
+        "    print('[CRITICAL ERROR] [HARDWARE] NO GPU OR TPU DETECTED! '\n",
         "          'Training cannot proceed on CPU.')\n",
-        "    print('[ACTION REQUIRED] Enable GPU Accelerator before running this notebook:')\n",
+        "    print('[ACTION REQUIRED] Enable GPU or TPU Accelerator before '\n",
+        "          'running this notebook:')\n",
         f"    print({text.no_gpu_remedy!r})\n",
         f"    sys.exit({NO_GPU_EXIT_CODE})\n",
         "gpu_name = torch.cuda.get_device_name(0)\n",

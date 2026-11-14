@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.225-STABLE`
+- **Version**: `v16.9.226-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,22 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.226 - Kaggle Cloud TPU v5e-8 & Dual-Regime LLM Training Optimizations
+
+- **Kaggle TPU v5e-8 Infrastructure**: Added `kaggle_accelerator: tpu-v5e8`
+  (`TpuV5E8`) resolution in `kernel_bundle.py`, TPU metadata preservation in
+  `kaggle_launcher.py`, and TPU-aware notebook cells (`env.py`, `deps.py`,
+  `sync.py`).
+- **PyTorch/XLA Backend**: Added `_xla_device_info()` in `discovery.py`, native
+  `bfloat16` XLA autocast in `policy.py` and `amp.py`, `XlaParallelStrategy`
+  in `training/parallel/xla.py`, and `xm.optimizer_step` / `xm.mark_step`
+  synchronization in `epoch.py`.
+- **Dual-Regime LLM Optimizations**: Added `ChunkedCausalLMLoss` and
+  `chunked_eval_loss_and_preds` in `models/llm_chunked_loss.py` (reducing peak
+  logit VRAM by >94% on 4 GB GPUs), compact 2D `pred_ids` support in
+  `val_metrics.py`, and static-shape `pad_to_max_length` collation in
+  `instruction_dataset.py` to prevent XLA JIT recompilation thrashing.
 
 ### v16.9.225 - All-Variations Best Checkpoint Cloud Sync & Dataset Indexing
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import torch
 
-from training.utils.lazy_imports import load_torch_directml
+from training.utils.lazy_imports import load_torch_directml, load_torch_xla_model
 
 logger = logging.getLogger("lemtrain.hardware.discovery")
 
@@ -31,6 +31,11 @@ class DeviceInfo:
     def is_cpu(self) -> bool:
         """Whether the device is the host CPU."""
         return self.device_type == "cpu"
+
+    @property
+    def is_xla(self) -> bool:
+        """Whether the device is an XLA / Cloud TPU device."""
+        return self.device_type == "xla"
 
 
 _CACHED_DEVICE_INFO: dict[str | None, DeviceInfo] = {}
@@ -106,6 +111,38 @@ def _cuda_device_info() -> DeviceInfo | None:
         )
         return info
     return None
+
+
+def _xla_device_info() -> DeviceInfo | None:
+    """Google Cloud TPU via PyTorch/XLA (PJRT)."""
+    try:
+        xm = load_torch_xla_model()
+        supported = xm.get_xla_supported_devices()
+        if not supported:
+            return None
+        device = xm.xla_device()
+        count = len(supported)
+        mem_info = xm.get_memory_info(device)
+        per_core_gb = float(mem_info.get("bytes_limit", 16 * 1024**3)) / (1024**3)
+        names = [f"Google Cloud TPU XLA:{i}" for i in range(count)]
+        logger.info(
+            "Discovered %d XLA TPU core(s): %.1f GB HBM per core (%.1f GB total).",
+            count,
+            per_core_gb,
+            per_core_gb * count,
+        )
+        return DeviceInfo(
+            device=device,
+            device_type="xla",
+            device_count=count,
+            device_names=names,
+            total_vram_gb=per_core_gb,
+            capability=(0, 0),
+            is_cuda=False,
+        )
+    except (ImportError, OSError, RuntimeError, AttributeError) as exc:
+        logger.debug("PyTorch/XLA TPU unavailable: %s", exc)
+        return None
 
 
 def _mps_device_info() -> DeviceInfo | None:
@@ -199,7 +236,13 @@ def _cpu_device_info() -> DeviceInfo:
     return info
 
 
-_ACCELERATOR_PROBES = (_cuda_device_info, _mps_device_info, _xpu_device_info, dml_device_info)
+_ACCELERATOR_PROBES = (
+    _cuda_device_info,
+    _xla_device_info,
+    _mps_device_info,
+    _xpu_device_info,
+    dml_device_info,
+)
 
 
 def _auto_device_info() -> DeviceInfo:

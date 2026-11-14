@@ -196,7 +196,7 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
                 return_tensors="pt",
             )
         )
-        return int(prompt_ids.numel())
+        return prompt_ids.numel()
 
     def _manual_encode(self, tokenizer: Any, messages: list) -> dict[str, torch.Tensor]:
         """ChatML turns with prompt tokens masked out of the labels."""
@@ -234,9 +234,19 @@ class InstructionDataset(Dataset[dict[str, torch.Tensor]]):
 def collate_instruction_batch(
     batch: list[dict[str, torch.Tensor]],
     pad_token_id: int = 0,
+    pad_to_max_length: bool = False,
+    max_seq_length: int = 512,
+    pad_to_multiple_of: int | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Dynamically pad input_ids, attention_mask, and labels to maximum sequence length in batch."""
-    max_len = max(item["input_ids"].size(0) for item in batch)
+    """Pad input_ids, attention_mask, and labels to static or aligned sequence length."""
+    if pad_to_max_length:
+        max_len = max_seq_length
+    else:
+        max_len = max(item["input_ids"].size(0) for item in batch)
+        if pad_to_multiple_of and pad_to_multiple_of > 1:
+            rem = max_len % pad_to_multiple_of
+            if rem != 0:
+                max_len += pad_to_multiple_of - rem
 
     batch_input_ids = []
     batch_attention_mask = []
@@ -244,9 +254,12 @@ def collate_instruction_batch(
 
     for item in batch:
         cur_len = item["input_ids"].size(0)
-        pad_len = max_len - cur_len
-
-        if pad_len > 0:
+        if cur_len > max_len:
+            padded_ids = item["input_ids"][:max_len]
+            padded_mask = item["attention_mask"][:max_len]
+            padded_labels = item["labels"][:max_len]
+        elif cur_len < max_len:
+            pad_len = max_len - cur_len
             padded_ids = torch.cat(
                 [item["input_ids"], torch.full((pad_len,), pad_token_id, dtype=torch.long)]
             )

@@ -54,6 +54,16 @@ def load_transformers() -> ModuleType:
     return importlib.import_module("transformers")
 
 
+def load_torch_xla() -> ModuleType:
+    """Return the ``torch_xla`` module (PyTorch/XLA for Cloud TPU)."""
+    return importlib.import_module("torch_xla")
+
+
+def load_torch_xla_model() -> ModuleType:
+    """Return ``torch_xla.core.xla_model``."""
+    return importlib.import_module("torch_xla.core.xla_model")
+
+
 def load_peft() -> ModuleType:
     """Return the ``peft`` module (LoRA adapters)."""
     return importlib.import_module("peft")

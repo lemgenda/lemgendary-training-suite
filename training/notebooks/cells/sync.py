@@ -213,6 +213,15 @@ def build_training_cell(
         "\n",
         "if is_forex:\n",
         "    cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n",
+        "elif (os.environ.get('PJRT_DEVICE', '').upper() == 'TPU'\n"
+        "      or os.environ.get('TPU_NAME')\n"
+        "      or os.environ.get('KAGGLE_TPU_NAME')):\n",
+        "    print('[TPU] Google Cloud TPU XLA runtime detected. Launching TPU training...')\n",
+        (
+            "    cmd = [sys.executable, '-u', 'training/train.py', '--model', "
+            f"'{meta.identity.model_key}', "
+            f"'--env', '{env_flag}', '--auto_sync']\n"
+        ),
         "elif use_ddp and os.path.exists('tools/launch_ddp.py'):\n",
         (
             '    print(f"[DDP] Dual-GPU acceleration detected ({num_gpus} GPUs). Launching '

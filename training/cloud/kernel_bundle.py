@@ -67,10 +67,31 @@ def kernel_handle(kernel_owner: str, model_slug: str) -> str:
     return f"{kernel_owner}/{kernel_slug(model_slug)}"
 
 
+_ACCELERATOR_ALIASES: dict[str, str] = {
+    "tpu v5e-8": "tpu-v5e8",
+    "tpu-v5e-8": "tpu-v5e8",
+    "tpuv5e8": "tpu-v5e8",
+    "dual t4": "gpu-t4x2",
+    "t4x2": "gpu-t4x2",
+    "t4": "gpu-t4x2",
+    "p100": "gpu-p100",
+}
+
+
+def _normalize_accelerator_id(raw_id: str | None) -> str | None:
+    if raw_id is None:
+        return None
+    cleaned = raw_id.strip()
+    if not cleaned:
+        return None
+    return _ACCELERATOR_ALIASES.get(cleaned.lower(), cleaned)
+
+
 def checked_accelerator(accelerator_id: str | None) -> KaggleAccelerator:
     """The ecosystem accelerator ``accelerator_id`` (default when None), never a retired shape."""
+    normalized_id = _normalize_accelerator_id(accelerator_id)
     try:
-        accelerator = kaggle_accelerator(accelerator_id)
+        accelerator = kaggle_accelerator(normalized_id)
     except EcosystemFileError as exc:
         raise KernelBundleError(str(exc)) from exc
     retired = {shape.lower() for shape in kaggle_retired_machine_shapes()}
@@ -176,12 +197,17 @@ def bundle_spec(
     meta = resolve_model_metadata(request.model_key, reg)
     models: tuple[str, ...] = ()
     if request.resume_version is not None:
-        models = (f"{meta.kaggle.pytorch_default}/{int(request.resume_version)}",)
+        models = (f"{meta.kaggle.pytorch_default}/{request.resume_version}",)
+    accelerator_id = request.accelerator_id
+    if accelerator_id is None:
+        raw_model_acc = entry.get("kaggle_accelerator")
+        if isinstance(raw_model_acc, str) and raw_model_acc.strip():
+            accelerator_id = raw_model_acc.strip()
     spec = KernelBundleSpec(
         model_key=request.model_key,
         model_slug=meta.kaggle.slug,
         kernel_owner=request.kernel_owner,
-        accelerator=checked_accelerator(request.accelerator_id),
+        accelerator=checked_accelerator(accelerator_id),
         sources=KernelSources(datasets=tuple(model_kaggle_dataset_handles(entry)), models=models),
     )
     return spec, meta

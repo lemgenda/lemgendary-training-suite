@@ -94,6 +94,10 @@ def apply_hardware_policy(
         logger.info("AMP disabled for Forex model '%s' (FP16 overflow prevention).", model_key)
     elif is_cuda:
         amp_enabled, amp_dtype = _cuda_amp(hw_cfg, device_info)
+    elif device_info.is_xla:
+        amp_enabled = hw_cfg.get("amp_enabled", True)
+        amp_dtype = torch.bfloat16
+        logger.info("AMP enabled on XLA TPU with native bfloat16.")
 
     # 4. GradScaler
     scaler = None

@@ -99,21 +99,32 @@ def interactive_kernel_monitor(api: Any, username: str) -> None:
 
 
 def _prepare_kernel_metadata(kernel_dir: Path) -> dict[str, Any]:
-    """Force GPU, internet and privacy on the pulled kernel metadata; return it."""
+    """Ensure accelerator, internet and privacy on the pulled kernel metadata; return it."""
     meta_file = kernel_dir / "kernel-metadata.json"
     meta_data: dict[str, Any] = {}
     if not meta_file.exists():
         return meta_data
     try:
         meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
-        meta_data["enable_gpu"] = "true"
+        raw_shape = str(meta_data.get("machine_shape", "")).strip()
+        is_tpu = (
+            str(meta_data.get("enable_tpu", "")).lower() == "true"
+            or raw_shape.lower().startswith("tpu")
+        )
+        if is_tpu:
+            meta_data["enable_tpu"] = "true"
+            meta_data["enable_gpu"] = "false"
+            if not raw_shape:
+                tpu_acc = kaggle_accelerator("tpu-v5e8")
+                meta_data["machine_shape"] = tpu_acc.machine_shape or "TpuV5E8"
+        else:
+            meta_data["enable_gpu"] = "true"
+            # Normalize legacy/non-specific shapes ('Gpu', empty) to an explicit accelerator
+            if not raw_shape or raw_shape.lower() in _GENERIC_SHAPES:
+                meta_data["machine_shape"] = _default_machine_shape()
         meta_data["enable_internet"] = "true"
         if "is_private" not in meta_data:
             meta_data["is_private"] = "true"
-        raw_shape = str(meta_data.get("machine_shape", "")).strip()
-        # Normalize legacy/non-specific shapes ('Gpu', empty) to an explicit accelerator
-        if not raw_shape or raw_shape.lower() in _GENERIC_SHAPES:
-            meta_data["machine_shape"] = _default_machine_shape()
         meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
     except (OSError, ValueError, TypeError) as meta_err:
         # ValueError: JSONDecodeError; TypeError: non-object JSON.

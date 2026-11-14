@@ -1772,6 +1772,7 @@ ai_helper_lemgend:
   loss_fn: cross_entropy
   dataset_type: text_instruction
   preferred_parallel: single
+  kaggle_accelerator: tpu-v5e8
   optimal_key: ai_helper_lemgend
   architecture_type: Causal Decoder Transformer (QLoRA Fine-Tuned)
   base_foundation_model: Qwen/Qwen2.5-Coder-1.5B-Instruct
@@ -1785,6 +1786,11 @@ ai_helper_lemgend:
     target_effective_batch: 16
     accumulation_steps: 16
     max_seq_length: 512
+    pack_sequences: true
+    use_rslora: true
+    neftune_noise_alpha: 5.0
+    chunked_cross_entropy: true
+    ce_chunk_size: 256
     lora_r: 16
     lora_alpha: 32
     lora_dropout: 0.05
@@ -1796,6 +1802,30 @@ ai_helper_lemgend:
       - gate_proj
       - up_proj
       - down_proj
+  cloud:
+    batch_size: 4
+    accumulation_steps: 2
+    max_seq_length: 512
+    pack_sequences: true
+    load_in_4bit: false
+    lora_r: 32
+    lora_alpha: 64
+    use_rslora: true
+    neftune_noise_alpha: 5.0
+    chunked_cross_entropy: true
+    ce_chunk_size: 1024
+  local:
+    batch_size: 1
+    accumulation_steps: 16
+    max_seq_length: 512
+    pack_sequences: true
+    load_in_4bit: true
+    lora_r: 8
+    lora_alpha: 16
+    use_rslora: true
+    neftune_noise_alpha: 5.0
+    chunked_cross_entropy: true
+    ce_chunk_size: 256
   sota_targets:
     eval_loss: 1.15
     perplexity: 3.15

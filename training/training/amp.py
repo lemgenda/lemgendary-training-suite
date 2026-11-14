@@ -20,7 +20,10 @@ def create_grad_scaler(policy: ExecutionPolicy) -> Any | None:
     """Create a GradScaler if AMP is enabled and the policy requests it."""
     if getattr(policy, "scaler", None) is not None:
         return policy.scaler
-    if getattr(policy, "amp_enabled", False) or getattr(policy, "use_amp", False):
+    amp_dtype = getattr(policy, "amp_dtype", torch.float16)
+    if (getattr(policy, "amp_enabled", False) or getattr(policy, "use_amp", False)) and (
+        amp_dtype == torch.float16 and torch.cuda.is_available()
+    ):
         return torch.amp.GradScaler("cuda")
     return None
 
@@ -28,9 +31,10 @@ def create_grad_scaler(policy: ExecutionPolicy) -> Any | None:
 def get_autocast_context(policy: ExecutionPolicy, device: torch.device) -> Any:
     """Return appropriate autocast context manager based on device and execution policy."""
     amp_enabled = getattr(policy, "amp_enabled", False) or getattr(policy, "use_amp", False)
-    if amp_enabled and device.type == "cuda":
-        amp_dtype = getattr(policy, "amp_dtype", torch.float16)
-        return torch.amp.autocast(device_type="cuda", dtype=amp_dtype)
+    if amp_enabled and device.type in ("cuda", "xla"):
+        default_dt = torch.bfloat16 if device.type == "xla" else torch.float16
+        amp_dtype = getattr(policy, "amp_dtype", default_dt)
+        return torch.amp.autocast(device_type=device.type, dtype=amp_dtype)
     return nullcontext()
 
 

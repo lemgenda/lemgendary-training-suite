@@ -445,14 +445,14 @@ def update_forex(acc: ValAccumulators, batch: ValBatch) -> None:
 def update_llm_tokens(acc: ValAccumulators, batch: ValBatch) -> None:
     """Next-token accuracy of causal LLMs over the non-ignored (``!= -100``) labels."""
     preds, labels = batch.preds, batch.labels
-    if not (
-        isinstance(preds, torch.Tensor)
-        and isinstance(labels, torch.Tensor)
-        and preds.dim() == 3
-        and labels.shape == preds.shape[:2]
-    ):
+    if not (isinstance(preds, torch.Tensor) and isinstance(labels, torch.Tensor)):
         return
-    shift_preds = preds[..., :-1, :].argmax(dim=-1)
+    if preds.dim() == 3 and labels.shape == preds.shape[:2]:
+        shift_preds = preds[..., :-1, :].argmax(dim=-1)
+    elif preds.dim() == 2 and labels.shape == preds.shape:
+        shift_preds = preds[..., :-1]
+    else:
+        return
     shift_targets = labels[..., 1:]
     mask = shift_targets != -100
     if not bool(mask.any()):

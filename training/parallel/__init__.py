@@ -11,11 +11,13 @@ from training.parallel.base import ParallelStrategy
 from training.parallel.ddp import DistributedDataParallelStrategy
 from training.parallel.dp import DataParallelStrategy
 from training.parallel.single import SingleGPUStrategy
+from training.parallel.xla import XlaParallelStrategy
 
 _STRATEGIES = {
     "single": SingleGPUStrategy,
     "dp": DataParallelStrategy,
     "ddp": DistributedDataParallelStrategy,
+    "xla": XlaParallelStrategy,
 }
 
 # Model-key substrings that must always run on a single process.

@@ -9,12 +9,14 @@ and dynamic LoRA / PEFT adapter injection according to curriculum policies.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 from torch import nn
 
+from models.llm_chunked_loss import ChunkedCausalLMLoss, chunked_eval_loss_and_preds
 from models.model_config import resolve_config
 from training.utils.lazy_imports import load_peft, load_transformers
 
@@ -84,9 +86,18 @@ class GenericCausalLLM(nn.Module):
         super().__init__()
         settings = resolve_config(LoraSettings, lora, kwargs)
         self.base_model_name = base_model_name_or_path
-        self.use_lora = settings.use_lora
+        self._chunk_cfg = {
+            "use_lora": settings.use_lora,
+            "enabled": bool(kwargs.get("chunked_cross_entropy", True)),
+            "chunk_size": int(kwargs.get("ce_chunk_size", 256)),
+        }
         self.model: Any = None
         self.tokenizer: Any = None
+
+        is_tpu = os.environ.get("PJRT_DEVICE", "").upper() == "TPU" or bool(
+            os.environ.get("TPU_NAME") or os.environ.get("KAGGLE_TPU_NAME")
+        )
+        effective_4bit = False if is_tpu else settings.load_in_4bit
 
         logger.info("Initializing GenericCausalLLM backbone: %s", self.base_model_name)
 
@@ -98,9 +109,15 @@ class GenericCausalLLM(nn.Module):
             transformers = load_transformers()
 
             self.tokenizer = _load_tokenizer(transformers, self.base_model_name)
+            if is_tpu:
+                model_dtype = torch.bfloat16
+            elif torch.cuda.is_available():
+                model_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            else:
+                model_dtype = torch.float32
             model_kwargs: dict[str, Any] = {
-                "quantization_config": _quant_config(transformers, settings.load_in_4bit),
-                "torch_dtype": torch.float32 if not torch.cuda.is_available() else torch.bfloat16,
+                "quantization_config": _quant_config(transformers, effective_4bit),
+                "torch_dtype": model_dtype,
                 "trust_remote_code": True,
                 "low_cpu_mem_usage": True,
             }
@@ -112,7 +129,7 @@ class GenericCausalLLM(nn.Module):
                 **model_kwargs,
             )
 
-            if self.use_lora:
+            if self._chunk_cfg["use_lora"]:
                 lora_cfg = {
                     "r": settings.lora_r,
                     "lora_alpha": settings.lora_alpha,
@@ -183,6 +200,31 @@ class GenericCausalLLM(nn.Module):
         self.lm_head = nn.Linear(hidden_dim, vocab_size, bias=False)
         self.loss_fct = nn.CrossEntropyLoss()
 
+    def _chunked_forward(
+        self,
+        input_ids: Any,
+        attention_mask: Any,
+        labels: Any,
+        **kwargs: Any,
+    ) -> dict[str, torch.Tensor] | None:
+        base_decoder: Any = getattr(self.model, "model", None) or getattr(
+            getattr(self.model, "base_model", None), "model", None
+        )
+        lm_head = self.model.get_output_embeddings()
+        if not isinstance(base_decoder, nn.Module) or lm_head is None:
+            return None
+        hidden_out = getattr(base_decoder, "__call__")(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True,
+            **kwargs,
+        )
+        loss_fn = ChunkedCausalLMLoss(
+            chunk_size=self._chunk_cfg["chunk_size"],
+            use_checkpoint=self.training,
+        )
+        return {"loss": loss_fn(hidden_out.last_hidden_state, lm_head, labels)}
+
     def forward(
         self,
         input_ids: Any = None,
@@ -209,6 +251,13 @@ class GenericCausalLLM(nn.Module):
                 )
             return {"loss": loss if loss is not None else torch.tensor(0.0), "logits": logits}
 
+        if self._chunk_cfg["enabled"] and labels is not None:
+            chunked_out = self._chunked_forward(
+                input_ids, attention_mask, labels, **kwargs
+            )
+            if chunked_out is not None:
+                return chunked_out
+
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -233,6 +282,30 @@ class GenericCausalLLM(nn.Module):
 
     def eval_step(self, batch: Any) -> dict[str, Any]:
         """Unified validation step handling dictionary batches seamlessly."""
+        if (
+            self._chunk_cfg["enabled"]
+            and isinstance(batch, dict)
+            and batch.get("labels") is not None
+            and not (hasattr(self, "embed") and hasattr(self, "lm_head"))
+        ):
+            base_decoder: Any = getattr(self.model, "model", None) or getattr(
+                getattr(self.model, "base_model", None), "model", None
+            )
+            lm_head = self.model.get_output_embeddings()
+            if isinstance(base_decoder, nn.Module) and lm_head is not None:
+                hidden_out = getattr(base_decoder, "__call__")(
+                    input_ids=batch.get("input_ids"),
+                    attention_mask=batch.get("attention_mask"),
+                    return_dict=True,
+                )
+                loss, pred_ids = chunked_eval_loss_and_preds(
+                    hidden_out.last_hidden_state,
+                    lm_head,
+                    batch.get("labels"),
+                    chunk_size=self._chunk_cfg["chunk_size"],
+                )
+                return {"loss": loss, "preds": pred_ids}
+
         out = self.train_step(batch)
         return {
             "loss": out["loss"],
