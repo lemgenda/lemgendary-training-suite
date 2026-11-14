@@ -111,11 +111,29 @@ bool BuildFeatures(const ENUM_TIMEFRAMES period, const int lookback, matrixf &x)
    int count = lookback + WARMUP_BARS;
    MqlRates rates[];
    ArraySetAsSeries(rates, false);
-   if(CopyRates(_Symbol, period, 1, count, rates) != count)
+   int copied = CopyRates(_Symbol, period, 1, count, rates);
+   if(copied <= 0)
      {
-      PrintFormat("CopyRates(%s, %s) returned fewer than %d bars, error %d", _Symbol,
-                  EnumToString(period), count, GetLastError());
+      static datetime last_warn_bar = 0;
+      datetime cur_bar = iTime(_Symbol, period, 0);
+      if(cur_bar != last_warn_bar)
+        {
+         last_warn_bar = cur_bar;
+         PrintFormat("CopyRates(%s, %s) returned %d/%d bars, error %d", _Symbol,
+                     EnumToString(period), copied, count, GetLastError());
+        }
       return(false);
+     }
+   if(copied < count)
+     {
+      MqlRates padded[];
+      ArrayResize(padded, count);
+      int pad = count - copied;
+      for(int p = 0; p < pad; p++)
+         padded[p] = rates[0];
+      for(int p = 0; p < copied; p++)
+         padded[pad + p] = rates[p];
+      ArrayCopy(rates, padded);
      }
 
    double bar_open[], bar_high[], bar_low[], bar_close[], bar_volume[];
