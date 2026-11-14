@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.224-STABLE`
+- **Version**: `v16.9.225-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -34,8 +34,9 @@
 - **Dataset Shard Indexing & Audit**: Shipped pre-baked shard_offsets.json
   v2 stores inside dataset split roots to drop Kaggle startup indexing from
   507 seconds to 0 seconds; purged 22 corrupt/zero-byte legacy non-WebP records.
-- **Forex MT5 EA Integration**: Added #property tester_file and 552 closed D1
-  bar lookback tolerance for MetaTrader 5 multi-symbol Strategy Tester.
+- **Forex MT5 EA Integration**: Added `#property tester_file` and 552 closed D1
+  bar lookback tolerance with leading-bar left-padding in
+  `training/export/mql5_features.py` for MetaTrader 5 Strategy Tester.
 
 ### v16.9.224 - Strided Epoch Validation & Resume Clock Alignment
 
