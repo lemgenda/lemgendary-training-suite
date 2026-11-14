@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -44,15 +45,25 @@ class CloudSyncManager:
         epoch: int,
         config: dict[str, Any] | None = None,
         is_mid_epoch: bool = False,
+        is_best: bool = False,
     ) -> None:
         self.model_name = model_name
         self.epoch = epoch
         self.config = config or {}
         self.is_mid_epoch = is_mid_epoch
+        self.is_best = is_best
 
         self.targets = SyncTargets(self.config)
-        self.model_dir = self.targets.github.hub_root / self.model_name
-        self.checkpoint_dir = self.model_dir / "checkpoints"
+
+    @property
+    def model_dir(self) -> Path:
+        """Root directory of the model within local repository hub."""
+        return self.targets.github.hub_root / self.model_name
+
+    @property
+    def checkpoint_dir(self) -> Path:
+        """Directory housing checkpoint vaults."""
+        return self.model_dir / "checkpoints"
 
     def sync(self) -> None:
         """Coordinate multi-target cloud synchronization."""
@@ -83,11 +94,13 @@ class CloudSyncManager:
             return False
 
     def sync_to_kaggle(self) -> bool:
-        """Delegate to KaggleHubManager."""
+        """Delegate to KaggleHubManager (syncs all variations on new best, else default)."""
         if not self.checkpoint_dir.exists():
             return False
         try:
-            return self.targets.kaggle.sync(self.model_name, self.epoch, self.model_dir)
+            return self.targets.kaggle.sync(
+                self.model_name, self.epoch, self.model_dir, is_best=self.is_best
+            )
         except CloudSyncError as exc:
             logger.warning("Kaggle Hub sync notice: %s", exc)
             return False
@@ -111,8 +124,9 @@ def trigger_cloud_sync(
     model_name: str,
     epoch: int,
     config: dict[str, Any] | None = None,
+    *,
     wait: bool = False,
-    is_mid_epoch: bool = False,
+    is_best: bool = False,
 ) -> None:
     """Entry point for training loop to trigger background or synchronous sync."""
     # Under DDP, gate cloud synchronization to Rank 0 to prevent concurrent upload collisions
@@ -120,7 +134,7 @@ def trigger_cloud_sync(
         logger.debug("Skipping cloud sync on non-zero rank (%s)", os.environ.get("RANK"))
         return
 
-    manager = CloudSyncManager(model_name, epoch, config, is_mid_epoch=is_mid_epoch)
+    manager = CloudSyncManager(model_name, epoch, config, is_best=is_best)
 
     if wait:
         with _sync_lock:

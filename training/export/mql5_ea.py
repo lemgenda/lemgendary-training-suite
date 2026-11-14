@@ -136,6 +136,7 @@ def _header(spec: EaSpec) -> list[str]:
         "//+------------------------------------------------------------------+",
         '#property copyright "LemGendary AI"',
         '#property version   "2.00"',
+        f'#property tester_file "{spec.model_file}"',
         "",
         "#include <Trade\\Trade.mqh>",
         "",
@@ -198,7 +199,7 @@ bool ResolveSymbol()
   {
    for(int i = 0; i < ArraySize(PAIR_SYMBOLS); i++)
      {
-      if(StringFind(_Symbol, PAIR_SYMBOLS[i]) == 0)
+      if(StringFind(_Symbol, PAIR_SYMBOLS[i]) >= 0)
         {
          g_pair_index = PAIR_INDICES[i];
          g_unit_price = PAIR_UNIT_PRICE[i];
@@ -212,8 +213,8 @@ int OnInit()
   {
    if(!ResolveSymbol())
      {
-      PrintFormat("%s is not one of the model's pairs", _Symbol);
-      return(INIT_FAILED);
+      PrintFormat("%s is not one of the model's supported pairs; skipping execution", _Symbol);
+      return(INIT_SUCCEEDED);
      }
    g_model = OnnxCreate(ModelFile, ONNX_DEFAULT);
    if(g_model == INVALID_HANDLE)
@@ -284,6 +285,8 @@ def _on_tick(spec: EaSpec) -> list[str]:
     lines = [
         "void OnTick()",
         "  {",
+        "   if(g_model == INVALID_HANDLE || g_pair_index < 0)",
+        "      return;",
         "   datetime bar = iTime(_Symbol, TF_PERIODS[0], 0);",
         "   if(bar == 0 || bar == g_last_bar)",
         "      return;",

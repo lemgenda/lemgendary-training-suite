@@ -140,7 +140,7 @@ class OnnxVariantWriter:
             return capture_program(wrapped, cast_inputs(self.inputs, torch.float32), verified.graph)
         return capture_program(model_copy, cast_inputs(self.inputs, variant.dtype), verified.graph)
 
-    def _verify_canary(self, program: Any, variant: OnnxVariant) -> None:
+    def verify_canary(self, program: Any, variant: OnnxVariant) -> None:
         """Run a lightweight NaN/Inf canary on FP16 export instead of expensive CPU parity probe."""
         if variant.dtype != torch.float16:
             return
@@ -164,7 +164,7 @@ class OnnxVariantWriter:
         """Export ``variant`` to ``path``; returns ``{key: path}`` plus ``{data_key: sidecar}``."""
         logger.info("Exporting %s ONNX graph to %s", variant.key, path)
         prog = self._program(variant)
-        self._verify_canary(prog, variant)
+        self.verify_canary(prog, variant)
         sidecar = save_program(prog, path, variant.layout)
         finalize = self.finalizers.get(variant.key)
         if finalize is not None:

@@ -24,7 +24,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: MobileNetV3-Small (Global Composition)
   - Res Ladder: [224]
   - Target Manifold: `LemGendizedNimaAesthetic`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: PLCC: 0.65, SRCC: 0.65
 - `nima_aesthetic_efficientnet`: LemGendary NIMA Aesthetic Scorer
   (EfficientNetV2-S)
@@ -34,7 +34,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: EfficientNetV2-S (Global Composition)
   - Res Ladder: [224, 256, 384]
   - Target Manifold: `LemGendizedNimaAesthetic`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: PLCC: 0.70, SRCC: 0.70
 - `nima_aesthetic_pro`: LemGendary NIMA Aesthetic Scorer (Pro ViT)
   - Domain: Image Manipulation & Restoration
@@ -52,7 +52,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: EfficientNetV2-S (Spatial Integrity)
   - Res Ladder: [256, 384, 512]
   - Target Manifold: `LemGendizedNimaTechnical`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: PLCC: 0.91, SRCC: 0.91, Rank Margin: 0.05
 - `nima_authenticity`: LemGendary Authenticity Scorer (AI vs Human)
   - Domain: Image Manipulation & Restoration
@@ -61,7 +61,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: EfficientNetV2-S (Distribution Scorer)
   - Res Ladder: [256, 384, 512, 768]
   - Target Manifold: `LemGendizedNimaAuthenticity`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: Accuracy: 0.96
 - `upn_v2`: LemGendary UPN v2 Parameter Predictor
   - Domain: Image Manipulation & Restoration
@@ -70,7 +70,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: UPN_v2 (MobileNetV3-Small Parameter Regressor)
   - Res Ladder: [128, 192, 256]
   - Target Manifold: `LemGendizedUpnV2`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: MAE: 0.05
 - `film_restorer`: LemGendary Universal Film Restorer
   - Domain: Image Manipulation & Restoration
@@ -106,7 +106,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: RetinaFace (MobileNetV3-Small Backbone)
   - Res Ladder: [640]
   - Target Manifold: `LemGendizedRetinaFace`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics (provisional): Box IoU: 0.80, AP50: 0.95,
     AP50:95: 0.60, Landmark NME: 0.10
 - `ffanet_indoor`: LemGendary FFANet Dehazing (Indoor)
@@ -179,7 +179,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: YOLOv8n (CSPDarknet53 + PANet)
   - Res Ladder: [320, 480, 640]
   - Target Manifold: `LemGendizedYoloV8n`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: mAP50: 0.540, mAP50-95: 0.390
 - `professional_multitask_restoration`: LemGendary Professional Multi-Task
   Restoration Model
@@ -207,7 +207,7 @@ Models are categorized across three operational domains:
   - Architecture & Backbone: EfficientNetV2-S (Multi-Class Categorical Head)
   - Res Ladder: [224]
   - Target Manifold: `LemGendizedClassificationMaster`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: Accuracy: 0.98
 - `forex_predictor`: LemGendary Forex Predictor
   - Domain: Financial & Time-Series
@@ -217,7 +217,7 @@ Models are categorized across three operational domains:
     Attention)
   - Res Ladder: [1, 5, 15, 60, 240, 1440] (TFs)
   - Target Manifold: `LemGendizedForexUniverse`
-  - Recommended Accelerator: P100
+  - Recommended Accelerator: T4
   - Target SOTA Metrics: Dir Acc: 58.5%, Win Rate: 56.0%, PF: 1.65, Sharpe: 1.85
 - `ai_helper_lemgend`: LemGendary AI Studio Assistant (Causal LLM)
   - Domain: Image Generation & Multimodal (language assistant)

@@ -615,7 +615,10 @@ def maybe_trigger_cloud_sync(ctx: TrainingContext, epoch: int, is_best: bool) ->
         logger.debug("Kaggle auto-sync throttled at epoch %d", epoch)
         return
     try:
-        trigger_cloud_sync(ctx.model_name, epoch, ctx.run.config)
+        try:
+            trigger_cloud_sync(ctx.model_name, epoch, ctx.run.config, is_best=is_best)
+        except TypeError:
+            trigger_cloud_sync(ctx.model_name, epoch, ctx.run.config)
     except CLOUD_SYNC_START_ERRORS as sync_err:
         logger.warning("Automated cloud sync trigger failed at epoch %d: %s", epoch, sync_err)
 

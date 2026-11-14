@@ -16,7 +16,7 @@ from training.cloud.errors import kagglehub_errors
 from training.cloud.kaggle_model_sync import KaggleModelSyncManager
 from training.cloud.manager import CloudSyncError
 from training.cloud.sync_manifest import SyncManifest
-from training.cloud.variations import PYTORCH_DEFAULT
+from training.cloud.variations import ALL_VARIATIONS, PYTORCH_DEFAULT
 from training.cloud.version_notes import build_version_notes, release_facts
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_hub")
@@ -41,12 +41,15 @@ class KaggleHubManager:
         model_name: str,
         epoch: int,
         src_dir: Path,
+        is_best: bool = False,
     ) -> bool:
-        """Upload the isolated ``pytorch/default`` payload of ``src_dir`` (per-epoch auto-sync).
+        """Upload model variations of ``src_dir`` to Kaggle Hub.
 
-        Goes through :meth:`KaggleModelSyncManager.push_variation`, so the handle uses the
-        registry slug and only ``checkpoints/*.pth``, ``README.md`` and ``metrics.csv`` are
-        uploaded. ``src_dir`` is ``<hub root>/<model_name>``.
+        When ``is_best`` is True and staged exports exist in ``dist/kaggle``, pushes all
+        variations (PyTorch default, PyTorch FP32, ONNX FP16, ONNX FP32) via
+        :meth:`KaggleModelSyncManager.push_model`. Otherwise uploads only the isolated
+        ``pytorch/default`` payload via :meth:`KaggleModelSyncManager.push_variation`.
+        ``src_dir`` is ``<hub root>/<model_name>``.
         """
         publisher = KaggleModelSyncManager(
             username=self.username, key=self.key, hub_root=src_dir.parent
@@ -61,6 +64,29 @@ class KaggleHubManager:
                     message=f"Model page sync failed for {model_name}: {page.get('errors')}",
                     retryable=True,
                 )
+
+        dist_dir = src_dir / "dist" / "kaggle"
+        if is_best and dist_dir.exists() and any(dist_dir.iterdir()):
+            res = publisher.push_model(
+                model_key=model_name,
+                variation=ALL_VARIATIONS,
+                version_notes=build_version_notes(
+                    model_name,
+                    release_facts(src_dir, epoch=epoch),
+                    label="all",
+                    reason="New SOTA Milestone",
+                ),
+            )
+            if not res.success:
+                raise CloudSyncError(
+                    code="KAGGLE_UPLOAD_FAILED",
+                    message=f"Failed to upload all variations for {model_name} epoch {epoch}: "
+                    f"{[v.error for v in res.variations.values() if not v.success]}",
+                    retryable=True,
+                )
+            logger.info("Uploaded all variations for %s epoch %d to Kaggle Hub", model_name, epoch)
+            return True
+
         result = publisher.push_variation(
             model_name,
             PYTORCH_DEFAULT.key,

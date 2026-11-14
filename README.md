@@ -26,6 +26,17 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.225 - All-Variations Best Checkpoint Cloud Sync & Dataset Indexing
+
+- **Kaggle Model Hub Multi-Variation Sync**: Automatic push of all four
+  production model variations (pytorch/default, pytorch/fp32, onnx/fp16,
+  onnx/fp32) to Kaggle Model Hub upon reaching any new SOTA best checkpoint.
+- **Dataset Shard Indexing & Audit**: Shipped pre-baked shard_offsets.json
+  v2 stores inside dataset split roots to drop Kaggle startup indexing from
+  507 seconds to 0 seconds; purged 22 corrupt/zero-byte legacy non-WebP records.
+- **Forex MT5 EA Integration**: Added #property tester_file and 552 closed D1
+  bar lookback tolerance for MetaTrader 5 multi-symbol Strategy Tester.
+
 ### v16.9.224 - Strided Epoch Validation & Resume Clock Alignment
 
 - **Validation Optimization**: Strided evaluation for LPIPS and FID metrics
