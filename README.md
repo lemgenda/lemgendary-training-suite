@@ -28,6 +28,10 @@
 
 ### v16.9.226 - Kaggle Cloud TPU v5e-8 & Dual-Regime LLM Training Optimizations
 
+- **UPN v2 Multi-GPU DDP (`unified_models_v2.yaml`)**: Switched
+  `upn_v2.preferred_parallel` from `single` to `ddp` so Kaggle `GPU T4 x2`
+  launches via `tools/launch_ddp.py` (`torchrun`) across both GPUs while
+  single-GPU local machines remain single-process.
 - **Kaggle TPU v5e-8 Infrastructure**: Added `kaggle_accelerator: tpu-v5e8`
   (`TpuV5E8`) resolution in `kernel_bundle.py`, TPU metadata preservation in
   `kaggle_launcher.py`, and TPU-aware notebook cells (`env.py`, `deps.py`,
