@@ -28,6 +28,10 @@
 
 ### v16.9.226 - Kaggle Cloud TPU v5e-8 & Dual-Regime LLM Training Optimizations
 
+- **Line Length Pre-Flight Guard (`.githooks/pre-commit`)**: Synchronized
+  standard ecosystem pre-commit hook to run sub-50ms staged line length
+  audits via `tools/check_line_lengths.py` and enforce the mandatory changelog
+  currency gate prior to deep suite validation.
 - **UPN v2 Multi-GPU DDP (`unified_models_v2.yaml`)**: Switched
   `upn_v2.preferred_parallel` from `single` to `ddp` so Kaggle `GPU T4 x2`
   launches via `tools/launch_ddp.py` (`torchrun`) across both GPUs while
@@ -2021,8 +2025,10 @@
 ### v16.9.137 - Multitask Restoration Class Index Resolution & Container Routing
 
 - `training/losses.py`: Added canonical `MULTITASK_HEAD_NAMES` and
-  `_resolve_task_index_tensor` in `CombinedLoss`, transparently normalizing string
-  tuples from DataLoader collation into integer class index tensors for auxiliary
+  `_resolve_task_index_tensor` in `CombinedLoss`, transparently normalizing
+  string
+  tuples from DataLoader collation into integer class index tensors for
+  auxiliary
   cross-entropy loss and perceptual weighting.
 - `data/dataset_containers.py`: Fixed container restoration sample decoding to
   resolve dynamic task heads from sample filenames for
@@ -2041,15 +2047,18 @@
 
 ### v16.9.135 - Pyrefly Diagnostics Hardening in LLM Exporter
 
-- `training/export/llm_exporter.py`: Refactored context manager typing annotation
+- `training/export/llm_exporter.py`: Refactored context manager typing
+  annotation
   to `Generator[None, None, None]` to adhere to modern typing deprecation rules.
 - `training/export/llm_exporter.py`: Bound dynamic `merge_and_unload` resolution
-  via `Callable[[], nn.Module] | None` and callable validation, resolving Pyrefly
+  via `Callable[[], nn.Module] | None` and callable validation, resolving
+  Pyrefly
   not-callable diagnostic assertions.
 
 ### v16.9.134 - Resilient Unquantized LoRA Merging & Opset 18 Dynamo ONNX Export
 
-- `training/export/llm_exporter.py`: Added `_prepare_unquantized_llm()` to unwrap
+- `training/export/llm_exporter.py`: Added `_prepare_unquantized_llm()` to
+  unwrap
   and reconstruct clean unquantized float32 base models on CPU and merge LoRA
   adapters via `merge_and_unload()` prior to symbolic torch dynamo ONNX export.
 - Upgraded ONNX dynamo export operator set version from 17 to 18 to remove
@@ -2067,8 +2076,10 @@
 ### v16.9.132 - Local 4GB Hardware Sequence Clamping for AIHelperLemGend
 
 - `unified_models_v2.yaml`: clamped `ai_helper_lemgend` max sequence length to
-  512 tokens (from 1024/2048) and input size to 512, eliminating quadratic $O(N^2)$
-  attention latency and preventing WDDM PCIe paging thrashing on 4GB VRAM accelerators.
+  512 tokens (from 1024/2048) and input size to 512, eliminating quadratic
+  $O(N^2)$
+  attention latency and preventing WDDM PCIe paging thrashing on 4GB VRAM
+  accelerators.
 
 ### v16.9.131 - Resilient Architecture State Recovery on Checkpoint Mismatch
 
@@ -2082,7 +2093,8 @@
 - `models/generic_causal_llm.py`: enabled default 4-bit NF4 quantization on
   CUDA, enabled gradient checkpointing for k-bit training, and configured
   Scaled Dot-Product Attention (`sdpa`).
-- `training/training/optimizer.py`: automatically wired `bitsandbytes.optim.PagedAdamW8bit`
+- `training/training/optimizer.py`: automatically wired
+  `bitsandbytes.optim.PagedAdamW8bit`
   for LLM architectures on CUDA to fit 4GB VRAM hardware profiles.
 - `unified_models_v2.yaml`: updated `ai_helper_lemgend` with micro-batch size 1,
   16 accumulation steps, and 1024 max sequence length for local GPU stability.
@@ -2093,7 +2105,8 @@
   outputs in `_chat_template_encode` to extract token IDs from fast tokenizer
   `tokenizers.Encoding` objects, lists, and batched tensors before casting to 1D
   `torch.Tensor`. Prevents `TypeError: ones_like(): argument 'input' must be
-  Tensor, not tokenizers.Encoding` during `ai_helper_lemgend` instruction fine-tuning.
+  Tensor, not tokenizers.Encoding` during `ai_helper_lemgend` instruction
+  fine-tuning.
 
 ### v16.9.128 - Three-Way Split (Train / Val / Test) Ingestion & Evaluation
 
@@ -2104,7 +2117,8 @@
 - `training/training/context.py`: added optional `test_loader` to
   `DataComponents`.
 - `training/core_loop.py`: wired `test_loader` into context builder.
-- `training/training/validation.py`: parameterized `validate_one_epoch()` with an
+- `training/training/validation.py`: parameterized `validate_one_epoch()` with
+  an
   explicit target loader parameter.
 - `training/training/engine.py`: added automatic post-training evaluation pass
   on held-out `test_loader`, appending test metrics to `TrainingSummary`.
@@ -3682,8 +3696,8 @@ Sequences._
   - Resolved TypeError: embedding(): argument 'indices' (position 2) must be
     Tensor, not dict in the training loop when fine-tuning transformer
     instruction datasets.
-  - Added dictionary unpacking fallback directly inside orward() for backward
-    compatibility.
+  - Added dictionary unpacking fallback directly inside `forward()` for
+    backward compatibility.
 - **Hardware-Aware Batch Size & Gradient Accumulation Tuning**:
   - Configured optimal micro-batch size (atch_size: 2) with gradient
     accumulation (ccumulation_steps: 16-24) for i_helper_lemgend, allowing
@@ -4773,8 +4787,10 @@ Canonical CSV Parity._
   persistence to route exclusively through `TelemetryEngine.write_epoch_row`
   instead of `MetricVault.export_csv`. Eliminates internal checkpoint debugging
   headers (`checkpoint_path`, `timestamp`, `is_best`) and enforces the canonical
-  24-column Forex schema
-  (`Phase,Fold,Epoch,Train_Loss,Val_Loss,LR,DirAcc,WinRate,ProfitFactor,Sharpe,Sortino,MaxDD,TP_MAE,SL_MAE,DirEntropy,Quality_Score,Pairs,Data,Temp,Clamp,Cooldown,Batch,Accumulation,Stress`).
+  24-column Forex schema: `Phase`, `Fold`, `Epoch`, `Train_Loss`,
+  `Val_Loss`, `LR`, `DirAcc`, `WinRate`, `ProfitFactor`, `Sharpe`, `Sortino`,
+  `MaxDD`, `TP_MAE`, `SL_MAE`, `DirEntropy`, `Quality_Score`, `Pairs`, `Data`,
+  `Temp`, `Clamp`, `Cooldown`, `Batch`, `Accumulation`, `Stress`.
   Preserved `MetricVault.export_csv` for internal training histories
   (`history.csv`).
 - **Telemetry In-Place Deduplication and 1-Based Indexing (`TelemetryEngine`,
