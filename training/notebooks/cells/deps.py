@@ -15,9 +15,9 @@ from .base import make_code_cell
 
 _SECRETS_PLACE = {"kaggle": "Kaggle Secrets", "colab": "Colab Secrets"}
 _SECRETS_FIX = {
-    "kaggle": "Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT or "
-    "GITHUB_PAT with your GitHub token.",
-    "colab": "Go to Colab Secrets and add SUITE_PAT or GITHUB_PAT with your GitHub token.",
+    "kaggle": "Go to Kaggle Notebook top bar -> Add-ons -> Secrets -> Add SUITE_PAT "
+    "with your GitHub token.",
+    "colab": "Go to Colab Secrets and add SUITE_PAT with your GitHub token.",
 }
 
 
@@ -38,8 +38,10 @@ _ACCELERATOR_LINES = [
     "\n",
     "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
     "accel_type = 'cpu'\n",
-    "if (os.environ.get('TPU_NAME') or os.environ.get('KAGGLE_TPU_NAME')\n"
-    "        or os.path.exists('/dev/vfio/0')):\n",
+    (
+        "if (os.environ.get('TPU_NAME') or os.environ.get('KAGGLE_TPU_NAME')\n"
+        "        or os.path.exists('/dev/vfio/0')):\n"
+    ),
     "    accel_type = 'tpu'\n",
     "    os.environ.setdefault('PJRT_DEVICE', 'TPU')\n",
     "    os.environ.setdefault('XLA_USE_BF16', '1')\n",
@@ -169,7 +171,7 @@ def _missing_manifest_lines(target: str) -> list[str]:
         "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
         (
             "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because "
-            f"SUITE_PAT/GITHUB_PAT is missing from {place}.')\n"
+            f"SUITE_PAT is missing from {place}.')\n"
         ),
         f"    print({'[ACTION REQUIRED] Fix: ' + fix!r})\n",
         "    print('[INFO] Installing core container streaming dependencies as fallback...')\n",

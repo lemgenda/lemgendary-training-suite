@@ -29,7 +29,7 @@ def _ensure_release(tag, repo):
     res_create = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
     if res_create.returncode != 0:
         print(f"[ERROR] Failed to create release: {res_create.stderr}")
-        print("[REMEDY] Ensure GITHUB_PAT is set with 'repo' permissions.")
+        print("[REMEDY] Ensure SUITE_PAT is set with 'repo' permissions.")
         return False
     print(f"[OK] Release {tag} created successfully.")
     return True

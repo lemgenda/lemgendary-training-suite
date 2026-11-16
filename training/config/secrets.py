@@ -16,8 +16,7 @@ logger = logging.getLogger("lemtrain.secrets")
 SECRETS_FILE_NAME = ".secrets.yaml"
 
 _SERVICE_ENV_MAPPINGS: list[tuple[str, str, str | None]] = [
-    ("GITHUB_PAT", "github", None),
-    ("SUITE_PAT", "github", None),
+    ("SUITE_PAT", "github", "github-primary"),
     ("SATURN_PAT", "saturn_cloud", None),
     ("GOOGLE_DRIVE", "google_drive", None),
     ("GOOGLE_DRIVE_JSON", "google_drive", None),
@@ -77,28 +76,34 @@ def load_secrets(project_root: Path | None = None) -> dict[str, str]:
 
     # Group by service
     by_service: dict[str, list[dict[str, Any]]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
     for r in records:
         svc = str(r.get("service", "")).lower()
         by_service.setdefault(svc, []).append(r)
+        rec_id = str(r.get("id", "")).strip()
+        if rec_id:
+            by_id[rec_id] = r
 
-    for env_var, service_name, _ in _SERVICE_ENV_MAPPINGS:
+    for env_var, service_name, target_id in _SERVICE_ENV_MAPPINGS:
         existing = os.environ.get(env_var, "").strip()
         if existing:
             summary[env_var] = _mask_secret(existing)
             continue
 
-        svc_records = by_service.get(service_name, [])
         found_val = ""
-
-        if svc_records:
-            default_rec = next(
-                (r for r in svc_records if bool(r.get("is_default", False))),
-                svc_records[0],
-            )
-            if env_var == "KAGGLE_USERNAME":
-                found_val = str(default_rec.get("username") or "").strip()
-            else:
-                found_val = str(default_rec.get("secret_value") or "").strip()
+        if target_id and target_id in by_id:
+            found_val = str(by_id[target_id].get("secret_value") or "").strip()
+        else:
+            svc_records = by_service.get(service_name, [])
+            if svc_records:
+                default_rec = next(
+                    (r for r in svc_records if bool(r.get("is_default", False))),
+                    svc_records[0],
+                )
+                if env_var == "KAGGLE_USERNAME":
+                    found_val = str(default_rec.get("username") or "").strip()
+                else:
+                    found_val = str(default_rec.get("secret_value") or "").strip()
 
         if found_val:
             os.environ[env_var] = found_val
@@ -110,7 +115,17 @@ def load_secrets(project_root: Path | None = None) -> dict[str, str]:
 
 
 def get_secret(name: str, default: str | None = None) -> str | None:
-    """Retrieve secret from environment, attempting automated .secrets.yaml load if missing."""
+    """Retrieve secret from environment, attempting automated .secrets.yaml load if missing.
+
+    Note: GITHUB_PAT is deprecated and replaced by SUITE_PAT (loaded from github-primary).
+    """
+    if name in ("GITHUB_PAT", "github_pat"):
+        logger.warning(
+            "GITHUB_PAT is deprecated and unsupported. Migrate to SUITE_PAT "
+            "(stored under 'github-primary' in .secrets.yaml)."
+        )
+        return None
+
     val = os.environ.get(name)
     if val:
         return val.strip()

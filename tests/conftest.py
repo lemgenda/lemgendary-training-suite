@@ -30,7 +30,7 @@ from training.utils.paths import WORKSPACE_ROOT_ENV
 
 ECOSYSTEM_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "ecosystem.json"
 
-TOKEN_SECRET_VARS = ("GITHUB_PAT", "SUITE_PAT", "GOOGLE_DRIVE", "GOOGLE_DRIVE_JSON")
+TOKEN_SECRET_VARS = ("SUITE_PAT", "GOOGLE_DRIVE", "GOOGLE_DRIVE_JSON")
 """Environment variables ``get_secret`` serves for the GitHub and Google Drive credentials."""
 
 

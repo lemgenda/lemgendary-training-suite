@@ -54,7 +54,7 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
             else []
         ),
         "\n",
-        "token = os.environ.get('SUITE_PAT') or os.environ.get('GITHUB_PAT') or ''\n",
+        "token = os.environ.get('SUITE_PAT') or ''\n",
         "git_env = os.environ.copy()\n",
         "git_env['GIT_TERMINAL_PROMPT'] = '0'\n",
         "askpass_dir = tempfile.mkdtemp(prefix='lemgendary-askpass-')\n",
@@ -67,7 +67,7 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
         "    git_env['LEMGENDARY_GIT_TOKEN'] = token\n",
         "    print('[AUTH] GitHub token supplied to git through GIT_ASKPASS (never stored).')\n",
         "else:\n",
-        "    print('[WARNING] No SUITE_PAT or GITHUB_PAT secret; trying a public clone.')\n",
+        "    print('[WARNING] No SUITE_PAT secret found; trying a public clone.')\n",
         "\n",
         "def _git(args, cwd=None):\n",
         (
@@ -121,7 +121,7 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
         "if suite_error:\n",
         "    print(f'[ERROR] Suite {suite_error}')\n",
         (
-            "    print('[ACTION REQUIRED] Add SUITE_PAT or GITHUB_PAT to "
+            "    print('[ACTION REQUIRED] Add SUITE_PAT to "
             f"{secret_ui_action} with GitHub read permissions.')\n"
         ),
         "    sys.exit(1)\n",

@@ -101,7 +101,7 @@ class GitHubSyncManager:
             return False
 
         if not self.pat and on_kaggle():
-            logger.warning("GITHUB_PAT missing in cloud environment. Skipping push.")
+            logger.warning("SUITE_PAT missing in cloud environment. Skipping push.")
             return False
         return True
 

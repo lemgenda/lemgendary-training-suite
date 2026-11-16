@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.226-STABLE`
+- **Version**: `v16.9.227-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,22 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.227 - SUITE_PAT Exclusivity & Notebook Cell Hardening
+
+- **SUITE_PAT Exclusivity & Deprecation of GITHUB_PAT**: Standardized GitHub
+  access token resolution on `SUITE_PAT` loaded from `github-primary` in
+  `.secrets.yaml` (or `SUITE_PAT` in environment). Any query for legacy
+  `GITHUB_PAT` now logs an explicit deprecation warning and returns `None`.
+- **Notebook Generation Cells**: Updated `cells/secrets.py`, `cells/repo.py`,
+  and `cells/deps.py` to require `SUITE_PAT` exclusively, removing all legacy
+  `GITHUB_PAT` dependencies and updating remediation notices.
+- **Export & Sync Hardening**: Replaced legacy PAT references in
+  `export/publish_releases.py`, `training/cloud/git_hub.py`, and
+  `training/cloud/credentials.py`.
+- **Test Suite Updates**: Updated `tests/conftest.py`, `test_secrets.py`, and
+  `test_kaggle_secrets_cleanup.py` to verify `SUITE_PAT` resolution and verify
+  clear deprecation behavior for legacy `GITHUB_PAT`. All tests pass cleanly.
 
 ### v16.9.226 - Kaggle Cloud TPU v5e-8 & Dual-Regime LLM Training Optimizations
 

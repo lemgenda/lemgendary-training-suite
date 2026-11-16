@@ -3,7 +3,7 @@
 The cell imports the platform's secrets client with a plain import, reads each secret through
 one helper that catches only the client's "secret missing / not granted" errors, and exports:
 
-* ``SUITE_PAT`` / ``GITHUB_PAT`` and ``GOOGLE_DRIVE`` as environment variables;
+* ``SUITE_PAT`` and ``GOOGLE_DRIVE`` as environment variables;
 * ``KAGGLE_API_TOKEN`` only when it is a ``KGAT_`` API token (the Kaggle SDK and kagglehub read
   it from the environment); no ``kaggle.json`` or other Kaggle credential file is written and
   legacy keys are not used;
@@ -22,8 +22,8 @@ from .base import make_code_cell
 
 KAGGLE_TOKEN_SECRET = "KAGGLE_API_TOKEN"
 """Secret holding the Kaggle API token (``KGAT_...``)."""
-PAT_SECRETS: tuple[str, ...] = ("SUITE_PAT", "GITHUB_PAT")
-"""GitHub token secrets; one of them is needed to clone the private repositories."""
+PAT_SECRETS: tuple[str, ...] = ("SUITE_PAT",)
+"""GitHub token secrets; SUITE_PAT is needed to clone the private repositories."""
 OPTIONAL_SECRETS: tuple[str, ...] = ("GOOGLE_DRIVE", "GOOGLE_DRIVE_JSON")
 """Google Drive mirror secrets (optional)."""
 SECRET_NAMES: tuple[str, ...] = (*PAT_SECRETS, KAGGLE_TOKEN_SECRET, *OPTIONAL_SECRETS)
@@ -109,8 +109,8 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
         "print(f'[AUTH] Secrets available: {active}')\n",
         f"if not any(secrets[name] for name in {PAT_SECRETS!r}):\n",
         (
-            f"    print('[REMEDY] Add SUITE_PAT or GITHUB_PAT in {client.ui_hint}; private "
-            "repositories cannot be cloned without it.')\n"
+            f"    print('[REMEDY] Add SUITE_PAT in {client.ui_hint}; private "
+            "repositories cannot be cloned without it (legacy GITHUB_PAT is unsupported).')\n"
         ),
     ]
     return make_code_cell(source)

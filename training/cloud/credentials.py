@@ -23,16 +23,16 @@ def mask_secret(text: str, secret: str | None) -> str:
 
 
 def resolve_github_credentials(override_pat: str | None = None) -> str | None:
-    """Resolve GitHub Personal Access Token with fallback order.
+    """Resolve GitHub Personal Access Token using SUITE_PAT exclusively.
 
     1. Explicit override parameter
-    2. Environment variables: GITHUB_PAT, SUITE_PAT
-    3. The default ``github`` record of the ``.secrets.yaml`` vault (``get_secret``)
+    2. Environment variable: SUITE_PAT
+    3. The ``github-primary`` record of the ``.secrets.yaml`` vault (``get_secret('SUITE_PAT')``)
     """
     if override_pat and override_pat.strip():
         return override_pat.strip()
 
-    token = get_secret("GITHUB_PAT") or get_secret("SUITE_PAT")
+    token = get_secret("SUITE_PAT")
     if token and token.strip():
         return token.strip()
 

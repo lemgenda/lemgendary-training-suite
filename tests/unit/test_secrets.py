@@ -36,7 +36,7 @@ def test_mask_secret() -> None:
 def test_load_secrets_reports_unset_tokens() -> None:
     """With the stubbed vault every known key is reported, the tokens as not set."""
     summary = load_secrets()
-    assert summary["GITHUB_PAT"] == "[NOT_SET]"
+    assert summary["SUITE_PAT"] == "[NOT_SET]"
     assert summary["GOOGLE_DRIVE"] == "[NOT_SET]"
     assert "KAGGLE_KEY" in summary
 
@@ -45,7 +45,7 @@ def test_tokens_never_come_from_the_real_vault() -> None:
     """GitHub and Google Drive lookups see no vault and no inherited variables."""
     assert secrets_vault.load_secrets_records() == []
     assert load_secrets_yaml_registry() == []
-    assert get_secret("GITHUB_PAT") is None
+    assert get_secret("SUITE_PAT") is None
     assert resolve_github_credentials() is None
     assert resolve_gdrive_credentials() is None
 
@@ -59,9 +59,15 @@ def test_get_secret_default() -> None:
 
 def test_get_secret_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """get_secret reads (and strips) the environment."""
-    monkeypatch.setenv("GITHUB_PAT", " my_secret_token_123 ")
-    assert get_secret("GITHUB_PAT") == "my_secret_token_123"
+    monkeypatch.setenv("SUITE_PAT", " my_secret_token_123 ")
+    assert get_secret("SUITE_PAT") == "my_secret_token_123"
     assert resolve_github_credentials() == "my_secret_token_123"
+
+
+def test_legacy_github_pat_fails_with_remedy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Querying legacy GITHUB_PAT yields None and rejects legacy secret."""
+    monkeypatch.setenv("GITHUB_PAT", "legacy_token_val")
+    assert get_secret("GITHUB_PAT") is None
 
 
 def test_override_beats_everything(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -96,7 +96,7 @@ def _run_kaggle_cell(
 ) -> None:
     for name, module in _kaggle_modules(secrets).items():
         monkeypatch.setitem(sys.modules, name, module)
-    for name in ("SUITE_PAT", "GITHUB_PAT", "GOOGLE_DRIVE"):
+    for name in ("SUITE_PAT", "GOOGLE_DRIVE"):
         monkeypatch.setenv(name, "unset")
         monkeypatch.delenv(name)
     _run_cell("kaggle", folder)
