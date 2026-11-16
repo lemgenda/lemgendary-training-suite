@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.227-STABLE`
+- **Version**: `v16.9.228-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,16 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.228 - Classification Manifold Guard & High-Precision Telemetry
+
+- **Learning Rate Telemetry Precision**: Formatted learning rate metrics with
+  6-decimal precision (`{v:.6f}`) in `epoch_callback` across training progress
+  broadcasts, preventing truncation of fine-tuning learning rates
+  ($10^{-5}$ to $10^{-6}$) to `0.0000`.
+- **Classification Manifold Guard & Zero-Loss Logging**: Hardened multi-class
+  classification loss handling when evaluating batches lacking valid class
+  labels, ensuring proper diagnostic logging while averting `NaN` divergence.
 
 ### v16.9.227 - SUITE_PAT Exclusivity & Notebook Cell Hardening
 

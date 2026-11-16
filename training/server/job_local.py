@@ -57,7 +57,13 @@ class LocalJobsMixin:
         def epoch_callback(epoch: int, metrics: dict[str, float]) -> None:
             if cancel_event.is_set():
                 raise InterruptedError(f"Job {job_id} cancelled by user.")
-            metrics_summary = ", ".join(f"{k}={v:.4f}" for k, v in metrics.items())
+            metric_items: list[str] = []
+            for k, v in metrics.items():
+                if "lr" in k.lower():
+                    metric_items.append(f"{k}={v:.6f}")
+                else:
+                    metric_items.append(f"{k}={v:.4f}")
+            metrics_summary = ", ".join(metric_items)
             self._broadcast_log(job_id, f"[PROGRESS] Epoch {epoch} completed: {metrics_summary}")
 
         summary = service.train(
