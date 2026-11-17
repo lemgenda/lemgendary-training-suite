@@ -602,7 +602,7 @@ upn_v2:
   learning_rate: 0.0001
   loss_fn: smooth_l1
   dataset_type: parameter_prediction
-  preferred_parallel: ddp
+  preferred_parallel: single
   needs_synthesis: true
   output_names:
     - deg
@@ -1483,7 +1483,7 @@ professional_multitask_restoration:
   learning_rate: 0.0001
   loss_fn: hybrid_restoration
   dataset_type: restoration
-  preferred_parallel: dp
+  preferred_parallel: ddp
   needs_synthesis: true
   optimal_key: professional_multitask_restoration
   description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
