@@ -595,6 +595,7 @@ upn_v2:
   category: enhance
   filename: UPN(v2)Modular
   checkpoint: UPN(v2)ModularWeights_FP32.pth
+  batch_size: 64
   input_size:
     - 3
     - 128
