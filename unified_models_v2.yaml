@@ -111,7 +111,7 @@ forex_predictor:
     min_delta: 0.002
     swa_start_pct: 0.7
   val_resolution: null
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   canonical_format: parquet
   kaggle_metadata:
     slug: forex-predictor
@@ -207,7 +207,7 @@ nima_aesthetic_mobile:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 224
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   canonical_format: webdataset
   kaggle_metadata:
     slug: nima-aesthetic-mobile
@@ -298,7 +298,7 @@ nima_aesthetic_efficientnet:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 384
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   canonical_format: webdataset
   kaggle_metadata:
     slug: nima-aesthetic-efficientnet
@@ -387,7 +387,7 @@ nima_aesthetic_pro:
     min_delta: 0.001
     swa_start_pct: 0.65
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   canonical_format: webdataset
   kaggle_metadata:
     slug: nima-aesthetic-pro
@@ -484,7 +484,7 @@ nima_technical:
     min_delta: 0.0005
     swa_start_pct: 0.75
   val_resolution: 512
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   canonical_format: webdataset
   kaggle_metadata:
     slug: nima-technical
@@ -559,7 +559,7 @@ nima_authenticity:
     target_effective_batch: 24
     plateau_priority: data
   val_resolution: 768
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   canonical_format: webdataset
   kaggle_metadata:
     slug: nima-authenticity
@@ -636,7 +636,7 @@ upn_v2:
   datasets:
     - LemGendizedUpnV2
   val_resolution: 256
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: MobileNetV3-Small Parameter Regressor
   kwargs:
     backbone: mobilenet_v3_small
@@ -707,7 +707,7 @@ film_restorer:
   datasets:
     - LemGendizedFilmRestorer
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: UniversalFilmRestorer (Residual Dense Autoencoder)
   kwargs:
     backbone: residual_dense_blocks
@@ -777,7 +777,7 @@ codeformer:
     ssim: 0.93
     lpips: 0.08
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: CodeFormer (Transformer-Based Face Restoration)
   kwargs:
     backbone: unet_transformer
@@ -841,7 +841,7 @@ parsenet:
   val_resolution: 512
   sota_targets:
     miou: 0.86
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: ParseNet (Bilateral Face Segmentation Network)
   kwargs:
     backbone: resnet_fpn
@@ -914,7 +914,7 @@ ffanet_indoor:
       - 512
     plateau_priority: resolution
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: BranchedFFANet (Feature Fusion Attention)
   kwargs:
     backbone: ffanet_branched
@@ -987,7 +987,7 @@ ffanet_outdoor:
       - 512
     plateau_priority: resolution
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: BranchedFFANet (Feature Fusion Attention)
   kwargs:
     backbone: ffanet_branched
@@ -1059,7 +1059,7 @@ mirnet_lowlight:
       - 512
     plateau_priority: resolution
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: MIRNet_v2 (Multi-Scale Residual Network)
   kwargs:
     backbone: multi_scale_residual
@@ -1133,7 +1133,7 @@ mirnet_exposure:
       - 512
     plateau_priority: resolution
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: MIRNet_v2 (Multi-Scale Residual Network)
   kwargs:
     backbone: multi_scale_residual
@@ -1207,7 +1207,7 @@ mprnet_deraining:
       - 512
     plateau_priority: resolution
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: MPRNet (Multi-Stage Progressive Network)
   kwargs:
     backbone: multi_stage_progressive
@@ -1280,7 +1280,7 @@ nafnet_debluring:
     lpips: 0.04
     fid: 6.0
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: NAFNet (Nonlinear Activation-Free Network)
   kwargs:
     backbone: nafnet_blocks
@@ -1353,7 +1353,7 @@ nafnet_denoising:
     lpips: 0.02
     fid: 4.0
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: NAFNet (Nonlinear Activation-Free Network)
   kwargs:
     backbone: nafnet_blocks
@@ -1438,7 +1438,7 @@ yolov8n:
     map50: 0.74
     map50_95: 0.55
   val_resolution: 640
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: YOLOv8n (CSPDarknet53 + PANet)
   kwargs:
     backbone: cspdarknet
@@ -1508,7 +1508,7 @@ professional_multitask_restoration:
   datasets:
     - LemGendizedMultitaskRestorationPro
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
   kwargs:
     backbone: shared_encoder_moe
@@ -1575,7 +1575,7 @@ ultrazoom:
     lpips: 0.04
     fid: 10.0
   val_resolution: 512
-  kaggle_accelerator: Dual T4
+  kaggle_accelerator: gpu-t4x2
   architecture_type: UltraZoomMaster (Sub-Pixel ESPCN Super-Resolution)
   kwargs:
     backbone: espcn_residual
@@ -1651,7 +1651,7 @@ universal_nsfw_classification:
     res_ladder:
       - 224
   val_resolution: 224
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   kwargs:
     backbone: efficientnet_v2_s
     num_classes: 5
@@ -1731,7 +1731,7 @@ retinaface:
     supported_backbones:
       - mobilenet_v3_small
       - mobilenet_v2
-  kaggle_accelerator: T4
+  kaggle_accelerator: gpu-t4x2
   canonical_format: webdataset
   kaggle_metadata:
     slug: retinaface
