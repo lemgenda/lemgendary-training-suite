@@ -106,6 +106,23 @@ class ForexLossWeights:
     huber_delta: float = 2.0
     focal_gamma: float = 2.0
     label_smoothing: float = 0.05
+    use_pinball_loss: bool = False
+    pinball_quantiles: tuple[float, ...] = (0.1, 0.5, 0.9)
+
+
+def pinball_loss(
+    preds: torch.Tensor,
+    targets: torch.Tensor,
+    tau: float = 0.5,
+) -> torch.Tensor:
+    """Asymmetric quantile/pinball loss function for non-stationary financial series.
+
+    L_tau(y, y_hat) = max(tau * (y - y_hat), (tau - 1) * (y - y_hat))
+    Penalizes under/over estimations asymmetrically according to target quantile tau.
+    """
+    diff = targets - preds
+    loss = torch.max(tau * diff, (tau - 1.0) * diff)
+    return loss.mean()
 
 
 class ForexDualLoss(nn.Module):
@@ -146,17 +163,47 @@ class ForexDualLoss(nn.Module):
         stabilizers: dict | None = None,
     ):
         super().__init__()
-        weights = weights or ForexLossWeights()
-        self.direction_weight = weights.direction_weight
-        self.magnitude_weight = weights.magnitude_weight
-        self.huber_delta = weights.huber_delta
-        self.focal_gamma = weights.focal_gamma
-        self.label_smoothing = weights.label_smoothing
+        self.weights = weights or ForexLossWeights()
         self.max_pips = 100.0
         self.stab = stabilizers or {}
         # Asymmetric class weights: stronger Sideways penalty to prevent collapse
         # Weight vector: [Down=1.3, Sideways=0.7, Up=1.3]
         self.register_buffer("class_weights", torch.tensor([1.3, 0.7, 1.3]))
+
+    @property
+    def direction_weight(self) -> float:
+        """Weight for Focal loss component."""
+        return self.weights.direction_weight
+
+    @property
+    def magnitude_weight(self) -> float:
+        """Weight for Huber loss component."""
+        return self.weights.magnitude_weight
+
+    @property
+    def huber_delta(self) -> float:
+        """Huber transition delta threshold."""
+        return self.weights.huber_delta
+
+    @property
+    def focal_gamma(self) -> float:
+        """Focal loss focusing parameter."""
+        return self.weights.focal_gamma
+
+    @property
+    def label_smoothing(self) -> float:
+        """Label smoothing epsilon for direction classification."""
+        return self.weights.label_smoothing
+
+    @property
+    def use_pinball_loss(self) -> bool:
+        """Whether pinball quantile loss is active for magnitude regression."""
+        return self.weights.use_pinball_loss
+
+    @property
+    def pinball_quantiles(self) -> tuple[float, ...]:
+        """Quantiles used for pinball loss."""
+        return self.weights.pinball_quantiles
 
     def forward(
         self, pred: dict, labels: dict, _task_idx: torch.Tensor | None = None
@@ -185,11 +232,18 @@ class ForexDualLoss(nn.Module):
         # Clamp magnitude predictions before Huber to prevent runaway pip gradients
         mag_pred_clamped = torch.clamp(pred["magnitude"], max=self.max_pips)  # [B, 2]
 
-        # Huber loss for magnitude, gated by direction confidence
-        huber = F.smooth_l1_loss(
-            mag_pred_clamped, labels["magnitude"], reduction="none", beta=self.huber_delta
-        )  # [B, 2]
-        mag_loss = (huber.mean(dim=1) * conf_gate).mean()
+        # Huber or asymmetric pinball loss for magnitude, gated by direction confidence
+        if self.use_pinball_loss:
+            pinball_terms = [
+                pinball_loss(mag_pred_clamped, labels["magnitude"], tau=q)
+                for q in self.pinball_quantiles
+            ]
+            mag_loss = torch.stack(pinball_terms).mean(dim=0) * conf_gate.mean()
+        else:
+            huber = F.smooth_l1_loss(
+                mag_pred_clamped, labels["magnitude"], reduction="none", beta=self.huber_delta
+            )  # [B, 2]
+            mag_loss = (huber.mean(dim=1) * conf_gate).mean()
 
         return self.direction_weight * dir_loss + self.magnitude_weight * mag_loss
 

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.232-STABLE`
+- **Version**: `v16.9.233-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.233 - Prompt 18 FOREX Predictor Model Training Improvements
+
+- **Purged & Embargoed Cross-Validation**: Implemented
+  `training/data/forex_cv.py` providing `PurgedWalkForwardCV` and
+  `PurgedKFoldCV` to eliminate overlapping label horizons and serial
+  autocorrelation leakage per Marcos López de Prado (2018).
+- **Regime-Aware Validation Metrics**: Enhanced
+  `training/training/forex_equity.py` with `compute_regime_metrics`, partitioning
+  win-rate, profit factor, Sharpe ratio, and maximum drawdown across Bull, Bear,
+  and Volatile market conditions.
+- **Asymmetric Pinball / Quantile Loss**: Implemented `pinball_loss` in
+  `training/losses.py` and integrated quantile regression support into
+  `ForexDualLoss` and `ForexLossWeights` for downside risk and VaR estimation.
+- **Expected Calibration Error (ECE) Evaluator**: Implemented
+  `training/training/forex_calibration.py` with `CalibrationEvaluator` to measure
+  ECE, MCE, and Brier score, ensuring confidence probability alignment.
 
 ### v16.9.232 - Prompt 17 Visual & WebDataset Manifold Improvements
 
