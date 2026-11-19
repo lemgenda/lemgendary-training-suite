@@ -96,6 +96,64 @@ def apply_registry_logit_cap(model, stabilizers):
     return model
 
 
+_LLM_CURRICULUM_KEYS = (
+    "use_lora",
+    "lora_r",
+    "lora_alpha",
+    "lora_dropout",
+    "load_in_4bit",
+    "chunked_cross_entropy",
+    "ce_chunk_size",
+)
+
+
+def _merge_llm_entry_kwargs(entry: dict, kwargs: dict) -> dict:
+    """Merge top-level LLM foundation model and curriculum LoRA keys into ``kwargs``."""
+    merged = dict(kwargs or {})
+    if entry.get("category") != "llm" and entry.get("class_name") not in (
+        "GenericCausalLLM",
+        "AIHelperLemGend",
+    ):
+        return merged
+    base_model = (
+        entry.get("base_model_name_or_path")
+        or entry.get("base_model_name")
+        or entry.get("base_foundation_model")
+    )
+    if base_model and "base_model_name_or_path" not in merged:
+        merged["base_model_name_or_path"] = base_model
+    curriculum = entry.get("curriculum")
+    if isinstance(curriculum, dict):
+        for key in _LLM_CURRICULUM_KEYS:
+            if key in curriculum and key not in merged:
+                merged[key] = curriculum[key]
+    return merged
+
+
+def _resolve_model_entry(
+    model_key: str, config: dict | None, unified_models_path: str
+) -> tuple[str | None, dict, dict | None]:
+    """Resolve ``(class_name, kwargs, stabilizers)`` from ``config`` and the registry YAML."""
+    cfg_dict = config if isinstance(config, dict) else {}
+    model_class_name = cfg_dict.get("class_name")
+    kwargs = dict(cfg_dict.get("kwargs", {}))
+    stabilizers = cfg_dict.get("stabilizers")
+    unified_entry: dict = {}
+    if os.path.exists(unified_models_path):
+        with open(unified_models_path, "r", encoding="utf-8") as f:
+            unified = yaml.safe_load(f) or {}
+            if model_key in unified and isinstance(unified[model_key], dict):
+                unified_entry = unified[model_key]
+                model_class_name = model_class_name or unified_entry.get("class_name")
+                kwargs = {**dict(unified_entry.get("kwargs") or {}), **kwargs}
+                if stabilizers is None:
+                    stabilizers = unified_entry.get("stabilizers")
+    merged_entry = {**unified_entry, **cfg_dict} if cfg_dict else unified_entry
+    if merged_entry:
+        kwargs = _merge_llm_entry_kwargs(merged_entry, kwargs)
+    return model_class_name, kwargs, stabilizers
+
+
 def get_model(model_key, config=None):
     """Factory function using Dynamic Architecture Registry."""
     if not _MODEL_REGISTRY:
@@ -108,17 +166,9 @@ def get_model(model_key, config=None):
         else "unified_models_v2.yaml"
     )
     unified_models_path = os.path.join(project_root, unified_name)
-
-    model_class_name = config.get("class_name") if isinstance(config, dict) else None
-    kwargs = config.get("kwargs", {}) if isinstance(config, dict) else {}
-    stabilizers = config.get("stabilizers") if isinstance(config, dict) else None
-    if os.path.exists(unified_models_path):
-        with open(unified_models_path, "r", encoding="utf-8") as f:
-            unified = yaml.safe_load(f)
-            if model_key in unified:
-                model_class_name = unified[model_key].get("class_name", model_class_name)
-                kwargs = unified[model_key].get("kwargs", kwargs)
-                stabilizers = unified[model_key].get("stabilizers", stabilizers)
+    model_class_name, kwargs, stabilizers = _resolve_model_entry(
+        model_key, config, unified_models_path
+    )
 
     # YOLO models are delegated to the Ultralytics native trainer via
     # governance.yolo_governor.run_governed_yolo_training().

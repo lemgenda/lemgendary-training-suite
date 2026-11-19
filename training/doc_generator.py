@@ -130,7 +130,7 @@ class ModelDocumentationService:
         return dest_file
 
 
-def _read_metrics(m_csv: str, m_key: str) -> tuple[int, dict[str, Any]]:
+def read_model_metrics(m_csv: str, m_key: str) -> tuple[int, dict[str, Any]]:
     """Return the epochs trained and the last metrics row of a model's ``metrics.csv``."""
     epochs_trained = 0
     metrics: dict[str, Any] = {}
@@ -141,7 +141,7 @@ def _read_metrics(m_csv: str, m_key: str) -> tuple[int, dict[str, Any]]:
                 if reader:
                     last_ep = reader[-1].get("Epoch")
                     if last_ep and last_ep.isdigit():
-                        epochs_trained = int(last_ep) + 1
+                        epochs_trained = int(last_ep)
                     else:
                         epochs_trained = len(reader)
                     metrics = filter_metrics_row_for_fid_provenance(reader[-1], Path(m_csv).parent)
@@ -155,7 +155,7 @@ def _write_model_readme(hub_dir: str, m_key: str, unified_models: dict[str, Any]
     m_dir = os.path.join(hub_dir, m_key)
     os.makedirs(m_dir, exist_ok=True)
     m_readme_path = os.path.join(m_dir, "README.md")
-    epochs_trained, metrics = _read_metrics(os.path.join(m_dir, "metrics.csv"), m_key)
+    epochs_trained, metrics = read_model_metrics(os.path.join(m_dir, "metrics.csv"), m_key)
     content = build_model_readme(m_key, unified_models, epochs_trained, metrics)
     save_readme(m_readme_path, content)
     print(f"[OK] Generated Model README: {m_readme_path}")

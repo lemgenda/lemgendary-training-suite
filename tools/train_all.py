@@ -164,8 +164,9 @@ def _append_unscheduled_phase(registry: dict[str, Any]) -> None:
 def _has_artifacts(project_root: Path, model_key: str, args: argparse.Namespace) -> bool:
     """True (with a ``[SKIP]`` line) when ``model_key`` needs no training run."""
     hub_dir = get_model_hub_dir(model_key, project_root, create=False)
-    final_pth = hub_dir / "checkpoints" / f"{model_key}_best.pth"
-    if final_pth.exists() and not args.force:
+    ckpt_dir = hub_dir / "checkpoints"
+    has_best = (ckpt_dir / "best.pth").exists() or (ckpt_dir / f"{model_key}_best.pth").exists()
+    if has_best and not args.force:
         print(f"[SKIP] Model '{model_key}' has existing SOTA artifacts. Use --force to re-train.")
         return True
     if args.epochs == 1 and hub_dir.exists():
@@ -182,8 +183,9 @@ def _approve(model_key: str, auto_accept: bool) -> tuple[bool, bool]:
     """Ask whether to train ``model_key``; return ``(approved, auto_accept)``."""
     if auto_accept:
         return True, True
-    if input(f"Train >> {model_key} << ? (y/n/all): ").strip().lower() in ["y", "all"]:
-        return True, "all" in sys.stdin.readline()
+    ans = input(f"Train >> {model_key} << ? (y/n/all): ").strip().lower()
+    if ans in ("y", "all"):
+        return True, ans == "all"
     return False, False
 
 

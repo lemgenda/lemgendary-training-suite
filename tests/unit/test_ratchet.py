@@ -46,7 +46,7 @@ def _simulate_run(events: list[str]) -> list[Rung]:
 
     Events mirror the governor paths: ``expand`` (PROPULSION), ``jump``
     (DEEPENING spatial jump, data reset), ``force`` (SOTA forced jump to
-    50%), ``breakout`` (loop breaker, 15%), ``veto`` (anchor at the current
+    ``initial_fraction``), ``breakout`` (loop breaker, 15%), ``veto`` (anchor at the current
     resolution), ``hold`` (retreat/recoil: LR cooling only).
     """
     rung = Rung(LADDER[0], INITIAL_FRACTION)
@@ -56,10 +56,8 @@ def _simulate_run(events: list[str]) -> list[Rung]:
         nxt = next_rung_resolution(LADDER, res)
         if event == "expand":
             new = Rung(res, expand_fraction(frac, INCREMENT))
-        elif event == "jump" and nxt is not None:
+        elif event == "jump" and nxt is not None or event == "force" and nxt is not None:
             new = Rung(nxt, INITIAL_FRACTION)
-        elif event == "force" and nxt is not None:
-            new = Rung(nxt, 0.5)
         elif event == "breakout" and nxt is not None:
             new = Rung(nxt, 0.15)
         elif event in ("veto", "hold", "jump", "force", "breakout"):

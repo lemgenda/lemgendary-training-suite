@@ -18,6 +18,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from training.registry.task_type import resolve_task_type
+
 PREPROCESSING_KEY = "preprocessing"
 NORMALIZATION_KEY = "normalization"
 
@@ -67,9 +69,8 @@ class PreprocessingError(ValueError):
 
 
 def task_type_of(model_info: Mapping[str, Any]) -> str:
-    """The entry's primary ``dataset_type`` (the first of a list; ``restoration`` default)."""
-    raw = model_info.get("dataset_type", "restoration")
-    return str(raw[0] if isinstance(raw, list) and raw else raw)
+    """Resolve the entry's task type via the canonical ``resolve_task_type`` precedence."""
+    return resolve_task_type(dict(model_info))
 
 
 def image_preprocessing(model_info: Mapping[str, Any] | None) -> ImagePreprocessing:

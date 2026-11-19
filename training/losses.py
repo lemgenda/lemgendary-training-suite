@@ -453,8 +453,12 @@ class CombinedLoss(nn.Module):
     def __init__(self, task_type="restoration", stabilizers=None, use_perc=False):
         super().__init__()
         self.task_type = task_type
-        # 2026 Resilience: Dynamic injection from config hierarchy
-        self.stab = stabilizers or {"softmax_temp": 1.0, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
+        # 2026 Resilience: Dynamic injection from config hierarchy (copied per run)
+        self.stab = (
+            dict(stabilizers)
+            if isinstance(stabilizers, dict)
+            else {"softmax_temp": 1.0, "emd_epsilon": 1e-6, "logit_clamp": 15.0}
+        )
         # EMD form of quality models; a resume from an older checkpoint may pin another one.
         self.emd_form = registry_emd_form(self.stab)
         self.criteria = _BaseCriteria()
@@ -545,7 +549,8 @@ class CombinedLoss(nn.Module):
         raw_lpips = self.perc(p_scaled, t_scaled).view(-1)
         if t_idx is not None and t_idx.ndim > 0:
             return (raw_lpips * self.task_lpips_weights[t_idx]).mean()
-        return 0.025 * raw_lpips.mean()
+        lpips_w = float(self.stab.get("lpips_weight", 0.025))
+        return lpips_w * raw_lpips.mean()
 
     def _compute_restoration_loss(self, pred, target, task_idx) -> torch.Tensor:
         """Compute composite L1, cross-entropy routing, and perceptual loss."""

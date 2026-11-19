@@ -276,9 +276,13 @@ def clean_previous_run(paths: TrainingPaths, model_key: str) -> None:
     hub_dir = hub.root
     for clean_target in [
         checkpoint_dir / "progress.pth",
+        checkpoint_dir / "latest.pth",
         checkpoint_dir / "best.pth",
+        checkpoint_dir / "swa_state.pth",
+        checkpoint_dir / "curriculum_state.json",
         checkpoint_dir / f"{model_key}_latest.pth",
         checkpoint_dir / f"{model_key}_best.pth",
+        *checkpoint_dir.glob("vault_*.pth"),
         hub_dir / "history.csv",
         hub_dir / "metrics.csv",
     ]:
@@ -312,7 +316,7 @@ def build_criterion(spec: RunSpec):
         or spec.task_type in ("forex", "forex_dual")
         or spec.args.model == "forex_predictor"
     ):
-        criterion = ForexDualLoss()
+        criterion = ForexDualLoss(stabilizers=spec.model_info.get("stabilizers"))
     else:
         if spec.task_type == "classification":
             check_class_count(spec.model_info, spec.model_key)
@@ -368,6 +372,10 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
     model_key = args.model
     model_info = load_model_info(project_root, config, model_key)
 
+    paths = build_training_paths(project_root, model_key)
+    if args.clean:
+        clean_previous_run(paths, model_key)
+
     # Checkpoint lifecycle manager (strict 4-tier governance under LemGendaryModels).
     lifecycle_manager = CheckpointLifecycleManager(
         model_name=model_key,
@@ -378,10 +386,6 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
     )
     device_info = discover_device()
     policy = apply_hardware_policy(model_key, model_info, device_info, config)
-
-    paths = build_training_paths(project_root, model_key)
-    if args.clean:
-        clean_previous_run(paths, model_key)
 
     spec = RunSpec(
         args=args,
@@ -414,7 +418,11 @@ def build_model_stack(spec: RunSpec, total_epochs: int) -> tuple[TrainState, Any
     )
     model = parallel_strategy.setup()
 
-    optimizer = build_optimizer(raw_model, spec.config, lr=spec.args.lr)
+    opt_config = {
+        **spec.config,
+        "category": spec.model_info.get("category", spec.config.get("category")),
+    }
+    optimizer = build_optimizer(raw_model, opt_config, lr=spec.args.lr)
     scheduler = build_scheduler(optimizer=optimizer, config=spec.config, total_epochs=total_epochs)
     train = TrainState(
         raw_model=raw_model,

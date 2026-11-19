@@ -225,7 +225,10 @@ def build_curriculum(
 
     res_ladder = opt.get("res_ladder")
     if not res_ladder:
-        curriculum.res_ladder = _stride_ladder(curriculum.current_res, manifold_defaults)
+        if _is_llm_model(model_info):
+            curriculum.res_ladder = [curriculum.current_res]
+        else:
+            curriculum.res_ladder = _stride_ladder(curriculum.current_res, manifold_defaults)
     else:
         curriculum.res_ladder = list(res_ladder)
 

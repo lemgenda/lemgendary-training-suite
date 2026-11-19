@@ -96,9 +96,10 @@ class YoloHubSync:
 
         # Synchronize metrics CSV to LemGendaryModels/yolov8n/
         csv_source = Path(self.telemetry.metrics_csv_path)
-        if csv_source.exists():
+        csv_dest = self.models_hub_dir / "metrics.csv"
+        if csv_source.exists() and csv_source.resolve() != csv_dest.resolve():
             try:
-                shutil.copy2(csv_source, self.models_hub_dir / "metrics.csv")
+                shutil.copy2(csv_source, csv_dest)
             except OSError as csv_err:
                 logger.debug("Non-fatal metrics CSV sync error: %s", csv_err)
 

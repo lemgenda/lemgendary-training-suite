@@ -22,6 +22,7 @@ from PIL import Image
 from torchvision import transforms
 
 from models.nima import NIMAModel
+from training.registry import get_model_registry
 from training.registry.preprocessing import IMAGENET
 from training.utils.model_payload import load_model_payload
 
@@ -83,7 +84,11 @@ def load_pytorch_model(model_path: str | Path, model_type: str, device: str) -> 
         torch.nn.Module: Loaded model in eval mode.
     """
     if "nima" in model_type.lower():
-        model = NIMAModel()
+        spec = get_model_registry().get_model(model_type)
+        nima_kwargs = (
+            dict(spec.kwargs) if (spec is not None and spec.class_name == "NIMAModel") else {}
+        )
+        model = NIMAModel(**nima_kwargs)
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
 

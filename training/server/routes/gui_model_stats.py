@@ -21,6 +21,7 @@ from training.governance.curriculum import (
     is_forex_model,
 )
 from training.governance.metrics import is_lower_better
+from training.registry.task_type import resolve_task_type
 from training.server.routes.gui_schemas import ModelWithStats
 from training.server.routes.gui_status import RungTracker, training_verdict
 
@@ -620,9 +621,8 @@ def _training_defaults(model_key: str, info: dict[str, Any], is_forex: bool) -> 
 
 
 def _identity_fields(model_key: str, info: dict[str, Any]) -> dict[str, Any]:
-    category = info.get("category")
-    dataset_type = info.get("dataset_type")
-    task_type = category or (dataset_type if isinstance(dataset_type, str) else None)
+    has_task = any(info.get(k) for k in ("task_type", "dataset_type", "category"))
+    task_type = resolve_task_type(info) if has_task else "general"
     return {
         "model_key": model_key,
         "name": info.get("name", model_key),
@@ -632,7 +632,7 @@ def _identity_fields(model_key: str, info: dict[str, Any]) -> dict[str, Any]:
         "key": model_key,
         "display_name": info.get("name", model_key),
         "architecture": info.get("architecture_type") or info.get("class_name") or "PyTorch Model",
-        "task_type": task_type or "general",
+        "task_type": task_type,
         "canonical_format": info.get("canonical_format", "webdataset"),
         "parameters_m": _as_float(info.get("parameters_m")),
         "preferred_parallel": info.get("preferred_parallel", "single"),

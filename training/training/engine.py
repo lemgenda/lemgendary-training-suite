@@ -42,7 +42,7 @@ from training.governance.curriculum import (
     is_forex_model,
 )
 from training.governance.epoch_audit import EpochSignals
-from training.governance.logit_cap_sync import sync_logit_cap
+from training.governance.logit_cap_sync import sync_criterion_actuators, sync_logit_cap
 from training.governance.measurement import unmeasured_reason
 from training.governance.metrics import DEFAULT_METRIC_DIRECTIONS
 from training.ratchet import (
@@ -226,9 +226,8 @@ def _resolve_start_epoch(ctx: TrainingContext) -> int:
 
 def _prepare_run(ctx: TrainingContext, start_epoch: int) -> None:
     """Fix the epoch budget, create the checkpoint lifecycle manager and attach SWA."""
-    # Ensure total_epochs is never lower than start_epoch
-    if ctx.run.total_epochs < start_epoch:
-        ctx.run.total_epochs = max(30, start_epoch + 10)
+    # Ensure total_epochs is never lower than start_epoch (no hidden 30-epoch floor; Section 2.26)
+    ctx.run.total_epochs = max(ctx.run.total_epochs, start_epoch)
 
     if ctx.governance.lifecycle_manager is None:
         sota_targets = ctx.run.model_info.get("sota_targets", {})
@@ -323,6 +322,7 @@ def _train_phase(
     ):
         ctx.governance.governor.thermal.step_epoch()
     sync_logit_cap(ctx.models.raw_model or ctx.models.model, ctx.governance.governor)
+    sync_criterion_actuators(ctx.models.criterion, ctx.governance.governor)
 
     is_resuming_val = (
         ctx.state.resume_state is not None
@@ -519,6 +519,8 @@ def _audit_governor(
         # Learning rate propulsion or cooling adjustments
         if lr_chg and ctx.models.optimizer is not None:
             _apply_lr_multiplier(ctx)
+        sync_logit_cap(ctx.models.raw_model or ctx.models.model, ctx.governance.governor)
+        sync_criterion_actuators(ctx.models.criterion, ctx.governance.governor)
 
     except STATE_RESTORE_ERRORS as gov_err:
         logger.warning("Governor audit or loader rebuild failed at epoch %d: %s", epoch, gov_err)

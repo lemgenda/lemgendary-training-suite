@@ -43,6 +43,29 @@
   change of v16.9.2xx; `openapi.json` regenerated.
 - **`GenericCausalLLM.use_lora`** is exposed again after the `LoraSettings`
   refactor.
+- **Specification Audit Repairs (`PAPER_TRAINING_SUITE.md`)**:
+  - `tools/train_all.py`: `_has_artifacts` detects canonical `best.pth`;
+    `_approve` reads `input()` once without blocking on a second
+    `sys.stdin.readline()`.
+  - `tools/judicial_audit.py`: `load_pytorch_model` resolves NIMA backbone and
+    pooling `kwargs` from `get_model_registry()`.
+  - `models/factory.py`: `_merge_llm_entry_kwargs` forwards top-level
+    `base_foundation_model` and `curriculum` LoRA/chunking settings to
+    `GenericCausalLLM`.
+  - `training/core_loop.py` & `training/training/engine.py`: `--clean` runs
+    before `CheckpointLifecycleManager` construction and clears canonical
+    `latest.pth`, `vault_*.pth`, `swa_state.pth`, and `curriculum_state.json`;
+    `build_optimizer` receives `category` from `model_info`; `_prepare_run`
+    removes the residual 30-epoch floor on resume; `sync_criterion_actuators`
+    propagates governor stabilizer weights and temperature into
+    `criterion.stab`.
+  - `training/registry/preprocessing.py`, `gui_model_stats.py`, &
+    `governor_setup.py`: unified `resolve_task_type` SSOT precedence and fixed
+    LLM default `res_ladder` to `[current_res]`.
+  - `training/doc_generator.py`, `yolo_checkpoint_sync.py`, & `cli/lemtrain.py`:
+    fixed 1-indexed epoch count in `read_model_metrics`, guarded `metrics.csv`
+    self-copy, and removed the duplicate `notebooks` command shadowing
+    `lemtrain notebooks list|generate`.
 - **Version**: `pyproject.toml` brought in line with the README.
 
 ### v16.9.228 - Classification Manifold Guard & High-Precision Telemetry

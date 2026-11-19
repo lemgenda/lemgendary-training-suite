@@ -234,30 +234,6 @@ def test_all(
     typer.echo("[SUCCESS] Fleet diagnostic unit-test pass completed.")
 
 
-@app.command("notebooks")
-def notebooks(
-    model: str = typer.Argument(..., help="Model key for notebook generation."),
-    platform: str = typer.Option(
-        "kaggle", "--platform", "-p", help="Target platform ('kaggle' or 'colab')."
-    ),
-    output_dir: str | None = typer.Option(
-        None, "--output-dir", "-o", help="Directory for generated .ipynb files."
-    ),
-) -> None:
-    """Generate standalone training, inference, and usage notebooks."""
-    typer.echo(f"[NOTEBOOKS] Synthesizing {platform} notebooks for '{model}'...")
-    service = NotebookService()
-    results = service.generate_notebooks(
-        model_key=model,
-        platform=platform,
-        output_dir=output_dir,
-    )
-
-    typer.echo("[SUCCESS] Generated notebooks:")
-    for kind, path in results.items():
-        typer.echo(f"  [{kind}] -> {path}")
-
-
 @checkpoints_app.command("list")
 def checkpoints_list(
     model: str | None = typer.Option(
