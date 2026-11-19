@@ -226,3 +226,62 @@ class DynamicOnTheFlyDegrader:
             "noise_conf": round(conf, 4),
         }
         return degraded, params
+
+
+@dataclass
+class DegradationCurriculum:
+    """Easy-to-hard degradation curriculum schedule across training epochs or resolution rungs.
+
+    Implements a monotonic difficulty schedule inspired by Real-ESRGAN second-order degradation.
+    Early training stages expose the model to mild blur and gentle noise, whereas later
+    stages transition smoothly to intense compound corruptions, severe downsampling,
+    and heavy JPEG compression artifacts.
+    """
+
+    total_epochs: int = 100
+    start_intensity: float = 0.2
+    max_intensity: float = 1.0
+    mode: str = "curriculum-adaptive"
+
+    def get_difficulty(self, current_epoch: int) -> float:
+        """Calculate monotonic difficulty coefficient in [start_intensity, max_intensity]."""
+        if self.total_epochs <= 1:
+            return self.max_intensity
+        progress = min(1.0, max(0.0, float(current_epoch) / float(self.total_epochs)))
+        # Cosine / smoothstep ramping schedule
+        alpha = 0.5 * (1.0 - math.cos(progress * math.pi))
+        return self.start_intensity + alpha * (self.max_intensity - self.start_intensity)
+
+    def __call__(
+        self,
+        img_tensor: torch.Tensor,
+        current_epoch: int = 0,
+        rung_resolution: int | None = None,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Apply curriculum-scheduled degradation to [C, H, W] tensor."""
+        difficulty = self.get_difficulty(current_epoch)
+
+        # Scale intensity parameters based on current difficulty
+        deg = random.uniform(0.05 * difficulty, 0.95 * difficulty)
+        theta = random.uniform(0.0, math.pi * difficulty)
+        conf = random.uniform(0.05 * difficulty, 0.85 * difficulty)
+
+        degraded = apply_synthetic_degradation(img_tensor, deg=deg, theta=theta, conf=conf)
+
+        # If on low resolution rungs (e.g. 128 or 256), optionally add vintage/film grain
+        if (
+            rung_resolution is not None
+            and rung_resolution <= 256
+            and random.random() < 0.3 * difficulty
+        ):
+            degraded = apply_film_degradation(degraded)
+
+        meta = {
+            "epoch": current_epoch,
+            "difficulty": round(difficulty, 4),
+            "deg": round(deg, 4),
+            "theta": round(theta, 4),
+            "conf": round(conf, 4),
+            "rung_resolution": rung_resolution,
+        }
+        return degraded, meta

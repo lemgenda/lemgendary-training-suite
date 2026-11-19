@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.231-STABLE`
+- **Version**: `v16.9.232-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,24 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.232 - Prompt 17 Visual & WebDataset Manifold Improvements
+
+- **Exponential Moving Average (ModelEMA)**: Implemented
+  `training/training/ema.py` tracking shadow parameter moving averages with
+  warmup ramping, buffer tracking, and seamless state-dict persistence.
+- **Easy-to-Hard Degradation Curriculum**: Added `DegradationCurriculum` to
+  `training/data/degrade.py`, scaling corruptions (blur, noise, compression)
+  monotonically across training epochs and resolution rungs.
+- **Mask-Aware Spatial Loss Weighting**: Implemented `_masked_spatial_l1_loss` in
+  `training/losses.py`, dynamically amplifying gradients on region-of-interest
+  damage masks during image restoration and enhancement.
+- **Deterministic Shard Sampler**: Implemented
+  `training/data/webdataset_sampler.py` delivering epoch-seeded deterministic
+  shuffling and rank-partitioning across distributed training ranks.
+- **Vision Pipeline Throughput Instrumentation**: Implemented
+  `training/training/image_throughput.py` measuring images/sec, step latency,
+  and VRAM consumption to isolate decode and prefetch bottlenecks.
 
 ### v16.9.231 - Prompt 16 LLM Pipeline Improvements: Packing, WSD, MFU & FSDP
 

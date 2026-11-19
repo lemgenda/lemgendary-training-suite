@@ -25,6 +25,7 @@ from training.training.context import (
     TrainingContext,
     TrainingPaths,
 )
+from training.training.ema import ModelEMA
 from training.training.engine import TrainingSummary, run_training
 from training.training.epoch import train_one_epoch
 from training.training.optimizer import build_optimizer, build_scheduler
@@ -35,6 +36,7 @@ __all__ = [
     "GovernanceComponents",
     "GradClip",
     "HardwareComponents",
+    "ModelEMA",
     "ModelStack",
     "ModelsHubPaths",
     "ResumeGuards",

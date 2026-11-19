@@ -423,6 +423,33 @@ def _restoration_output(pred) -> dict | None:
     return pred if isinstance(pred, dict) and "restored_image" in pred else None
 
 
+def _masked_spatial_l1_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    mask: torch.Tensor | None = None,
+    mask_weight: float = 2.0,
+) -> torch.Tensor:
+    """Compute spatial L1 loss with optional region-of-interest mask weighting.
+
+    When ``mask`` is provided (e.g. text/face/damage region), the spatial weight map
+    W = 1.0 + (mask_weight - 1.0) * mask increases gradient importance inside damaged/target
+    regions.
+    """
+    diff = torch.abs(pred - target)
+    if mask is None:
+        return diff.mean()
+
+    # Align mask shape: expect [B, 1, H, W] or broadcastable
+    if mask.dim() == 3:
+        mask = mask.unsqueeze(1)
+    if mask.shape[-2:] != diff.shape[-2:]:
+        mask = F.interpolate(mask.float(), size=diff.shape[-2:], mode="nearest")
+
+    weights = 1.0 + (float(mask_weight) - 1.0) * torch.clamp(mask.float(), 0.0, 1.0)
+    weighted_diff = diff * weights
+    return weighted_diff.sum() / torch.clamp(weights.expand_as(diff).sum(), min=1e-6)
+
+
 @dataclass(frozen=True)
 class _BaseCriteria:
     """Stateless base criteria of :class:`CombinedLoss`.
@@ -559,21 +586,28 @@ class CombinedLoss(nn.Module):
     def _compute_restoration_loss(self, pred, target, task_idx) -> torch.Tensor:
         """Compute composite L1, cross-entropy routing, and perceptual loss."""
         detect_loss = None
+        mask = None
+        if isinstance(target, dict):
+            img_target = target.get("image", target)
+            mask = target.get("mask")
+        else:
+            img_target = target
+
         restored = _restoration_output(pred)
         if restored is not None:
             img_pred = restored["restored_image"]
-            img_target = target["image"] if isinstance(target, dict) else target
             bbox_pred = restored.get("detections")
             if bbox_pred is not None and isinstance(bbox_pred, torch.Tensor):
                 detect_loss = F.smooth_l1_loss(bbox_pred, torch.zeros_like(bbox_pred))
         elif isinstance(pred, (tuple, list)):
             img_pred = pred[0]
-            img_target = target
         else:
             img_pred = pred
-            img_target = target
 
-        base_loss = self.criteria.l1(img_pred, img_target)
+        mask_weight = float(self.stab.get("mask_weight", 2.0))
+        base_loss = _masked_spatial_l1_loss(
+            img_pred, img_target, mask=mask, mask_weight=mask_weight
+        )
         batch_sz = img_pred.shape[0] if hasattr(img_pred, "shape") else 1
         device = img_pred.device if hasattr(img_pred, "device") else torch.device("cpu")
         task_tensor = _resolve_task_index_tensor(task_idx, batch_sz, device)
