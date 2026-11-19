@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from training.checkpoint.manager import _resilient_replace
+from training.utils.atomic import remove_temp_file_safely
 
 logger = logging.getLogger("lemtrain.checkpoint.vault")
 
@@ -137,11 +138,7 @@ class MetricVault:
         except OSError as exc:
             logger.error("Failed exporting metrics to %s: %s", target, exc)
         finally:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError as err:
-                    logger.debug("Failed cleaning temporary file %s: %s", tmp_path, err)
+            remove_temp_file_safely(tmp_path)
 
     def load_csv(self, path: Path | str) -> None:
         """Load history from a CSV log file."""

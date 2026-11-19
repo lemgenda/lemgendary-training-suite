@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from training.checkpoint.manager import _resilient_replace
+from training.utils.atomic import remove_temp_file_safely
 
 logger = logging.getLogger("lemtrain.telemetry.recorder")
 
@@ -47,11 +48,7 @@ class AtomicCsvRecorder:
                 os.fsync(f.fileno())
             _resilient_replace(tmp_path, self.file_path)
         finally:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError as err:
-                    logger.debug("Failed cleaning temporary file %s: %s", tmp_path, err)
+            remove_temp_file_safely(tmp_path)
 
     def append_row(self, row: dict[str, Any]) -> None:
         """Atomically append a single row to the CSV file using temp-and-replace."""
@@ -99,11 +96,7 @@ class AtomicCsvRecorder:
 
             _resilient_replace(tmp_path, self.file_path)
         finally:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError as err:
-                    logger.debug("Failed cleaning temporary file %s: %s", tmp_path, err)
+            remove_temp_file_safely(tmp_path)
 
     def upsert_by_key(self, row: dict[str, Any], key_fields: tuple[str, ...]) -> None:
         """Insert or replace an existing row keyed by key_fields atomically."""

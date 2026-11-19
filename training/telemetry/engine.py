@@ -16,6 +16,8 @@ import torch
 from training.checkpoint.manager import _resilient_replace
 from training.governance.metrics import FACE_DETECTION_METRICS
 from training.governance.quality_score import score_metrics
+from training.telemetry.schemas import VISION_METRIC_COLUMNS as _VISION_METRICS
+from training.utils.atomic import remove_temp_file_safely
 from training.utils.lazy_imports import load_mean_average_precision
 
 # --- 2026 Resilience: Extended Mathematical Governance (SSOT Delegation) ---
@@ -68,7 +70,7 @@ def _governor_columns(gov: dict[str, Any] | None) -> str:
 
 
 def _epoch_index(epoch: int) -> int:
-    return int(epoch) if int(epoch) >= 1 else int(epoch) + 1
+    return epoch if epoch >= 1 else epoch + 1
 
 
 def _cell(value: Any) -> str:
@@ -100,25 +102,6 @@ _FOREX_METRICS = (
     "max_drawdown",
     "tp_mae",
     "sl_mae",
-)
-_VISION_METRICS = (
-    "plcc",
-    "srcc",
-    "psnr",
-    "ssim",
-    "lpips",
-    "fid",
-    "map50",
-    "map50_95",
-    "accuracy",
-    "rank_margin",
-    "mae",
-    "miou",
-    # No model measures these two any more; the columns stay so existing vision logs keep
-    # their 28-column layout.
-    "map_medium",
-    "map_hard",
-    "accuracy_vqa",
 )
 
 
@@ -209,6 +192,35 @@ def csv_layout(task_type: str) -> CsvLayout:
     return _LAYOUTS.get(task_type, VISION_LAYOUT)
 
 
+def _extract_row_key(task_type: str, row_line: str) -> tuple[str, ...]:
+    """Extract comparison key from existing row line."""
+    parts = [p.strip() for p in row_line.split(",")]
+    if task_type == "forex" and len(parts) >= 3:
+        return (parts[0], parts[1], parts[2])
+    if len(parts) >= 1:
+        return (parts[0],)
+    return ()
+
+
+def _write_atomic_lines(target_path: Path, header: str, rows: list[str]) -> None:
+    """Write lines atomically via temporary file and replace."""
+    parent_dir = target_path.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path_str = tempfile.mkstemp(
+        prefix="metrics_out_", suffix=".tmp", dir=str(parent_dir)
+    )
+    tmp_path = Path(tmp_path_str)
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f_out:
+            f_out.write(header if header.endswith("\n") else header + "\n")
+            f_out.writelines(rows)
+            f_out.flush()
+            os.fsync(f_out.fileno())
+        _resilient_replace(tmp_path, target_path)
+    finally:
+        remove_temp_file_safely(tmp_path)
+
+
 class TelemetryEngine:
     """Owns a model's metrics.csv and computes Quality Score and auxiliary task metrics."""
 
@@ -268,10 +280,7 @@ class TelemetryEngine:
         self._upsert_line(new_line, key_tuple)
 
     def _upsert_line(self, new_line: str, key_tuple: tuple[str, ...]) -> None:
-        """Replace the row whose key equals ``key_tuple``, else append ``new_line``.
-
-        Guarantees crash-safety and atomicity via a temp-file write and atomic rename.
-        """
+        """Replace the row whose key equals ``key_tuple``, else append ``new_line``."""
         existing_lines = []
         if os.path.exists(self.metrics_csv_path):
             try:
@@ -286,14 +295,7 @@ class TelemetryEngine:
 
         if existing_lines:
             for row in existing_lines[1:]:
-                parts = [p.strip() for p in row.split(",")]
-                if self.task_type == "forex" and len(parts) >= 3:
-                    row_key = (parts[0], parts[1], parts[2])
-                elif len(parts) >= 1:
-                    row_key = (parts[0],)
-                else:
-                    row_key = ()
-
+                row_key = _extract_row_key(self.task_type, row)
                 if row_key == key_tuple:
                     updated_rows.append(new_line)
                     replaced = True
@@ -303,26 +305,7 @@ class TelemetryEngine:
         if not replaced:
             updated_rows.append(new_line)
 
-        # Atomic crash-safe write
-        parent_dir = Path(self.metrics_csv_path).parent
-        parent_dir.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path_str = tempfile.mkstemp(
-            prefix="metrics_", suffix=".tmp", dir=str(parent_dir)
-        )
-        tmp_path = Path(tmp_path_str)
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f_out:
-                f_out.write(header if header.endswith("\n") else header + "\n")
-                f_out.writelines(updated_rows)
-                f_out.flush()
-                os.fsync(f_out.fileno())
-            _resilient_replace(tmp_path, Path(self.metrics_csv_path))
-        finally:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except OSError as err:
-                    logger.debug("Failed cleaning temporary file %s: %s", tmp_path, err)
+        _write_atomic_lines(Path(self.metrics_csv_path), header, updated_rows)
 
     def compute_quality_score(self, curr_metrics, sota_targets, task_type):
         """Quality score of one epoch's metrics (see ``training.governance.quality_score``).
