@@ -6,6 +6,8 @@ from training.checkpoint.lifecycle_manager import (
     canonicalize_checkpoints,
 )
 from training.checkpoint.manager import (
+    CHECKPOINT_FORMAT_VERSION,
+    CheckpointMigrationError,
     CheckpointSaveError,
     audit_disk_space,
     safe_atomic_save,
@@ -26,7 +28,9 @@ from training.checkpoint.resume import (
 from training.checkpoint.vault import MetricRecord, MetricVault
 
 __all__ = [
+    "CHECKPOINT_FORMAT_VERSION",
     "CheckpointLifecycleManager",
+    "CheckpointMigrationError",
     "CheckpointRecoveryEngine",
     "CheckpointSaveError",
     "ExportSource",

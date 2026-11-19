@@ -130,7 +130,7 @@ class ResumeState:
 
 def _model_state(payload: dict[str, Any]) -> dict[str, Any]:
     """The weights dict under a known key, or the whole payload when it is raw weights."""
-    for key in ("model_state_dict", "state_dict", "model"):
+    for key in ("model_state", "model_state_dict", "state_dict", "model"):
         if key in payload and isinstance(payload[key], dict):
             return payload[key]
     return payload
@@ -206,10 +206,10 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
         progress=ResumeProgress(iteration=iteration, is_intra_epoch=is_intra, phase=phase),
         optim=ResumeOptimStates(
             optimizer_state_dict=_dict_or_none(
-                _first(payload, "optimizer_state_dict", "optimizer")
+                _first(payload, "optimizer_state", "optimizer_state_dict", "optimizer")
             ),
             scheduler_state_dict=_dict_or_none(
-                _first(payload, "scheduler_state_dict", "scheduler")
+                _first(payload, "scheduler_state", "scheduler_state_dict", "scheduler")
             ),
             scaler_state_dict=_dict_or_none(_first(payload, "scaler_state_dict", "scaler")),
         ),

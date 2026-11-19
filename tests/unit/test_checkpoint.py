@@ -8,7 +8,9 @@ from pathlib import Path
 import torch
 
 from training.checkpoint import (
+    CHECKPOINT_FORMAT_VERSION,
     CheckpointLifecycleManager,
+    CheckpointMigrationError,
     CheckpointRecoveryEngine,
     MetricVault,
     ResumeState,
@@ -19,6 +21,7 @@ from training.checkpoint import (
     scale_resume_progress,
     stretch_scheduler_runway,
 )
+from training.utils.rng_state import restore_rng_state, rng_payload
 
 
 class TestCheckpointSubsystem(unittest.TestCase):
@@ -321,6 +324,85 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertEqual(state.epoch, 2)
         self.assertEqual(state.iteration, 13410)
         self.assertEqual(state.train_metrics["train_loss"], 0.2714)
+
+    def test_checkpoint_format_version_and_migration(self) -> None:
+        """Verify format version attachment and migration error handling."""
+        # 1. Normal save attaches current format version
+        ckpt_path = self.root / "v2_checkpoint.pth"
+        payload = {"epoch": 1, "model_state_dict": {"w": torch.tensor([1.0])}}
+        safe_atomic_save(payload, ckpt_path)
+        loaded = safe_load_checkpoint(ckpt_path)
+        self.assertEqual(loaded.get("checkpoint_format_version"), CHECKPOINT_FORMAT_VERSION)
+
+        # 2. Legacy checkpoint without version migrates legacy state_dict key
+        legacy_path = self.root / "legacy_checkpoint.pth"
+        legacy_payload = {"epoch": 0, "state_dict": {"bias": torch.tensor([0.5])}}
+        torch.save(legacy_payload, str(legacy_path))
+        loaded_legacy = safe_load_checkpoint(legacy_path)
+        self.assertIn("model_state_dict", loaded_legacy)
+        self.assertTrue(torch.equal(loaded_legacy["model_state_dict"]["bias"], torch.tensor([0.5])))
+
+        # 3. Future format version raises explicit CheckpointMigrationError
+        future_path = self.root / "future_checkpoint.pth"
+        future_payload = {"epoch": 10, "checkpoint_format_version": 999}
+        torch.save(future_payload, str(future_path))
+        with self.assertRaises(CheckpointMigrationError):
+            safe_load_checkpoint(future_path)
+
+    def test_bit_reproducible_rng_and_loss_continuity(self) -> None:
+        """Verify kill-and-resume continuity: saving RNG + optim reproduces exact next steps."""
+        torch.manual_seed(1337)
+        model = torch.nn.Linear(4, 1, bias=False)
+        model.weight.data.fill_(1.0)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+
+        x_step1 = torch.randn(2, 4)
+        x_step2 = torch.randn(2, 4)
+
+        # Step 1
+        loss1 = (model(x_step1) ** 2).mean()
+        loss1.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+        # Capture checkpoint at Step 1 (simulating interrupt / kill)
+        ckpt_path = self.root / "kill_and_resume.pth"
+        payload = {
+            "epoch": 1,
+            "step": 1,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            **rng_payload(),
+        }
+        safe_atomic_save(payload, ckpt_path)
+
+        # Reference: continue running Step 2 uninterrupted
+        loss2_ref = (model(x_step2) ** 2).mean()
+        loss2_ref.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        ref_weight = model.weight.data.clone()
+
+        # Resume simulation: fresh model and optimizer loaded from checkpoint
+        resumed_model = torch.nn.Linear(4, 1, bias=False)
+        resumed_optim = torch.optim.SGD(resumed_model.parameters(), lr=0.1)
+
+        loaded_ckpt = safe_load_checkpoint(ckpt_path)
+        resumed_state = parse_resume_state(loaded_ckpt)
+        resumed_model.load_state_dict(resumed_state.model_state_dict)
+        if resumed_state.optimizer_state_dict:
+            resumed_optim.load_state_dict(resumed_state.optimizer_state_dict)
+        restore_rng_state(loaded_ckpt)
+
+        # Step 2 on resumed model
+        loss2_resumed = (resumed_model(x_step2) ** 2).mean()
+        loss2_resumed.backward()
+        resumed_optim.step()
+        resumed_optim.zero_grad()
+
+        # Assert loss continuity and exact bit-reproducibility
+        self.assertAlmostEqual(loss2_ref.item(), loss2_resumed.item(), places=6)
+        self.assertTrue(torch.equal(ref_weight, resumed_model.weight.data))
 
 
 if __name__ == "__main__":

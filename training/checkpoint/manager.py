@@ -45,6 +45,14 @@ class CheckpointPayloadTypeError(TypeError, ValueError):
     """
 
 
+class CheckpointMigrationError(RuntimeError):
+    """Raised when an older or incompatible checkpoint cannot be safely migrated."""
+
+
+CHECKPOINT_FORMAT_VERSION = 2
+"""Current authoritative checkpoint payload format version."""
+
+
 def audit_disk_space(target_dir: Path, min_free_gb: float = 5.0) -> float:
     """Audit available disk space in GB, triggering emergency pruning of .tmp files if critical."""
     try:
@@ -138,6 +146,9 @@ def safe_atomic_save(payload: Any, path: Path | str, min_free_gb: float = 5.0) -
 
     tmp_path = target_path.with_name(f"{target_path.name}.tmp")
 
+    if isinstance(payload, dict) and "checkpoint_format_version" not in payload:
+        payload["checkpoint_format_version"] = CHECKPOINT_FORMAT_VERSION
+
     try:
         torch.save(payload, str(tmp_path))
         _resilient_replace(tmp_path, target_path)
@@ -173,5 +184,24 @@ def safe_load_checkpoint(path: Path | str, map_location: Any = "cpu") -> dict[st
         raise CheckpointPayloadTypeError(
             f"Expected dict payload from checkpoint {ckpt_path}, got {type(payload).__name__}"
         )
+
+    # Backwards-compatibility and explicit migration handling
+    version = payload.get("checkpoint_format_version", 1)
+    if not isinstance(version, (int, float)):
+        raise CheckpointMigrationError(
+            f"Checkpoint {ckpt_path.name} contains invalid format version: {version!r}"
+        )
+    if version > CHECKPOINT_FORMAT_VERSION:
+        raise CheckpointMigrationError(
+            f"Checkpoint {ckpt_path.name} requires format version {version}, but this version "
+            f"of the suite only supports up to {CHECKPOINT_FORMAT_VERSION}. Please upgrade."
+        )
+
+    # Legacy migration: normalize model weights key if only legacy keys are present
+    if "model_state_dict" not in payload and "model_state" not in payload:
+        if "state_dict" in payload and isinstance(payload["state_dict"], dict):
+            payload["model_state_dict"] = payload["state_dict"]
+        elif "model" in payload and isinstance(payload["model"], dict):
+            payload["model_state_dict"] = payload["model"]
 
     return payload
