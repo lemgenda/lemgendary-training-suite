@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.236-STABLE`
+- **Version**: `v16.9.237-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,22 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.237 - Prompt 22 Checkpoint Save / Resume Modernization & Bit Reproducibility
+
+- **Universal Checkpoint Format Versioning**: Attached `checkpoint_format_version`
+  (Version 2) to all checkpoints in `training/checkpoint/manager.py`.
+- **Atomic Save & Lock Resilience**: Validated atomic write-temp-and-rename
+  with disk headroom auditing and exponential backoff retry for filesystem locks.
+- **Backward-Compatible Migration & Error Handling**: Transparently migrates legacy
+  state dictionary keys (`state_dict`, `model`) while raising explicit
+  `CheckpointMigrationError` on incompatible or future format versions.
+- **Bit-Reproducible Kill-and-Resume**: Captures complete RNG state across host
+  (Python, NumPy, Torch CPU) and accelerator devices, ensuring identical step
+  trajectories and exact loss continuity upon resumption.
+- **Unit & Regression Testing**: Added unit tests in `tests/unit/test_checkpoint.py`
+  validating format versioning, migration error handling, and bit-reproducible
+  kill-and-resume loss continuity.
 
 ### v16.9.236 - Prompt 21 Standardized Metrics & History Recording Pipelines
 
