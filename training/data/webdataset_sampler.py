@@ -39,11 +39,11 @@ class DeterministicShardSampler(Sampler[int]):
         if rank < 0 or rank >= num_replicas:
             raise ValueError(f"Invalid rank {rank} for num_replicas {num_replicas}")
 
-        self.num_shards = max(0, int(num_shards))
-        self.num_replicas = int(num_replicas)
-        self.rank = int(rank)
-        self.seed = int(seed)
-        self.drop_last = bool(drop_last)
+        self.num_shards = max(0, num_shards)
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.seed = seed
+        self.drop_last = drop_last
         self.epoch = 0
 
         if self.drop_last:
@@ -62,7 +62,7 @@ class DeterministicShardSampler(Sampler[int]):
 
     def set_epoch(self, epoch: int) -> None:
         """Set current epoch for epoch-seeded deterministic permutation."""
-        self.epoch = int(epoch)
+        self.epoch = epoch
 
     def __iter__(self) -> Iterator[int]:
         """Yield shard indices for current rank under epoch seed."""

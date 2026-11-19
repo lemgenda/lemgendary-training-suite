@@ -51,7 +51,9 @@ def test_model_ema_smoothing() -> None:
     # Test apply_shadow and restore
     orig_online_weight = model.conv.weight.clone()
     ema.apply_shadow(model)
-    assert torch.allclose(model.conv.weight, ema.module.conv.weight)
+    shadow_mod = ema.get_shadow_module()
+    assert isinstance(shadow_mod, _TinyModel)
+    assert torch.allclose(model.conv.weight, shadow_mod.conv.weight)
 
     ema.restore(model)
     assert torch.allclose(model.conv.weight, orig_online_weight)
@@ -62,7 +64,9 @@ def test_model_ema_smoothing() -> None:
     new_ema.load_state_dict(state)
     assert new_ema.step == ema.step
     assert new_ema.decay == ema.decay
-    assert torch.allclose(new_ema.module.conv.weight, ema.module.conv.weight)
+    new_shadow_mod = new_ema.get_shadow_module()
+    assert isinstance(new_shadow_mod, _TinyModel)
+    assert torch.allclose(new_shadow_mod.conv.weight, shadow_mod.conv.weight)
 
 
 def test_degradation_curriculum_monotonicity() -> None:

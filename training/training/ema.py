@@ -33,16 +33,20 @@ class ModelEMA:
         use_buffers: bool = True,
     ) -> None:
         self.decay = float(decay)
-        self.warmup_steps = max(0, int(warmup_steps))
-        self.use_buffers = bool(use_buffers)
+        self.warmup_steps = max(0, warmup_steps)
+        self.use_buffers = use_buffers
         self.step = 0
 
         # Create shadow module without computation graph
-        self.module = copy.deepcopy(model).eval()
+        self.module: nn.Module = copy.deepcopy(model).eval()
         for param in self.module.parameters():
             param.requires_grad = False
 
         self._backup_params: dict[str, torch.Tensor] = {}
+
+    def get_shadow_module(self) -> nn.Module:
+        """Return the tracked shadow module."""
+        return self.module
 
     def get_decay(self) -> float:
         """Compute step-dependent decay rate with optional warmup."""

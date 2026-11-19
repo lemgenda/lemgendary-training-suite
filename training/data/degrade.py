@@ -32,7 +32,7 @@ try:
     core_dynamic_degrader = getattr(degrade_pkg, "DynamicDegrader", None)
     core_parse_profile = getattr(degrade_pkg, "parse_profile", None)
     _HAS_DEGRADE_CORE = core_dynamic_degrader is not None and core_parse_profile is not None
-except (ImportError, ModuleNotFoundError, AttributeError) as exc:
+except (ImportError, AttributeError) as exc:
     logger.debug("Core degrade engine from lemgendary-datasets not linked: %s", exc)
     _HAS_DEGRADE_CORE = False
 

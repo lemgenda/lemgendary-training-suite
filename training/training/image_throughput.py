@@ -49,7 +49,7 @@ class ImageThroughputTracker:
         dt = max(1e-5, now - self._last_time)
         self._last_time = now
 
-        num_images = max(0, int(num_images))
+        num_images = max(0, num_images)
         self._total_images += num_images
         self._total_batches += 1
 
