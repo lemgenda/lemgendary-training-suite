@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.235-STABLE`
+- **Version**: `v16.9.236-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.236 - Prompt 21 Standardized Metrics & History Recording Pipelines
+
+- **Canonical Telemetry Schemas**: Defined canonical schemas in
+  `training/telemetry/schemas.py` for step-level telemetry (`metrics.csv`) and
+  epoch/eval-level telemetry (`history.csv`), covering losses, LR, gradient norm,
+  throughput, VRAM/allocated memory, wall time, governor actions, pathology
+  flags, and family-specific metrics (Vision, Forex, YOLO, RetinaFace, LLM).
+- **Atomic & Crash-Safe Recorders**: Re-architected CSV recording in
+  `training/telemetry/recorder.py` and `training/checkpoint/vault.py` with
+  atomic write-temp-and-replace (`_resilient_replace`) and `os.fsync`,
+  guaranteeing zero corrupted logs on power loss or training interruption.
+- **Preflight & Runtime Telemetry Validator**: Created
+  `training/telemetry/validator.py` (`TelemetryCsvValidator`) to strictly
+  validate header structures, numeric typing, and mandatory columns.
+- **Unit & Regression Testing**: Added `tests/unit/test_telemetry_recording.py`
+  validating atomic append, in-place upsert, and schema validation.
 
 ### v16.9.235 - Prompt 20 Unified Model Configuration Standardization
 

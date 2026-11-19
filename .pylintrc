@@ -5,6 +5,10 @@ load-plugins=
 jobs=1
 unsafe-load-any-extension=no
 
+[DESIGN]
+# Telemetry records and DTOs capture up to 24 canonical training attributes
+max-attributes=25
+
 [REPORTS]
 output-format=text
 reports=no

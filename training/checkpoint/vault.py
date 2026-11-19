@@ -2,10 +2,14 @@
 
 import csv
 import logging
+import os
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from training.checkpoint.manager import _resilient_replace
 
 logger = logging.getLogger("lemtrain.checkpoint.vault")
 
@@ -98,7 +102,7 @@ class MetricVault:
         return not best_in_window
 
     def export_csv(self, path: Path | str) -> None:
-        """Export metric history to CSV format."""
+        """Export metric history to CSV format crash-safely with temp-file rename."""
         if not self.history:
             return
 
@@ -110,8 +114,12 @@ class MetricVault:
             all_keys.update(r.metrics.keys())
         fieldnames = ["epoch", "timestamp", "is_best", "checkpoint_path"] + sorted(all_keys)
 
+        tmp_fd, tmp_path_str = tempfile.mkstemp(
+            prefix="history_", suffix=".tmp", dir=str(target.parent)
+        )
+        tmp_path = Path(tmp_path_str)
         try:
-            with open(target, "w", newline="", encoding="utf-8") as f:
+            with os.fdopen(tmp_fd, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for r in self.history:
@@ -123,8 +131,17 @@ class MetricVault:
                     }
                     row.update(r.metrics)
                     writer.writerow(row)
+                f.flush()
+                os.fsync(f.fileno())
+            _resilient_replace(tmp_path, target)
         except OSError as exc:
             logger.error("Failed exporting metrics to %s: %s", target, exc)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError as err:
+                    logger.debug("Failed cleaning temporary file %s: %s", tmp_path, err)
 
     def load_csv(self, path: Path | str) -> None:
         """Load history from a CSV log file."""

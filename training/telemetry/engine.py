@@ -3,19 +3,17 @@
 import logging
 import math
 import os
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 
-# ==============================================================================
-# [LAUNCH] LemGendary 2026 Telemetry Engine (v18.0)
-# ==============================================================================
-# Master handler for SOTA metric tracking, Quality Score math, and CSV validation
-# ==============================================================================
+from training.checkpoint.manager import _resilient_replace
 from training.governance.metrics import FACE_DETECTION_METRICS
 from training.governance.quality_score import score_metrics
 from training.utils.lazy_imports import load_mean_average_precision
@@ -270,43 +268,61 @@ class TelemetryEngine:
         self._upsert_line(new_line, key_tuple)
 
     def _upsert_line(self, new_line: str, key_tuple: tuple[str, ...]) -> None:
-        """Replace the row whose key equals ``key_tuple``, else append ``new_line``."""
-        # Read existing file to update in-place if epoch already present, or append
+        """Replace the row whose key equals ``key_tuple``, else append ``new_line``.
+
+        Guarantees crash-safety and atomicity via a temp-file write and atomic rename.
+        """
         existing_lines = []
         if os.path.exists(self.metrics_csv_path):
-            with open(self.metrics_csv_path, "r", encoding="utf-8") as f:
-                existing_lines = f.readlines()
+            try:
+                with open(self.metrics_csv_path, "r", encoding="utf-8") as f:
+                    existing_lines = f.readlines()
+            except OSError as err:
+                logger.warning("Could not read %s for upsert: %s", self.metrics_csv_path, err)
 
-        if not existing_lines:
-            with open(self.metrics_csv_path, "w", encoding="utf-8") as f:
-                f.write(new_line)
-            return
-
-        header = existing_lines[0]
+        header = existing_lines[0] if existing_lines else csv_layout(self.task_type).header
         replaced = False
         updated_rows = []
 
-        for row in existing_lines[1:]:
-            parts = [p.strip() for p in row.split(",")]
-            if self.task_type == "forex" and len(parts) >= 3:
-                row_key = (parts[0], parts[1], parts[2])
-            elif len(parts) >= 1:
-                row_key = (parts[0],)
-            else:
-                row_key = ()
+        if existing_lines:
+            for row in existing_lines[1:]:
+                parts = [p.strip() for p in row.split(",")]
+                if self.task_type == "forex" and len(parts) >= 3:
+                    row_key = (parts[0], parts[1], parts[2])
+                elif len(parts) >= 1:
+                    row_key = (parts[0],)
+                else:
+                    row_key = ()
 
-            if row_key == key_tuple:
-                updated_rows.append(new_line)
-                replaced = True
-            else:
-                updated_rows.append(row if row.endswith("\n") else row + "\n")
+                if row_key == key_tuple:
+                    updated_rows.append(new_line)
+                    replaced = True
+                else:
+                    updated_rows.append(row if row.endswith("\n") else row + "\n")
 
         if not replaced:
             updated_rows.append(new_line)
 
-        with open(self.metrics_csv_path, "w", encoding="utf-8") as f:
-            f.write(header if header.endswith("\n") else header + "\n")
-            f.writelines(updated_rows)
+        # Atomic crash-safe write
+        parent_dir = Path(self.metrics_csv_path).parent
+        parent_dir.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_path_str = tempfile.mkstemp(
+            prefix="metrics_", suffix=".tmp", dir=str(parent_dir)
+        )
+        tmp_path = Path(tmp_path_str)
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f_out:
+                f_out.write(header if header.endswith("\n") else header + "\n")
+                f_out.writelines(updated_rows)
+                f_out.flush()
+                os.fsync(f_out.fileno())
+            _resilient_replace(tmp_path, Path(self.metrics_csv_path))
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError as err:
+                    logger.debug("Failed cleaning temporary file %s: %s", tmp_path, err)
 
     def compute_quality_score(self, curr_metrics, sota_targets, task_type):
         """Quality score of one epoch's metrics (see ``training.governance.quality_score``).
