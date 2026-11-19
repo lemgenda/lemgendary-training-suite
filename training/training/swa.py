@@ -47,6 +47,9 @@ from training.training.validation import validate_one_epoch
 
 logger = logging.getLogger("lemtrain.training.swa")
 
+_OPT_CALLED_FLAG = "_opt_called"
+"""PyTorch's private marker that ``optimizer.step()`` ran; ``SWALR`` warns when it is unset."""
+
 SWA_STATE_FILENAME = "swa_state.pth"
 SWA_VAULT_FILENAME = "vault_swa.pth"
 SWA_VAULT_METRIC = "swa"
@@ -90,7 +93,7 @@ class SwaAverager:
         if self.scheduler is None:
             self.scheduler = _new_swalr(self._optimizer, schedule)
         # Ensure PyTorch's internal _opt_called is True when stepping SWALR standalone
-        setattr(self._optimizer, "_opt_called", True)
+        setattr(self._optimizer, _OPT_CALLED_FLAG, True)
         self.scheduler.step()
 
     def refresh_bn(self, loader: Iterable[Any], device: torch.device) -> None:

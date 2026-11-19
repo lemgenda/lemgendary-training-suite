@@ -16,6 +16,7 @@ fresh temporary folder and this module merges the files into the hub folder one 
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 import shutil
@@ -24,7 +25,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from training.cloud.variations import CHECKPOINT_SUFFIX
-from training.utils.model_payload import checkpoint_epoch
 
 logger = logging.getLogger("lemtrain.cloud.model_pull")
 
@@ -38,6 +38,12 @@ class MergeReport:
 
     written: list[str] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
+
+
+def _read_checkpoint_epoch(path: Path) -> int | None:
+    """Epoch stored in ``path``; the torch-backed reader loads only when first needed."""
+    payload = importlib.import_module("training.utils.model_payload")
+    return payload.checkpoint_epoch(path)
 
 
 def _accept_all(_relative: Path) -> bool:
@@ -86,7 +92,7 @@ def merge_downloaded_payload(
     *,
     force: bool,
     keep: PathFilter | None = None,
-    epoch_of: EpochReader = checkpoint_epoch,
+    epoch_of: EpochReader = _read_checkpoint_epoch,
 ) -> MergeReport:
     """Merge the files of ``download_dir`` that ``keep`` accepts (default all) into ``dest_dir``."""
     epochs = _memoized(epoch_of)

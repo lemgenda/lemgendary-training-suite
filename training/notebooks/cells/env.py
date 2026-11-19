@@ -130,10 +130,12 @@ def _hardware_probe_lines(text: _SentinelText) -> list[str]:
     return [
         "import os, sys\n",
         "import torch\n",
-        "tpu_detected = bool(\n"
-        "    os.environ.get('TPU_NAME') or os.environ.get('KAGGLE_TPU_NAME')\n"
-        "    or os.path.exists('/dev/vfio/0')\n"
-        ")\n",
+        (
+            "tpu_detected = bool(\n"
+            "    os.environ.get('TPU_NAME') or os.environ.get('KAGGLE_TPU_NAME')\n"
+            "    or os.path.exists('/dev/vfio/0')\n"
+            ")\n"
+        ),
         "xla_devices = []\n",
         "if not torch.cuda.is_available():\n",
         "    try:\n",

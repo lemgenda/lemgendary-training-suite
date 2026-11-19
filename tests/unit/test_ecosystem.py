@@ -156,7 +156,10 @@ class TestKaggleAndGitHubReaders(unittest.TestCase):
     def test_collaborators_and_accelerators(self) -> None:
         """Collaborators, accelerators and the default come from the fixture."""
         self.assertEqual(ecosystem.kaggle_collaborators(), ("fixture-editor-a", "fixture-editor-b"))
-        self.assertEqual([a.id for a in ecosystem.kaggle_accelerators()], ["cpu", "gpu-fixture"])
+        self.assertEqual(
+            [a.id for a in ecosystem.kaggle_accelerators()],
+            ["cpu", "gpu-fixture", "gpu-t4x2", "tpu-v5e8"],
+        )
         self.assertEqual(ecosystem.kaggle_accelerator().machine_shape, "FixtureGpuShape")
         self.assertIsNone(ecosystem.kaggle_accelerator("cpu").machine_shape)
         self.assertEqual(ecosystem.kaggle_retired_machine_shapes(), ("FixtureRetiredShape",))

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import torch
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 from models.llm_chunked_loss import ChunkedCausalLMLoss, chunked_eval_loss_and_preds
 from training.cloud.kernel_bundle import BundleRequest, bundle_spec, kernel_metadata

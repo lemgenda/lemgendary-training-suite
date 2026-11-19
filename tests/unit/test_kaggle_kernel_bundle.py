@@ -95,8 +95,9 @@ def test_bundle_builds_for_every_model(
     assert len(f"{slug}-training") <= 50
     assert meta["kernel_type"] == "notebook" and meta["language"] == "python"
     assert meta["is_private"] is True and meta["enable_internet"] is True
-    assert meta["enable_gpu"] is True and meta["enable_tpu"] is False
-    assert meta["machine_shape"] == "FixtureGpuShape"
+    on_tpu = _REGISTRY[model_key].get("kaggle_accelerator") == "tpu-v5e8"
+    assert meta["enable_gpu"] is (not on_tpu) and meta["enable_tpu"] is on_tpu
+    assert meta["machine_shape"] == ("TpuV5E8" if on_tpu else "FixtureGpuShape")
     assert "accelerator" not in meta
     assert meta["dataset_sources"] == model_kaggle_dataset_handles(_REGISTRY[model_key])
     assert meta["dataset_sources"]
@@ -109,7 +110,7 @@ def test_bundle_builds_for_every_model(
     _sdk_api(sent_requests, monkeypatch).kernels_push(str(bundle.directory))
     sent = sent_requests[0]
     assert sent.slug == meta["id"] and sent.kernel_type == "notebook"
-    assert sent.machine_shape == "FixtureGpuShape" and sent.enable_gpu is True
+    assert sent.machine_shape == meta["machine_shape"] and sent.enable_gpu is (not on_tpu)
     assert list(sent.dataset_data_sources) == meta["dataset_sources"]
     assert list(sent.model_data_sources) == meta["model_sources"]
     assert sent.is_private is True and sent.enable_internet is True

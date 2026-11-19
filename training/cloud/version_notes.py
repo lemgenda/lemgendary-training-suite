@@ -10,6 +10,7 @@ The GUI and CLI push, the per-epoch auto-sync and the notebook release all call
 from __future__ import annotations
 
 import csv
+import importlib
 import logging
 import math
 from dataclasses import dataclass, field
@@ -17,7 +18,6 @@ from pathlib import Path
 
 from training.cloud.variations import CHECKPOINTS_DIR
 from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
-from training.utils.model_payload import checkpoint_epoch
 from training.version import __version__
 
 logger = logging.getLogger("lemtrain.cloud.version_notes")
@@ -80,10 +80,12 @@ def release_facts(model_dir: Path, epoch: int | None = None) -> ReleaseFacts:
     csv_epoch, metrics = last_metrics(model_dir)
     if epoch is not None:
         return ReleaseFacts(epoch, metrics)
+    # Deferred: model_payload imports torch, needed only when a checkpoint must be read.
+    payload = importlib.import_module("training.utils.model_payload")
     for name in CHECKPOINT_PRIORITY:
         path = model_dir / CHECKPOINTS_DIR / name
         if path.is_file():
-            epoch = checkpoint_epoch(path)
+            epoch = payload.checkpoint_epoch(path)
             if epoch is not None:
                 return ReleaseFacts(epoch, metrics)
     epoch_from_csv = int(float(csv_epoch)) if csv_epoch and _finite(csv_epoch) else None

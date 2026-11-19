@@ -21,7 +21,6 @@ from training.data.resumable_sampler import resume_start_batch
 from training.hardware.device_memory import is_out_of_memory, release_device_memory
 from training.training.amp import GradClip, get_autocast_context, safe_backward
 from training.training.context import TrainingContext
-from training.utils.lazy_imports import load_torch_xla_model
 from training.training.step_progress import (
     BatchClock,
     batch_progress_line,
@@ -31,6 +30,7 @@ from training.training.step_progress import (
     progress_save_agreed,
     resume_iteration,
 )
+from training.utils.lazy_imports import load_torch_xla_model
 from training.utils.tensors import to_device
 
 logger = logging.getLogger("lemtrain.training.epoch")

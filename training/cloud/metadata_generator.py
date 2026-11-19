@@ -8,6 +8,7 @@ never hardcoded. Regeneration rebuilds generated fields and preserves any field 
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import textwrap
@@ -39,7 +40,6 @@ from training.cloud.variations import (
 from training.ecosystem import docs_url
 from training.registry import KaggleModelMetadata, ModelSpecification, get_model_registry
 from training.registry.kaggle_datasets import model_kaggle_dataset_urls
-from training.utils.model_payload import pt_load_source
 from training.utils.paths import get_model_hub_dir, get_workspace_root
 
 logger = logging.getLogger("lemtrain.cloud.metadata")
@@ -413,13 +413,16 @@ class KaggleMetadataService:
                 "```\n"
             )
         if variation is PYTORCH_FP32:
+            # Deferred: model_payload imports torch, which metadata sync does not otherwise need.
+            payload = importlib.import_module("training.utils.model_payload")
+
             return (
                 "```python\n"
                 "import kagglehub\n"
                 "import torch\n\n"
                 f'path = kagglehub.model_download("{handle}")\n'
                 f'model_path = f"{{path}}/{stem}{PT_SUFFIX}"\n'
-                + "".join(pt_load_source("model_path", '"cpu"'))
+                + "".join(payload.pt_load_source("model_path", '"cpu"'))
                 + "# pt_model: the pickled nn.Module (None for weights-only files); "
                 "state: the weights\n"
                 "```\n"

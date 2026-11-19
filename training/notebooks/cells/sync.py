@@ -213,9 +213,11 @@ def build_training_cell(
         "\n",
         "if is_forex:\n",
         "    cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n",
-        "elif (os.environ.get('PJRT_DEVICE', '').upper() == 'TPU'\n"
-        "      or os.environ.get('TPU_NAME')\n"
-        "      or os.environ.get('KAGGLE_TPU_NAME')):\n",
+        (
+            "elif (os.environ.get('PJRT_DEVICE', '').upper() == 'TPU'\n"
+            "      or os.environ.get('TPU_NAME')\n"
+            "      or os.environ.get('KAGGLE_TPU_NAME')):\n"
+        ),
         "    print('[TPU] Google Cloud TPU XLA runtime detected. Launching TPU training...')\n",
         (
             "    cmd = [sys.executable, '-u', 'training/train.py', '--model', "

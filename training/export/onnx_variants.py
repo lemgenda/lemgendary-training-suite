@@ -157,7 +157,7 @@ class OnnxVariantWriter:
                         )
                     else:
                         logger.debug("[CANARY] %s output %d verified finite.", variant.key, i)
-        except Exception as exc:
+        except (RuntimeError, ValueError, TypeError) as exc:
             logger.debug("[CANARY] Skipping runtime canary for %s: %s", variant.key, exc)
 
     def write(self, variant: OnnxVariant, path: Path) -> dict[str, Path]:

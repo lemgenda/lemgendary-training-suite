@@ -107,10 +107,9 @@ def _prepare_kernel_metadata(kernel_dir: Path) -> dict[str, Any]:
     try:
         meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
         raw_shape = str(meta_data.get("machine_shape", "")).strip()
-        is_tpu = (
-            str(meta_data.get("enable_tpu", "")).lower() == "true"
-            or raw_shape.lower().startswith("tpu")
-        )
+        is_tpu = str(
+            meta_data.get("enable_tpu", "")
+        ).lower() == "true" or raw_shape.lower().startswith("tpu")
         if is_tpu:
             meta_data["enable_tpu"] = "true"
             meta_data["enable_gpu"] = "false"

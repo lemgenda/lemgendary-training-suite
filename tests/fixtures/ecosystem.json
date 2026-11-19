@@ -70,6 +70,18 @@
         "label": "GPU Fixture",
         "kind": "gpu",
         "machine_shape": "FixtureGpuShape"
+      },
+      {
+        "id": "gpu-t4x2",
+        "label": "GPU T4 x2",
+        "kind": "gpu",
+        "machine_shape": "FixtureGpuShape"
+      },
+      {
+        "id": "tpu-v5e8",
+        "label": "TPU v5e-8",
+        "kind": "tpu",
+        "machine_shape": "TpuV5E8"
       }
     ],
     "retired_machine_shapes": [

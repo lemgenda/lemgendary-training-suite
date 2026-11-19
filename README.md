@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.228-STABLE`
+- **Version**: `v16.9.229-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.229 - Training Suite Audit: Lazy Export Imports, Fixture & Golden Repairs
+
+- **Lazy `training.export`**: the package is now a PEP 562 lazy facade and the
+  export pipeline (`ExportPlan`, `export_all`) lives in
+  `training/export/pipeline.py`. Importing `training.export.validation` or
+  `training.cloud.kaggle_model_sync` no longer loads torch or `models.factory`;
+  `model_pull` and `version_notes` defer the torch-backed checkpoint reader.
+  This fixes the `kaggle_cloud_manager --help` smoke timeout.
+- **Lint**: resolved the 12 ruff findings (callable checks, narrowed canary
+  exception, parenthesized cell strings, import order, `setattr`).
+- **Fixtures**: `tests/fixtures/ecosystem.json` gains the `gpu-t4x2` and
+  `tpu-v5e8` accelerators the bundle code requires; the bundle test follows each
+  model's registry accelerator.
+- **Golden EA**: regenerated `LemGendaryForexEA.mq5` for the left-padding
+  change of v16.9.2xx; `openapi.json` regenerated.
+- **`GenericCausalLLM.use_lora`** is exposed again after the `LoraSettings`
+  refactor.
+- **Version**: `pyproject.toml` brought in line with the README.
 
 ### v16.9.228 - Classification Manifold Guard & High-Precision Telemetry
 

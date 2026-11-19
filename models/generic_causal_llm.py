@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,6 +56,11 @@ def _quant_config(transformers: Any, load_in_4bit: bool) -> Any:
     except ImportError:
         logger.warning("bitsandbytes not installed; loading without 4-bit quantization.")
         return None
+
+
+def _call_decoder(decoder: Callable[..., Any], **kwargs: Any) -> Any:
+    """Run ``decoder`` (an ``nn.Module`` or its PEFT-wrapped inner model) with ``kwargs``."""
+    return decoder(**kwargs)
 
 
 @dataclass(frozen=True)
@@ -167,6 +173,11 @@ class GenericCausalLLM(nn.Module):
                 prefixes.append(prefix)
         return tuple(prefixes)
 
+    @property
+    def use_lora(self) -> bool:
+        """Whether LoRA adapters are injected into the backbone."""
+        return bool(self._chunk_cfg["use_lora"])
+
     def _inject_lora(self, lora: dict, load_in_4bit: bool, target_modules: list) -> None:
         """Wrap ``self.model`` in a LoRA adapter (``lora``: r, lora_alpha, lora_dropout)."""
         try:
@@ -213,7 +224,8 @@ class GenericCausalLLM(nn.Module):
         lm_head = self.model.get_output_embeddings()
         if not isinstance(base_decoder, nn.Module) or lm_head is None:
             return None
-        hidden_out = getattr(base_decoder, "__call__")(
+        hidden_out = _call_decoder(
+            base_decoder,
             input_ids=input_ids,
             attention_mask=attention_mask,
             return_dict=True,
@@ -252,9 +264,7 @@ class GenericCausalLLM(nn.Module):
             return {"loss": loss if loss is not None else torch.tensor(0.0), "logits": logits}
 
         if self._chunk_cfg["enabled"] and labels is not None:
-            chunked_out = self._chunked_forward(
-                input_ids, attention_mask, labels, **kwargs
-            )
+            chunked_out = self._chunked_forward(input_ids, attention_mask, labels, **kwargs)
             if chunked_out is not None:
                 return chunked_out
 
@@ -293,7 +303,8 @@ class GenericCausalLLM(nn.Module):
             )
             lm_head = self.model.get_output_embeddings()
             if isinstance(base_decoder, nn.Module) and lm_head is not None:
-                hidden_out = getattr(base_decoder, "__call__")(
+                hidden_out = _call_decoder(
+                    base_decoder,
                     input_ids=batch.get("input_ids"),
                     attention_mask=batch.get("attention_mask"),
                     return_dict=True,
