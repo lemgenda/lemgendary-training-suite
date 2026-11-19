@@ -116,7 +116,7 @@ class AtomicCsvRecorder:
         updated_rows: list[dict[str, Any]] = []
 
         for r in existing_rows:
-            curr_key = tuple(str(r.get(k, "")).strip() for k in key_fields)
+            curr_key = tuple(r.get(k, "").strip() for k in key_fields)
             if curr_key == row_key:
                 updated_rows.append(row)
                 matched = True
