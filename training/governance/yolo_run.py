@@ -487,7 +487,7 @@ class YoloRunMixin:
                 f"Stage {stage.stage_index}/{len(plan.stages)} "
                 f"({stage.resolution}px @ {frac_pct}% data | "
                 f"Rung Epoch {curr_global - prior_epochs} | "
-                f"Plateau Watch {int(monitor.stall)}/{monitor.patience})"
+                f"Plateau Watch {monitor.stall}/{monitor.patience})"
             )
 
         epoch_hook = GovernedEpochHook(

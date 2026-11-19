@@ -26,7 +26,11 @@ logger = logging.getLogger("lemtrain.governance.yolo")
 # Failure modes of one governed epoch callback: metrics/CSV parsing, checkpoint and
 # filesystem sync, and the caller-supplied on_epoch_end (formatting, log broadcast).
 # Anything outside this set is a bug and propagates out of the Ultralytics fit loop.
-_EPOCH_CALLBACK_ERRORS = (*EPOCH_CALLBACK_ERRORS, IndexError, ZeroDivisionError)
+_EPOCH_CALLBACK_ERRORS: tuple[type[BaseException], ...] = (
+    *EPOCH_CALLBACK_ERRORS,
+    IndexError,
+    ZeroDivisionError,
+)
 
 TRAINING_CANCELLED = "Training cancelled by user request."
 VALIDATION_CANCELLED = "Validation cancelled by user request."
@@ -296,7 +300,7 @@ class RungAdvanceMonitor:
         if rung_epochs >= self.min_epochs and self.stall >= self.patience:
             print(
                 f"\n[GOVERNOR] [PLATEAU DETECTED] No quality improvement for "
-                f"{int(self.stall)} epochs at {stage.resolution}px @ "
+                f"{self.stall} epochs at {stage.resolution}px @ "
                 f"{stage.fraction * 100:.0f}% data (best quality "
                 f"{self.best:.4f}). "
                 f"Advancing to next ladder stage.",
