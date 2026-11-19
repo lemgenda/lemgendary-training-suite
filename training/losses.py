@@ -377,6 +377,10 @@ def _classification_loss(
     cross-entropy NaN.
     """
     if not bool(labelled(target).any()):
+        logger.warning(
+            "[ZERO LOSS GUARD] Entire batch contains unlabelled targets (IGNORE_TARGET). "
+            "Returning zero loss to avoid NaN divergence."
+        )
         return pred.sum() * 0.0
     return criterion(pred, target)
 

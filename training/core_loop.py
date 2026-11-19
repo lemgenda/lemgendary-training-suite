@@ -77,6 +77,7 @@ from training.run_settings.capture import (
 from training.run_settings.ledger import SettingsLedger
 from training.run_settings.policy import FrozenSettingsChanged, RunSettingsTracker
 from training.run_settings.refusal import ResumeRefusalRecord
+from training.target_audit import format_post_training_audit
 from training.training import (
     DataComponents,
     GovernanceComponents,
@@ -599,6 +600,17 @@ def main(raw_args: list[str] | None = None) -> None:
             f"[SUCCESS] Training completed at epoch {summary.final_epoch} "
             f"with status: {summary.status}"
         )
+
+        # Universal Post-Training Target Audit & Diagnostic Guidance (Pathology 16)
+        sota_targets = ctx.run.model_info.get("sota_targets", {})
+        audit_report = format_post_training_audit(
+            model_name=ctx.model_name,
+            final_epoch=summary.final_epoch,
+            status=summary.status,
+            achieved_metrics=summary.best_metrics,
+            sota_targets=sota_targets,
+        )
+        print(audit_report, flush=True)
 
         if summary.status == DEADLINE_STATUS:
             # Progress is saved and synced; the next session resumes it. No release export.

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.229-STABLE`
+- **Version**: `v16.9.230-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,26 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.230 - Training Pathology Audit: Polarity Shield, Target Audit & Guard Hardening
+
+- **Post-Training Target Audit (Pathology 16)**: Added
+  `training/target_audit.py` which audits achieved metrics against canonical
+  `sota_targets` and outputs structured diagnostics and guidance at the
+  conclusion of training.
+- **Polarity Inversion Guard (Pathology 23)**: Integrated negative correlation
+  detection (`signals.plcc < 0.0 or signals.srcc < 0.0`) in `epoch_audit.py` to
+  detect head polarity inversions and deploy SOTA collapse recovery.
+- **Rank Margin Tightening (Pathology 59)**: `_apply_targeted_optimizations` in
+  `propulsion.py` now dynamically tightens `current_rank_margin` toward
+  `min_rank_margin` (0.05) when ranking correlation deficits occur.
+- **Terminal Progress Resume Guard (Pathology 62)**: `_progress` in `resume.py`
+  now treats checkpoints with progress fraction >= 99.9% as completed epochs,
+  advancing `start_epoch` cleanly.
+- **Unlabelled Batch Warning (Pathology 66)**: Emits structured diagnostic
+  warnings when an entire batch contains `IGNORE_TARGET = 255`.
+- **Lower-Is-Better Metric Catalog**: Registered `emd` in
+  `LOWER_IS_BETTER_METRICS` within `training/governance/metrics.py`.
 
 ### v16.9.229 - Training Suite Audit: Lazy Export Imports, Fixture & Golden Repairs
 

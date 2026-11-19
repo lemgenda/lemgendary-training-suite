@@ -140,13 +140,26 @@ def _progress(payload: dict[str, Any], iteration: int) -> tuple[str, bool, int]:
     """``(phase, is_intra_epoch, iteration)`` from ``progress_metadata`` or top-level keys."""
     progress_meta = payload.get("progress_metadata")
     if isinstance(progress_meta, dict):
+        step = int(progress_meta.get("step", iteration))
+        total_steps = int(progress_meta.get("total_steps", 0))
+        # Terminal progress guard (Pathology 62): if >= 99.9% progress was reached,
+        # treat the epoch as completed rather than intra-epoch so resumption advances.
+        is_completed = total_steps > 0 and (step / float(total_steps)) >= 0.999
         return (
             str(progress_meta.get("phase", "train")),
-            True,
-            int(progress_meta.get("step", iteration)),
+            not is_completed,
+            step,
         )
     phase = str(payload.get("phase", "train"))
-    return phase, bool(payload.get("phase") == "train" and "step" in payload), iteration
+    step_val = payload.get("step")
+    total_val = payload.get("total_steps")
+    is_step_present = payload.get("phase") == "train" and step_val is not None
+    if is_step_present and total_val is not None and int(total_val) > 0:
+        is_completed = (int(step_val) / float(int(total_val))) >= 0.999
+        is_intra = not is_completed
+    else:
+        is_intra = is_step_present
+    return phase, is_intra, iteration
 
 
 def _first(payload: dict[str, Any], *keys: str) -> Any:

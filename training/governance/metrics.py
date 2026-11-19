@@ -87,6 +87,7 @@ LOWER_IS_BETTER_METRICS: set[str] = {
     "fid",
     "mae",
     "mse",
+    "emd",
     "tp_mae",
     "sl_mae",
     "max_drawdown",

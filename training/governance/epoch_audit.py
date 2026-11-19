@@ -165,7 +165,16 @@ class EpochAuditMixin(EpochSignalsMixin, PropulsionMixin):
         if self.task_type == "forex":
             is_collapsed = signals.current_quality < 45.0
         else:
-            is_collapsed = (signals.current_quality < 0.05) or (signals.plcc < -0.1)
+            # Polarity inversion & collapse guard (Pathologies 5 & 23):
+            # A negative correlation (PLCC < 0.0 or SRCC < 0.0) indicates head inversion.
+            is_polarity_inverted = (
+                (signals.plcc < 0.0 or signals.srcc < 0.0)
+                if (signals.plcc != 0.0 or signals.srcc != 0.0)
+                else False
+            )
+            is_collapsed = (
+                (signals.current_quality < 0.05) or (signals.plcc < -0.1) or is_polarity_inverted
+            )
         current_loss = signals.current_loss
         loss_is_stable = (
             (current_loss <= self.prev_loss * 1.05) if current_loss and self.prev_loss else True

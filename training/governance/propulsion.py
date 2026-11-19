@@ -46,9 +46,16 @@ class PropulsionMixin(GovernorHost):
         # Apply targeted stabilization based on deficit
         if primary_metric in ["srcc", "plcc"]:
             self.runtime.rank.current_spearman_weight = min(3.0, self.current_spearman_weight * 1.5)
-            self.runtime.rank.current_rank_weight = min(2.5, self.current_rank_weight * 1.3)
+            self.runtime.rank.current_rank_weight = min(
+                self.max_rank_weight, self.current_rank_weight * 1.3
+            )
+            # Tighten rank margin down toward min_rank_margin (Pathology 59)
+            self.runtime.rank.current_rank_margin = max(
+                self.min_rank_margin, round(self.current_rank_margin * 0.85, 3)
+            )
             msg_parts.append(
-                f"TARGETED: Boosting rank weights for {primary_metric} (deficit={deficit:.2%})"
+                f"TARGETED: Boosting rank weights for {primary_metric} (deficit={deficit:.2%}) "
+                f"| Margin: {self.current_rank_margin:.3f}"
             )
         elif primary_metric in ["dir_acc", "win_rate"]:
             self.runtime.weights.current_dir_weight = min(3.0, self.current_dir_weight * 1.4)
@@ -203,6 +210,14 @@ class PropulsionMixin(GovernorHost):
             if lagging:
                 adjustments = self._apply_targeted_optimizations(lagging)
                 d.msg_parts.extend(adjustments)
+
+        # In REFINEMENT, always audit lagging metrics for targeted stabilization
+        if metrics_dict is None:
+            metrics_dict = {"plcc": signals.plcc, "srcc": signals.srcc}
+        lagging_all = self._identify_lagging_metric(metrics_dict)
+        if lagging_all and self.current_stress > 0:
+            adjustments = self._apply_targeted_optimizations(lagging_all)
+            d.msg_parts.extend(adjustments)
 
     def propel(
         self,
