@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.230-STABLE`
+- **Version**: `v16.9.231-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.231 - Prompt 16 LLM Pipeline Improvements: Packing, WSD, MFU & FSDP
+
+- **Sequence Packing Engine**: Implemented `training/data/packed_dataset.py`
+  with 2D block-diagonal causal attention masks and position ID resets,
+  eliminating padding token waste and preventing cross-turn leakage.
+- **WSD (Warmup-Stable-Decay) LR Scheduler**: Added `wsd` schedule to
+  `training/training/optimizer.py` with configurable warmup, stable plateau, and
+  cosine decay cooling phases.
+- **Loss-Spike Detector & Anomaly Mitigation**: Added
+  `training/training/spike_detector.py` providing rolling median loss tracking,
+  gradient norm surge detection, and non-finite NaN/Inf defense.
+- **Throughput & MFU Instrumentation**: Added
+  `training/training/throughput_tracker.py` computing token throughput
+  (tokens/sec) and Model FLOPs Utilization (MFU) adhering to PaLM formulas.
+- **FSDP Parallel Strategy**: Implemented `training/parallel/fsdp.py` and
+  registered `fsdp` in `training/parallel/__init__.py`.
+- **Gradient Checkpointing Toggles**: Added non-reentrant gradient checkpointing
+  support for full fine-tuning runs in `GenericCausalLLM`.
 
 ### v16.9.230 - Training Pathology Audit: Polarity Shield, Target Audit & Guard Hardening
 

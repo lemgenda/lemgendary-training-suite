@@ -10,6 +10,7 @@ import torch
 from training.parallel.base import ParallelStrategy
 from training.parallel.ddp import DistributedDataParallelStrategy
 from training.parallel.dp import DataParallelStrategy
+from training.parallel.fsdp import FSDPParallelStrategy
 from training.parallel.single import SingleGPUStrategy
 from training.parallel.xla import XlaParallelStrategy
 
@@ -17,6 +18,7 @@ _STRATEGIES = {
     "single": SingleGPUStrategy,
     "dp": DataParallelStrategy,
     "ddp": DistributedDataParallelStrategy,
+    "fsdp": FSDPParallelStrategy,
     "xla": XlaParallelStrategy,
 }
 

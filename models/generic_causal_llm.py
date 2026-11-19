@@ -145,6 +145,15 @@ class GenericCausalLLM(nn.Module):
                     lora_cfg, settings.load_in_4bit, kwargs.get("target_modules", LORA_TARGETS)
                 )
 
+            if (
+                not self._chunk_cfg["use_lora"]
+                and bool(kwargs.get("gradient_checkpointing", True))
+                and hasattr(self.model, "gradient_checkpointing_enable")
+            ):
+                self.model.gradient_checkpointing_enable(
+                    gradient_checkpointing_kwargs={"use_reentrant": False}
+                )
+
         except (ImportError, OSError, ValueError, RuntimeError) as exc:
             # ImportError: transformers missing; OSError: weights/tokenizer not found or not
             # downloadable; ValueError: unsupported config; RuntimeError: backend/device failure.

@@ -97,6 +97,32 @@ def build_optimizer(
     return optim.AdamW(param_groups, lr=base_lr, betas=beta_tuple, eps=eps)
 
 
+def _build_wsd_scheduler(
+    optimizer: torch.optim.Optimizer,
+    sched_config: dict[str, Any],
+    total_epochs: int,
+    warmup_epochs: int,
+    min_lr: float,
+) -> Any:
+    total_steps = max(1, total_epochs)
+    warmup_steps = max(1, warmup_epochs)
+    decay_ratio = float(sched_config.get("decay_ratio", 0.15))
+    decay_steps = max(1, int(total_steps * decay_ratio))
+    stable_end = max(warmup_steps, total_steps - decay_steps)
+
+    def wsd_lambda(epoch: int) -> float:
+        if epoch < warmup_steps:
+            return float(epoch + 1) / float(warmup_steps)
+        if epoch < stable_end:
+            return 1.0
+        # Decay phase: cosine cooldown from 1.0 down to min_lr ratio
+        progress = float(epoch - stable_end) / float(max(1, total_steps - stable_end))
+        cooldown = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return max(min_lr, cooldown)
+
+    return LambdaLR(optimizer, lr_lambda=wsd_lambda)
+
+
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
     config: dict[str, Any],
@@ -151,13 +177,19 @@ def build_scheduler(
             min_lr=min_lr,
         )
 
-    if sched_type == "restarts":
-        return CosineAnnealingWarmRestarts(
+    if sched_type in ("wsd", "warmup_stable_decay"):
+        return _build_wsd_scheduler(
+            optimizer, sched_config, total_epochs, warmup_epochs, min_lr
+        )
+
+    scheduler_instance = (
+        CosineAnnealingWarmRestarts(
             optimizer,
             T_0=int(sched_config.get("t_0", 10)),
             T_mult=int(sched_config.get("t_mult", 2)),
             eta_min=min_lr,
         )
-
-    # Default: Standard Cosine Annealing
-    return CosineAnnealingLR(optimizer, T_max=max(1, total_epochs), eta_min=min_lr)
+        if sched_type == "restarts"
+        else CosineAnnealingLR(optimizer, T_max=max(1, total_epochs), eta_min=min_lr)
+    )
+    return scheduler_instance

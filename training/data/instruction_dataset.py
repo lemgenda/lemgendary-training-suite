@@ -238,7 +238,10 @@ def collate_instruction_batch(
     max_seq_length: int = 512,
     pad_to_multiple_of: int | None = None,
 ) -> dict[str, torch.Tensor]:
-    """Pad input_ids, attention_mask, and labels to static or aligned sequence length."""
+    """Pad input_ids, attention_mask, and labels to static or aligned sequence length.
+
+    Supports 1D padding masks and 2D block-diagonal attention masks from sequence packing.
+    """
     if pad_to_max_length:
         max_len = max_seq_length
     else:
@@ -251,35 +254,55 @@ def collate_instruction_batch(
     batch_input_ids = []
     batch_attention_mask = []
     batch_labels = []
+    batch_position_ids = []
+    has_positions = any("position_ids" in item for item in batch)
 
     for item in batch:
         cur_len = item["input_ids"].size(0)
+        mask = item["attention_mask"]
+        pos = item.get("position_ids")
         if cur_len > max_len:
             padded_ids = item["input_ids"][:max_len]
-            padded_mask = item["attention_mask"][:max_len]
+            padded_mask = mask[:max_len, :max_len] if mask.dim() == 2 else mask[:max_len]
             padded_labels = item["labels"][:max_len]
+            padded_pos = pos[:max_len] if pos is not None else None
         elif cur_len < max_len:
             pad_len = max_len - cur_len
             padded_ids = torch.cat(
                 [item["input_ids"], torch.full((pad_len,), pad_token_id, dtype=torch.long)]
             )
-            padded_mask = torch.cat(
-                [item["attention_mask"], torch.zeros(pad_len, dtype=torch.long)]
-            )
+            if mask.dim() == 2:
+                # Pad 2D mask with zeros along both dimensions
+                padded_mask = torch.zeros((max_len, max_len), dtype=mask.dtype)
+                padded_mask[:cur_len, :cur_len] = mask
+            else:
+                padded_mask = torch.cat([mask, torch.zeros(pad_len, dtype=torch.long)])
             padded_labels = torch.cat(
                 [item["labels"], torch.full((pad_len,), -100, dtype=torch.long)]
             )
+            if pos is not None:
+                padded_pos = torch.cat([pos, torch.zeros(pad_len, dtype=torch.long)])
+            else:
+                padded_pos = None
         else:
             padded_ids = item["input_ids"]
-            padded_mask = item["attention_mask"]
+            padded_mask = mask
             padded_labels = item["labels"]
+            padded_pos = pos
 
         batch_input_ids.append(padded_ids)
         batch_attention_mask.append(padded_mask)
         batch_labels.append(padded_labels)
+        if has_positions:
+            batch_position_ids.append(
+                padded_pos if padded_pos is not None else torch.arange(max_len, dtype=torch.long)
+            )
 
-    return {
+    result = {
         "input_ids": torch.stack(batch_input_ids, dim=0),
         "attention_mask": torch.stack(batch_attention_mask, dim=0),
         "labels": torch.stack(batch_labels, dim=0),
     }
+    if has_positions:
+        result["position_ids"] = torch.stack(batch_position_ids, dim=0)
+    return result

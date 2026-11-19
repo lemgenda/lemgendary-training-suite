@@ -30,6 +30,40 @@ def select_backend() -> str:
     return "gloo"
 
 
+def init_distributed_process_group(local_rank: int, rank: int, world_size: int) -> bool:
+    """Initialize torch.distributed process group if not already active."""
+    if dist.is_initialized():
+        return False
+
+    backend = select_backend()
+    master_addr = os.environ.get("MASTER_ADDR", "127.0.0.1")
+    master_port = os.environ.get("MASTER_PORT", "29500")
+    os.environ.setdefault("MASTER_ADDR", master_addr)
+    os.environ.setdefault("MASTER_PORT", master_port)
+
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+
+    init_kwargs = {
+        "backend": backend,
+        "rank": rank,
+        "world_size": world_size,
+        "timeout": datetime.timedelta(seconds=1800),
+    }
+    if backend == "nccl":
+        # Binding a device is an NCCL feature; Gloo rejects or ignores it.
+        init_kwargs["device_id"] = torch.device(f"cuda:{local_rank}")
+    dist.init_process_group(**init_kwargs)
+    logger.info(
+        "Distributed process group initialized: backend=%s rank=%d/%d (local_rank=%d)",
+        backend,
+        rank,
+        world_size,
+        local_rank,
+    )
+    return True
+
+
 class DistributedDataParallelStrategy(ParallelStrategy):
     """Full DistributedDataParallel strategy compatible with torchrun launches.
 
@@ -52,34 +86,9 @@ class DistributedDataParallelStrategy(ParallelStrategy):
 
     def setup(self) -> nn.Module:
         """Initialise the process group (if needed) and wrap the model in DDP."""
-        if not dist.is_initialized():
-            backend = select_backend()
-            master_addr = os.environ.get("MASTER_ADDR", "127.0.0.1")
-            master_port = os.environ.get("MASTER_PORT", "29500")
-            os.environ.setdefault("MASTER_ADDR", master_addr)
-            os.environ.setdefault("MASTER_PORT", master_port)
-
-            if torch.cuda.is_available():
-                torch.cuda.set_device(self._local_rank)
-
-            init_kwargs = {
-                "backend": backend,
-                "rank": self._rank,
-                "world_size": self._world_size,
-                "timeout": datetime.timedelta(seconds=1800),
-            }
-            if backend == "nccl":
-                # Binding a device is an NCCL feature; Gloo rejects or ignores it.
-                init_kwargs["device_id"] = torch.device(f"cuda:{self._local_rank}")
-            dist.init_process_group(**init_kwargs)
-            self._initialized = True
-            logger.info(
-                "DDP process group initialized: backend=%s rank=%d/%d (local_rank=%d)",
-                backend,
-                self._rank,
-                self._world_size,
-                self._local_rank,
-            )
+        self._initialized = init_distributed_process_group(
+            self._local_rank, self._rank, self._world_size
+        )
 
         # Move model to the correct GPU for this rank before wrapping.
         if torch.cuda.is_available():
