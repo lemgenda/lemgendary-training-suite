@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LemGendaryModelRegistrySchema",
+  "description": "Canonical JSON Schema for unified_models_v2.yaml defining model specifications.",
+  "type": "object",
+  "required": ["_registry_metadata"],
+  "properties": {
+    "_registry_metadata": {
+      "type": "object",
+      "required": ["version", "specialization", "models_count"],
+      "properties": {
+        "version": { "type": "string" },
+        "specialization": { "type": "string" },
+        "models_count": { "type": "integer", "minimum": 1 },
+        "datasets": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/model_entry"
+  },
+  "$defs": {
+    "model_entry": {
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "architecture_type",
+        "datasets",
+        "optimizer",
+        "lr_schedule",
+        "batch_size",
+        "precision",
+        "checkpoint_policy",
+        "export_targets",
+        "validation_suite",
+        "seed"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["ACTIVE", "TRAINING", "EVALUATING", "PRODUCTION", "FROZEN", "DEPRECATED", "VALIDATED", "DATASET_READY"]
+        },
+        "name": { "type": "string" },
+        "class_name": { "type": "string" },
+        "category": {
+          "type": "string",
+          "enum": ["forex", "quality", "enhance", "restoration", "super_resolution", "segmentation", "detection", "yolo", "classification", "face", "face_detection", "llm"]
+        },
+        "architecture_type": { "type": "string" },
+        "filename": { "type": "string" },
+        "checkpoint": { "type": "string" },
+        "parameters_m": { "type": ["number", "null"] },
+        "input_size": { "type": ["integer", "array", "null"] },
+        "val_resolution": { "type": ["integer", "null"] },
+        "dataset_type": {
+          "type": ["string", "array"],
+          "items": { "type": "string" }
+        },
+        "datasets": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "canonical_format": { "type": "string" },
+        "preferred_parallel": {
+          "type": "string",
+          "enum": ["single", "ddp", "fsdp", "deepspeed"]
+        },
+        "optimal_key": { "type": "string" },
+        "description": { "type": "string" },
+        "learning_rate": { "type": "number", "exclusiveMinimum": 0.0 },
+        "loss_fn": { "type": "string" },
+        "optimizer": {
+          "type": "object",
+          "required": ["type", "lr"],
+          "properties": {
+            "type": { "type": "string" },
+            "lr": { "type": "number", "exclusiveMinimum": 0.0 },
+            "weight_decay": { "type": "number", "minimum": 0.0 },
+            "betas": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "eps": { "type": "number", "exclusiveMinimum": 0.0 }
+          },
+          "additionalProperties": true
+        },
+        "lr_schedule": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string" },
+            "warmup_epochs": { "type": "integer", "minimum": 0 },
+            "min_lr": { "type": "number", "minimum": 0.0 }
+          },
+          "additionalProperties": true
+        },
+        "batch_size": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "enum": ["auto"] }
+          ]
+        },
+        "precision": {
+          "type": "string",
+          "enum": ["fp32", "amp_fp16", "amp_bf16", "int8"]
+        },
+        "checkpoint_policy": {
+          "type": "object",
+          "required": ["save_best", "save_last"],
+          "properties": {
+            "save_best": { "type": "boolean" },
+            "save_last": { "type": "boolean" },
+            "metric": { "type": "string" },
+            "mode": { "type": "string", "enum": ["min", "max"] }
+          },
+          "additionalProperties": true
+        },
+        "export_targets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["pytorch_fp32", "onnx_fp32", "onnx_fp16", "tensorrt"]
+          },
+          "minItems": 1
+        },
+        "validation_suite": {
+          "type": "object",
+          "required": ["metrics"],
+          "properties": {
+            "metrics": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1
+            },
+            "primary_metric": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "seed": { "type": "integer" },
+        "sota_targets": { "type": "object" },
+        "kaggle_accelerator": { "type": "string" },
+        "kaggle_metadata": { "type": "object" },
+        "academic_reference": { "type": "object" },
+        "stabilizers": { "type": "object" },
+        "optimization": { "type": "object" },
+        "kwargs": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

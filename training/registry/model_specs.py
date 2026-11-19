@@ -270,7 +270,10 @@ class ModelRegistryService:
         models_dict: dict[str, ModelSpecification] = {}
         if manifest_path.exists():
             try:
+                from training.config.schema_validator import validate_model_config
+
                 raw_manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+                validate_model_config(raw_manifest)
                 for m_key, raw_val in raw_manifest.items():
                     if m_key == "_registry_metadata" or not isinstance(raw_val, dict):
                         continue

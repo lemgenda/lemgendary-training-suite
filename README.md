@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.234-STABLE`
+- **Version**: `v16.9.235-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,24 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.235 - Prompt 20 Unified Model Configuration Standardization
+
+- **Canonical JSON Schema & Validator**: Added `training/config/model_schema.json`
+  and `training/config/schema_validator.py` enforcing strict structure for all
+  model configurations covering family, architecture, manifold reference,
+  optimizer, LR schedule, batch size, precision, checkpoint policy, export
+  targets, validation suite, and seed.
+- **Model Registry Preflight Integration**: Integrated `validate_registry_file`
+  directly into `ModelRegistryService._load()` in `training/registry/model_specs.py`,
+  halting runtime initialization if any configuration violates the contract.
+- **Unified 23 Model Specifications**: Standardized all 23 production models in
+  `unified_models_v2.yaml` with explicit blocks for `optimizer`, `lr_schedule`,
+  `batch_size`, `precision`, `checkpoint_policy`, `export_targets`,
+  `validation_suite`, and `seed`.
+- **Validation Test Suite**: Added `tests/unit/test_model_schema.py` verifying
+  valid parses, missing keys, invalid enums, invalid bounds, and full registry
+  instantiation.
 
 ### v16.9.234 - Prompt 19 YOLO Model Training Improvements
 
