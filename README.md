@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.233-STABLE`
+- **Version**: `v16.9.234-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,23 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.234 - Prompt 19 YOLO Model Training Improvements
+
+- **Adaptive Mosaic & Mixup Close-Up Schedule**: Integrated automatic
+  close_mosaic scheduling into `training/governance/yolo_run.py`, disabling
+  mosaic, mixup, and cutmix transforms during the final epochs of each curriculum
+  rung to allow convergence onto the true visual manifold.
+- **Multi-Scale Spatial Training & Regularization**: Added `multi_scale` batch
+  resolution jittering (+/-50%) and `label_smoothing` cross-entropy regularisation
+  to prevent overfitting on fixed spatial patterns and overconfident bboxes.
+- **Per-Class and Aggregate mAP Telemetry**: Enhanced
+  `training/governance/yolo_callbacks.py` to extract granular per-class
+  `mAP50` and `mAP50-95` statistics via `_extract_per_class_ap`, logging both
+  aggregate and top-class metrics into telemetry rows and summary banners.
+- **Decoupled Architecture & Public Interface**: Introduced `DetectionLosses`
+  and `ClassAPMetrics` to cleanly manage detection loss components and class
+  average precision metrics under strict S.O.L.I.D. separation of concerns.
 
 ### v16.9.233 - Prompt 18 FOREX Predictor Model Training Improvements
 

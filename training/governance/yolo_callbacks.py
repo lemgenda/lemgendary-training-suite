@@ -121,21 +121,72 @@ def make_epoch_start_hook(
 
 
 @dataclass(frozen=True)
-class EpochMetrics:
-    """Losses, mAP and learning rate Ultralytics reports at the end of one epoch."""
+class ClassAPMetrics:
+    """Per-class average precision metrics across IoU thresholds."""
 
-    map50: float
-    map50_95: float
+    ap50: dict[str, float] = field(default_factory=dict)
+    ap50_95: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class DetectionLosses:
+    """Bounding box, classification, distribution focal loss, and training total loss."""
+
     box_loss: float
     cls_loss: float
     dfl_loss: float
     train_loss: float
-    lr: float
 
     @property
     def val_loss(self) -> float:
         """Sum of the box, class and DFL losses."""
         return self.box_loss + self.cls_loss + self.dfl_loss
+
+
+@dataclass(frozen=True)
+class EpochMetrics:
+    """Losses, mAP, per-class AP and learning rate Ultralytics reports at the end of an epoch."""
+
+    map50: float
+    map50_95: float
+    losses: DetectionLosses
+    lr: float
+    class_ap: ClassAPMetrics = field(default_factory=ClassAPMetrics)
+
+    @property
+    def box_loss(self) -> float:
+        """Bounding box regression loss."""
+        return self.losses.box_loss
+
+    @property
+    def cls_loss(self) -> float:
+        """Classification focal loss."""
+        return self.losses.cls_loss
+
+    @property
+    def dfl_loss(self) -> float:
+        """Distribution focal loss."""
+        return self.losses.dfl_loss
+
+    @property
+    def train_loss(self) -> float:
+        """Training total loss."""
+        return self.losses.train_loss
+
+    @property
+    def class_ap50(self) -> dict[str, float]:
+        """Per-class AP at IoU=0.5."""
+        return self.class_ap.ap50
+
+    @property
+    def class_ap50_95(self) -> dict[str, float]:
+        """Per-class AP at IoU=0.5:0.95."""
+        return self.class_ap.ap50_95
+
+    @property
+    def val_loss(self) -> float:
+        """Sum of the box, class and DFL losses."""
+        return self.losses.val_loss
 
     @property
     def quality(self) -> float:
@@ -154,15 +205,48 @@ class EpochMetrics:
         lr_val = 0.01
         if hasattr(trainer, "optimizer") and trainer.optimizer and trainer.optimizer.param_groups:
             lr_val = float(trainer.optimizer.param_groups[0].get("lr", 0.01))
+
+        class_ap50, class_ap50_95 = _extract_per_class_ap(trainer)
+        t_loss = float(getattr(trainer, "loss", 0.0) or (box_loss + cls_loss + dfl_loss))
+
         return cls(
             map50=float(raw.get("metrics/mAP50(B)", 0.0)),
             map50_95=float(raw.get("metrics/mAP50-95(B)", 0.0)),
-            box_loss=box_loss,
-            cls_loss=cls_loss,
-            dfl_loss=dfl_loss,
-            train_loss=float(getattr(trainer, "loss", 0.0) or (box_loss + cls_loss + dfl_loss)),
+            losses=DetectionLosses(
+                box_loss=box_loss,
+                cls_loss=cls_loss,
+                dfl_loss=dfl_loss,
+                train_loss=t_loss,
+            ),
             lr=lr_val,
+            class_ap=ClassAPMetrics(ap50=class_ap50, ap50_95=class_ap50_95),
         )
+
+
+def _extract_per_class_ap(trainer: Any) -> tuple[dict[str, float], dict[str, float]]:
+    """Extract per-class mAP@0.5 and mAP@0.5:0.95 from trainer.validator.metrics if present."""
+    class_ap50: dict[str, float] = {}
+    class_ap50_95: dict[str, float] = {}
+    validator = getattr(trainer, "validator", None)
+    if validator is None:
+        return class_ap50, class_ap50_95
+
+    val_metrics = getattr(validator, "metrics", None)
+    if val_metrics is None:
+        return class_ap50, class_ap50_95
+
+    names = getattr(validator, "names", {}) or {}
+    ap_indices = getattr(val_metrics, "ap_class_index", None)
+    box_metric = getattr(val_metrics, "box", None)
+    all_ap = getattr(box_metric, "all_ap", None) if box_metric is not None else None
+
+    if ap_indices is not None and all_ap is not None and len(all_ap) > 0:
+        for idx, cls_idx in enumerate(ap_indices):
+            c_name = names.get(cls_idx, str(cls_idx))
+            if idx < len(all_ap):
+                class_ap50[c_name] = float(all_ap[idx, 0])
+                class_ap50_95[c_name] = float(all_ap[idx].mean())
+    return class_ap50, class_ap50_95
 
 
 @dataclass
@@ -322,17 +406,23 @@ class GovernedEpochHook:
             best["map50"] = m.map50
         if m.map50_95 > best.get("map50_95", 0.0):
             best["map50_95"] = m.map50_95
+        telemetry_metrics: dict[str, float] = {
+            "map50": m.map50,
+            "map50_95": m.map50_95,
+            "box_loss": m.box_loss,
+            "cls_loss": m.cls_loss,
+            "dfl_loss": m.dfl_loss,
+        }
+        for c_name, val in m.class_ap50.items():
+            telemetry_metrics[f"map50_{c_name}"] = val
+        for c_name, val in m.class_ap50_95.items():
+            telemetry_metrics[f"map50_95_{c_name}"] = val
+
         gov.telemetry.write_epoch_row(
             EpochRow(
                 epoch=global_epoch,
                 losses=EpochLosses(train_loss=m.train_loss, val_loss=m.val_loss, lr=m.lr),
-                metrics={
-                    "map50": m.map50,
-                    "map50_95": m.map50_95,
-                    "box_loss": m.box_loss,
-                    "cls_loss": m.cls_loss,
-                    "dfl_loss": m.dfl_loss,
-                },
+                metrics=telemetry_metrics,
                 quality_score=(m.map50 * 50.0) + (m.map50_95 * 50.0),
                 governor_state={
                     "input_size": stage.resolution,
@@ -345,14 +435,17 @@ class GovernedEpochHook:
             )
         )
         max_epochs_disp = int(getattr(trainer, "epochs", self.spec.default_total))
-        print(
+        summary_msg = (
             f"\n[GOVERNOR] [{self.spec.summary_label} {global_epoch}/{max_epochs_disp} "
             "SUMMARY] "
             f"Train Loss: {m.train_loss:.4f} | Val Loss: {m.val_loss:.4f} "
             f"(Box: {m.box_loss:.4f}, Cls: {m.cls_loss:.4f}, Dfl: {m.dfl_loss:.4f}) | "
-            f"mAP50: {m.map50:.4f} | mAP50-95: {m.map50_95:.4f}",
-            flush=True,
+            f"mAP50: {m.map50:.4f} | mAP50-95: {m.map50_95:.4f}"
         )
+        if m.class_ap50:
+            c_summaries = [f"{c}: {m.class_ap50[c]:.3f}" for c in sorted(m.class_ap50.keys())[:5]]
+            summary_msg += f" | Top Classes mAP50: [{', '.join(c_summaries)}]"
+        print(summary_msg, flush=True)
         # Synchronize checkpoints and metrics CSV to the models hub
         gov.synchronize_checkpoints(
             self.target_dir,

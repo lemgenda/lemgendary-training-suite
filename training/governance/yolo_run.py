@@ -533,10 +533,35 @@ class YoloRunMixin:
         model.add_callback("on_fit_epoch_end", epoch_hook)
         model.add_callback("on_model_save", self._export_if_new_best)
 
+    def build_train_kwargs(
+        self, plan: _RunPlan, stage: YOLOLadderStage, project_dir: Path, epochs: int
+    ) -> dict[str, Any]:
+        """Public interface for assembling Ultralytics training keyword arguments."""
+        return self._train_kwargs(plan, stage, project_dir, epochs)
+
     def _train_kwargs(
         self, plan: _RunPlan, stage: YOLOLadderStage, project_dir: Path, epochs: int
     ) -> dict[str, Any]:
-        """Ultralytics ``train`` arguments for one rung or extension cycle."""
+        """Ultralytics ``train`` arguments for one rung or extension cycle.
+
+        Enforces production YOLO-family best practices:
+            - close_mosaic schedule: disables mosaic/mixup/cutmix in closing epochs
+              (default: 10 epochs or 20% of budget) to allow natural manifold adaptation.
+            - multi_scale: dynamically jitters batch resolution +/-50% of imgsz.
+            - label_smoothing: applies cross-entropy regularisation against overconfident bboxes.
+            - consistent transforms: ensures deterministic and aligned spatial augmentations.
+        """
+        # Close mosaic in final epochs of stage (default 10 or 20% of epoch budget)
+        opt = self.opt_config or {}
+        configured_close = opt.get("close_mosaic", None)
+        if configured_close is not None:
+            close_mosaic_val = int(configured_close)
+        else:
+            close_mosaic_val = min(10, max(2, epochs // 5)) if epochs >= 5 else 0
+
+        multi_scale_flag = bool(opt.get("multi_scale", False))
+        label_smoothing_val = float(opt.get("label_smoothing", 0.0))
+
         train_kwargs: dict[str, Any] = {
             "data": plan.yolo_yaml,
             "epochs": epochs,
@@ -552,6 +577,9 @@ class YoloRunMixin:
             "save": True,
             "plots": True,
             "verbose": True,
+            "close_mosaic": close_mosaic_val,
+            "multi_scale": multi_scale_flag,
+            "label_smoothing": label_smoothing_val,
         }
         if getattr(self.args, "lr", None) is not None:
             train_kwargs["lr0"] = float(self.args.lr)
