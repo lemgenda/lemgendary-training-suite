@@ -43,6 +43,11 @@
   batch size 1024 with 4 workers, persistent workers, and prefetch factor 4 in
   `unified_models_v2.yaml`, resolving DDP bottlenecking on WebDataset shard
   decompression.
+- **Intra-Epoch Resume Proportional Batch Scaling**: Fixed progress scaling
+  in `training/training/step_progress.py` and `training/checkpoint/resume.py`
+  so that resuming from intra-epoch `progress.pth` checkpoints across different
+  batch sizes (e.g., clamped or resized micro-batches) calculates the exact
+  completed epoch percentage and scales skipped iterations proportionally.
 - **Documentation Parity**: Synchronized `MANUAL_CLI.md`, `MANUAL_API.md`, and
   their HTML companion twins in `lemgendary-docs/papers/`. Verified with
   `scripts/audit_docs.py` with 0 findings.
