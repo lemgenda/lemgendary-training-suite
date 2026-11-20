@@ -1,24 +1,24 @@
 """Git clone and repository synchronization cell generator.
 
-Clones the training suite and the environment manager on Kaggle and Colab without ever
-writing the GitHub token to a file or a remote URL:
+Clones the training suite on Kaggle and Colab without ever writing the GitHub token
+to a file or a remote URL:
 
-* the clone URLs are the plain ``<identity.github_url>/<folder>.git`` of the ecosystem file;
+* the clone URL is the plain ``<identity.github_url>/<folder>.git`` of the ecosystem file;
 * the token reaches git only through ``GIT_ASKPASS`` (a helper script under the system temp
   folder that prints ``$LEMGENDARY_GIT_TOKEN``) and the environment of the git processes;
 * the origin URL is reset to the plain URL on every run (older notebooks stored the token
   in it), and the helper folder is deleted afterwards;
-* on Kaggle the checkouts live in ``/kaggle/temp``, outside ``/kaggle/working``, so no
+* on Kaggle the checkout lives in ``/kaggle/temp``, outside ``/kaggle/working``, so no
   ``.git`` folder is ever saved as kernel output;
-* each repository is fetched at one ref (:class:`~training.notebooks.git_ref.GitRefs`,
+* the repository is fetched at one ref (:class:`~training.notebooks.git_ref.GitRefs`,
   default ``main``): ``git fetch --depth 1 origin <ref>`` then ``git reset --hard
-  FETCH_HEAD``, which works for a branch, a tag and a full commit SHA alike. The refs are
-  validated before they are written into the cell, and git gets them as list arguments.
+  FETCH_HEAD``, which works for a branch, a tag and a full commit SHA alike. The ref is
+  validated before it is written into the cell, and git gets it as list arguments.
 """
 
 from typing import Any
 
-from training.ecosystem import ENV_MANAGER_FOLDER, github_repo_url
+from training.ecosystem import github_repo_url
 from training.platform_paths import SUITE_FOLDER, platform_paths
 
 from ..git_ref import DEFAULT_GIT_REFS, GitRefs
@@ -38,12 +38,9 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
     source = [
         "import os, shutil, stat, subprocess, sys, tempfile\n",
         f"suite_url = {github_repo_url(SUITE_FOLDER)!r}\n",
-        f"env_mgr_url = {github_repo_url(ENV_MANAGER_FOLDER)!r}\n",
         f"suite_ref = {refs.suite!r}\n",
-        f"env_mgr_ref = {refs.env_manager_ref!r}\n",
         f"checkout_dir = {paths.checkout_dir!r}\n",
         f"suite_path = {paths.suite_dir!r}\n",
-        f"env_mgr_path = {paths.env_mgr_dir!r}\n",
         "os.makedirs(checkout_dir, exist_ok=True)\n",
         "# The suite runs from the checkout; outputs and the hub stay in the working dir.\n",
         f"os.environ['LEMGENDARY_WORKSPACE_ROOT'] = {paths.working_dir!r}\n",
@@ -109,15 +106,12 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
             "    suite_error = _sync_repo(suite_url, suite_path, "
             "os.path.join('training', 'train.py'), suite_ref)\n"
         ),
-        ("    env_mgr_error = _sync_repo(env_mgr_url, env_mgr_path, 'ecosystem', env_mgr_ref)\n"),
         "finally:\n",
         "    try:\n",
         "        shutil.rmtree(askpass_dir)\n",
         "    except OSError as rm_err:\n",
         "        print(f'[WARNING] Could not remove {askpass_dir}: {rm_err}')\n",
         "\n",
-        "if env_mgr_error:\n",
-        "    print(f'[WARNING] env-manager {env_mgr_error}')\n",
         "if suite_error:\n",
         "    print(f'[ERROR] Suite {suite_error}')\n",
         (

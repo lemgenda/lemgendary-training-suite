@@ -124,6 +124,9 @@ def ecosystem_file() -> Path:
     override = os.environ.get(ECOSYSTEM_FILE_ENV)
     if override:
         return Path(override)
+    suite_bundled = Path(__file__).resolve().parent / "ecosystem.json"
+    if suite_bundled.exists():
+        return suite_bundled
     return get_workspace_root() / ENV_MANAGER_FOLDER / "ecosystem" / "ecosystem.json"
 
 

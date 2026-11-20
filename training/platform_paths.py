@@ -77,8 +77,8 @@ class PlatformPaths:
 
     @property
     def ecosystem_file(self) -> str:
-        """The ecosystem file inside the environment manager checkout."""
-        return f"{self.env_mgr_dir}/ecosystem/ecosystem.json"
+        """The ecosystem file inside the training suite checkout or env-manager checkout."""
+        return f"{self.suite_dir}/training/ecosystem.json"
 
     @property
     def hub_root(self) -> str:

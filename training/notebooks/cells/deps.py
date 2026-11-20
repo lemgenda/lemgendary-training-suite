@@ -8,7 +8,7 @@ probe run in a fresh interpreter, so they see the build this cell installed.
 
 from typing import Any
 
-from training.platform_paths import SUITE_FOLDER, platform_paths
+from training.platform_paths import platform_paths
 
 from ..torch_build import CLOUD_CUDA_BUILD, TORCH_FAMILY
 from .base import make_code_cell
@@ -25,9 +25,8 @@ def _req_candidates(target: str) -> list[str]:
     """Source lines listing the requirement manifests, most specific first."""
     paths = platform_paths(target)
     candidates = [
-        f"{paths.env_mgr_dir}/requirements/requirements-training.txt",
-        f"{paths.env_mgr_dir}/requirements/{SUITE_FOLDER}.requirements.txt",
         f"{paths.suite_dir}/requirements.txt",
+        f"{paths.env_mgr_dir}/requirements/requirements-training.txt",
     ]
     return ["req_candidates = [\n", *(f"    {c!r},\n" for c in candidates), "]\n"]
 

@@ -28,6 +28,13 @@
 
 ### v16.9.240 - Prompt 29 & Prompt 30 CLI and API Audit & Hardening
 
+- **Single-Repo Cloud Training Notebooks & Self-Contained Ecosystem**:
+  Refactored Kaggle and Google Colab notebook builders (`repo.py`, `deps.py`,
+  `platform_paths.py`, `ecosystem.py`) to clone only `lemgendary-training-suite`.
+  Eliminated auxiliary cloning of `lemgendary-env-manager` and `LemGendaryModels`
+  on cloud kernels, drastically reducing disk footprint and setup latency.
+  Bundled `training/ecosystem.json` and pointed dependency cells directly to
+  the suite's canonical `requirements.txt`.
 - **CLI Global Version Option & Hardening (Prompt 29)**: Added eager global
   `--version` / `-V` flag callback to `training/cli/lemtrain.py` printing the
   single-source package version from `pyproject.toml`. Expanded CLI test suite

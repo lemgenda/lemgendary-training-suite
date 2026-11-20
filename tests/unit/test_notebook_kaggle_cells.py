@@ -35,7 +35,7 @@ def _source(cell: dict[str, Any]) -> str:
 
 
 def _clone_targets(text: str) -> list[str]:
-    return re.findall(r"^(?:suite_path|env_mgr_path|checkout_dir) = '([^']*)'", text, re.MULTILINE)
+    return re.findall(r"^(?:suite_path|checkout_dir) = '([^']*)'", text, re.MULTILINE)
 
 
 class TestCloneCellSecurity:
@@ -55,7 +55,7 @@ class TestCloneCellSecurity:
     def test_kaggle_clone_outside_working(self) -> None:
         """Kaggle checkouts live in the session-only folder, never under /kaggle/working."""
         targets = _clone_targets(_source(build_clone_cell("kaggle")))
-        assert len(targets) == 3
+        assert len(targets) == 2
         assert all(t.startswith(platform_paths("kaggle").checkout_dir) for t in targets)
         assert not any(t.startswith("/kaggle/working") for t in targets)
 
