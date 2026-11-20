@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 from training.telemetry.schemas import TaskFamily

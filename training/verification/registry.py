@@ -158,7 +158,7 @@ def get_verification_contract(
         try:
             reg = get_model_registry()
             spec = reg.get_model(model_key)
-        except Exception:
+        except (KeyError, ValueError, OSError):
             spec = None
 
     family = resolve_model_family(model_key, spec)

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime
 import logging
-import os
 import random
 from pathlib import Path
 from typing import Any
@@ -26,10 +25,8 @@ from training.checkpoint.manager import safe_load_checkpoint
 from training.checkpoint.recovery import CheckpointRecoveryEngine
 from training.export.dynamo_onnx import ProbeTolerance, compare_outputs, flatten_outputs
 from training.export.pytorch_exporter import PyTorchModelExporter
-from training.registry import ModelSpecification, get_model_registry
 from training.telemetry.validator import TelemetryCsvValidator, TelemetrySchemaError
 from training.utils.lazy_imports import load_onnxruntime
-from training.utils.model_payload import model_payload_of
 from training.utils.paths import get_model_hub_dir, get_project_root
 from training.verification.contracts import (
     ModelFamilyContract,
@@ -37,7 +34,7 @@ from training.verification.contracts import (
     StageVerificationResult,
     VerificationStage,
 )
-from training.verification.registry import get_verification_contract, resolve_model_family
+from training.verification.registry import get_verification_contract
 
 logger = logging.getLogger("lemtrain.verification.engine")
 
@@ -71,9 +68,16 @@ class ModelVerificationEngine:
             if checkpoint_path is not None:
                 ckpt_path = Path(checkpoint_path).resolve()
             else:
-                found = self.recovery.discover_checkpoint(model_key)
-                if found:
-                    ckpt_path = found
+                candidate_roots = self.recovery.find_candidate_roots(model_key)
+                discovered = self.recovery.discover_checkpoints(candidate_roots, model_key)
+                ckpt_path = next(
+                    (
+                        discovered[k]
+                        for k in ("best", "latest", "latest_epoch", "progress")
+                        if k in discovered
+                    ),
+                    None,
+                )
 
             if ckpt_path is not None:
                 if not ckpt_path.is_file():
@@ -101,7 +105,7 @@ class ModelVerificationEngine:
             details["checkpoint_resolved"] = str(ckpt_path) if ckpt_path else None
             return StageVerificationResult(stage=stage, passed=True, details=details), model, ckpt_path
 
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:
             logger.error("Loadability verification failed for '%s': %s", model_key, exc)
             return (
                 StageVerificationResult(stage=stage, passed=False, details=details, error=str(exc)),
@@ -169,7 +173,7 @@ class ModelVerificationEngine:
 
             return StageVerificationResult(stage=stage, passed=True, details=details)
 
-        except Exception as exc:
+        except (RuntimeError, ValueError, TypeError) as exc:
             logger.error("Determinism verification failed: %s", exc)
             return StageVerificationResult(stage=stage, passed=False, details=details, error=str(exc))
 
@@ -270,7 +274,7 @@ class ModelVerificationEngine:
             details["exported_targets"] = list(exported.keys())
             return StageVerificationResult(stage=stage, passed=True, details=details)
 
-        except Exception as exc:
+        except (RuntimeError, ValueError, OSError, TypeError) as exc:
             logger.error("Export equivalence verification failed: %s", exc)
             return StageVerificationResult(stage=stage, passed=False, details=details, error=str(exc))
 

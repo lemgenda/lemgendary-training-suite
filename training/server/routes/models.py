@@ -16,6 +16,7 @@ from training.export.validation import StrictIsolationValidator
 from training.registry.kaggle_datasets import with_kaggle_dataset_refs
 from training.server.routes.registry_file import registry_path
 from training.services.audit_service import AuditService
+from training.services.verification_service import VerificationService
 from training.utils.paths import get_model_hub_dir, get_project_root
 
 logger = logging.getLogger("lemtrain.server.routes.models")
@@ -184,4 +185,30 @@ def validate_model_variations(model_key: str, request: Request) -> dict[str, Any
         logger.error("Failed validating variations for %s: %s", model_key, e)
         raise HTTPException(
             status_code=500, detail=f"Failed validating variations for '{model_key}': {e}"
+        ) from e
+
+
+@router.post("/{model_key}/verify")
+def verify_model_contract(
+    model_key: str,
+    request: Request,
+    checkpoint: str | None = None,
+) -> dict[str, Any]:
+    """Execute complete multi-pillar verification contract on model family."""
+    root = _get_root(request)
+    registry = _load_registry(root)
+    if model_key not in registry:
+        raise HTTPException(status_code=404, detail=f"Model '{model_key}' not found in registry")
+
+    try:
+        service = VerificationService(project_root=root)
+        report = service.verify_model(
+            model_key=model_key,
+            checkpoint_path=checkpoint,
+        )
+        return report.to_dict()
+    except (ImportError, OSError, ValueError, RuntimeError, KeyError, TypeError) as e:
+        logger.error("Failed running verification contract for %s: %s", model_key, e)
+        raise HTTPException(
+            status_code=500, detail=f"Failed running verification for '{model_key}': {e}"
         ) from e

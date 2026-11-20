@@ -19,10 +19,10 @@ from training.verification.registry import (
 )
 
 __all__ = [
+    "FAMILY_CONTRACTS",
     "CheckpointContract",
     "DeterminismContract",
     "ExportEquivalenceContract",
-    "FAMILY_CONTRACTS",
     "MetricThresholdContract",
     "ModelFamilyContract",
     "ModelVerificationEngine",

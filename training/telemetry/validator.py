@@ -49,9 +49,7 @@ def _check_history_numbers(row: dict[str, Any], idx: int) -> None:
     """Validate numeric columns for an epoch-level history row."""
     val = row.get("epoch")
     if val is None or not str(val).isdigit():
-        raise TelemetrySchemaError(
-            f"Row {idx}: column 'epoch' must be an integer, got {val!r}"
-        )
+        raise TelemetrySchemaError(f"Row {idx}: column 'epoch' must be an integer, got {val!r}")
 
     for float_col in ("train_loss", "val_loss", "lr"):
         f_val = row.get(float_col)
@@ -70,7 +68,7 @@ class TelemetryCsvValidator:
     @staticmethod
     def get_expected_metrics_columns(family: TaskFamily | str) -> list[str]:
         """Return the list of expected columns for step-level metrics.csv."""
-        family_str = family.value if isinstance(family, TaskFamily) else str(family)
+        family_str = family.value if isinstance(family, TaskFamily) else family
         base = list(COMMON_STEP_COLUMNS)
         if family_str == TaskFamily.FOREX.value:
             extra = ["phase", "fold", "pairs"]
@@ -85,7 +83,7 @@ class TelemetryCsvValidator:
     @staticmethod
     def get_expected_history_columns(family: TaskFamily | str) -> list[str]:
         """Return the list of expected columns for epoch-level history.csv."""
-        family_str = family.value if isinstance(family, TaskFamily) else str(family)
+        family_str = family.value if isinstance(family, TaskFamily) else family
         base = list(COMMON_HISTORY_COLUMNS)
         if family_str == TaskFamily.FOREX.value:
             family_cols = list(FOREX_METRIC_COLUMNS)
