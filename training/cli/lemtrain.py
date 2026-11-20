@@ -47,6 +47,30 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+
+def version_callback(value: bool) -> None:
+    """Print the version string and exit if --version is passed."""
+    if value:
+        typer.echo(f"LemGendary Model Training Suite v{__version__} (Refactored & Hardened)")
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            "-V",
+            callback=version_callback,
+            is_eager=True,
+            help="Show the version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Main callback to handle top-level global options like --version."""
+    del version
+
 checkpoints_app = typer.Typer(name="checkpoints", help="Checkpoint management and inspection.")
 presets_app = typer.Typer(name="presets", help="Preset profile exploration and management.")
 audit_app = typer.Typer(name="audit", help="System resources, model topology, and judicial audits.")

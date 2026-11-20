@@ -49,10 +49,18 @@ class TestLemTrainCLI(unittest.TestCase):
         self.assertIn(f"Push all {count} registered models", result.output)
 
     def test_cli_version(self) -> None:
-        """Verify version command."""
+        """Verify version command and flags."""
         result = runner.invoke(app, ["version"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn(f"LemGendary Model Training Suite v{__version__}", result.output)
+
+        result_flag = runner.invoke(app, ["--version"])
+        self.assertEqual(result_flag.exit_code, 0)
+        self.assertIn(f"LemGendary Model Training Suite v{__version__}", result_flag.output)
+
+        result_short = runner.invoke(app, ["-V"])
+        self.assertEqual(result_short.exit_code, 0)
+        self.assertIn(f"LemGendary Model Training Suite v{__version__}", result_short.output)
 
     def test_cli_presets_list(self) -> None:
         """Verify presets list outputs registered profiles."""
@@ -238,6 +246,101 @@ class TestLemTrainCLI(unittest.TestCase):
         """Verify `sync push` with neither a model nor --all exits 1."""
         result = runner.invoke(app, ["sync", "push"])
         self.assertEqual(result.exit_code, 1)
+
+    def test_cli_eval_help_and_run(self) -> None:
+        """Verify `eval` command invocation."""
+        result_help = runner.invoke(app, ["eval", "--help"])
+        self.assertEqual(result_help.exit_code, 0)
+        self.assertIn("Evaluate a trained model checkpoint", result_help.output)
+
+        eval_mock_res = {
+            "metrics": {"loss": 0.05, "accuracy": 0.98},
+            "checkpoint_path": "ckpt.pth",
+            "device": "cpu",
+        }
+        with mock.patch("training.cli.lemtrain.EvaluationService") as svc:
+            svc.return_value.evaluate.return_value = eval_mock_res
+            result = runner.invoke(app, ["eval", "forex_predictor", "-b", "16"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("loss: 0.050000", result.output)
+            self.assertIn("accuracy: 0.980000", result.output)
+
+    def test_cli_verify_contract(self) -> None:
+        """Verify `verify` command success and failure handling."""
+        mock_stage = SimpleNamespace(passed=True, error=None)
+        mock_report = SimpleNamespace(
+            model_key="nima_aesthetic_mobile",
+            family="nima",
+            overall_passed=True,
+            stages={"weights_load": mock_stage},
+        )
+        with mock.patch("training.cli.lemtrain.VerificationService") as svc:
+            svc.return_value.verify_model.return_value = mock_report
+            result = runner.invoke(app, ["verify", "nima_aesthetic_mobile"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("[VERIFICATION PASSED]", result.output)
+
+        mock_fail_report = SimpleNamespace(
+            model_key="nima_aesthetic_mobile",
+            family="nima",
+            overall_passed=False,
+            stages={"weights_load": SimpleNamespace(passed=False, error="Weights missing")},
+        )
+        with mock.patch("training.cli.lemtrain.VerificationService") as svc:
+            svc.return_value.verify_model.return_value = mock_fail_report
+            result_fail = runner.invoke(app, ["verify", "nima_aesthetic_mobile"])
+            self.assertEqual(result_fail.exit_code, 1)
+            self.assertIn("[VERIFICATION FAILED]", result_fail.output)
+
+    def test_cli_export_command(self) -> None:
+        """Verify `export` compiles and reports exported targets."""
+        with mock.patch("training.cli.lemtrain.export_targets") as exp:
+            exp.return_value = {"onnx_fp32": "dist/m.onnx"}
+            result = runner.invoke(app, ["export", "mirnet_exposure", "-t", "onnx_fp32"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("[onnx_fp32] -> dist/m.onnx", result.output)
+
+    def test_cli_checkpoints_inspect_and_prune(self) -> None:
+        """Verify `checkpoints inspect` and `checkpoints prune`."""
+        inspect_data = {
+            "filename": "best.pth",
+            "path": "/path/best.pth",
+            "size_mb": 12.5,
+            "epoch": 10,
+            "best_loss": 0.012,
+            "parameter_count": 500000,
+            "layers_count": 48,
+            "keys": ["state_dict", "epoch"],
+        }
+        with mock.patch("training.cli.lemtrain.CheckpointService") as svc:
+            svc.return_value.inspect_checkpoint.return_value = inspect_data
+            result_inspect = runner.invoke(app, ["checkpoints", "inspect", "best.pth"])
+            self.assertEqual(result_inspect.exit_code, 0)
+            self.assertIn("Size: 12.5 MB", result_inspect.output)
+
+        with mock.patch("training.cli.lemtrain.CheckpointService") as svc:
+            svc.return_value.prune_checkpoints.return_value = ["epoch_1.pth", "epoch_2.pth"]
+            result_prune = runner.invoke(app, ["checkpoints", "prune", "forex_predictor", "-k", "2"])
+            self.assertEqual(result_prune.exit_code, 0)
+            self.assertIn("Pruned 2 checkpoints", result_prune.output)
+
+    def test_cli_notebooks_generate_validation(self) -> None:
+        """Verify `notebooks generate` requires either --model or --all."""
+        result = runner.invoke(app, ["notebooks", "generate"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Please specify either a model key with --model or use --all", result.output)
+
+    def test_cli_server_status_and_openapi(self) -> None:
+        """Verify `server status` and `server openapi` commands."""
+        result_status = runner.invoke(app, ["server", "status"])
+        self.assertEqual(result_status.exit_code, 0)
+        self.assertIn("LemGendary Sidecar Daemon Telemetry", result_status.output)
+
+        with mock.patch("training.cli.server_commands.get_app") as app_mock:
+            app_mock.return_value.openapi.return_value = {"openapi": "3.1.0", "info": {"title": "Test"}}
+            result_openapi = runner.invoke(app, ["server", "openapi"])
+            self.assertEqual(result_openapi.exit_code, 0)
+            self.assertIn('"openapi": "3.1.0"', result_openapi.output)
 
 
 if __name__ == "__main__":
