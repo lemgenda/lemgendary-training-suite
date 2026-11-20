@@ -767,7 +767,7 @@ upn_v2:
   category: enhance
   filename: UPN(v2)Modular
   checkpoint: UPN(v2)ModularWeights_FP32.pth
-  batch_size: 256
+  batch_size: 1024
   input_size:
   - 3
   - 128
@@ -776,6 +776,10 @@ upn_v2:
   loss_fn: smooth_l1
   dataset_type: parameter_prediction
   preferred_parallel: single
+  loader:
+    num_workers: 4
+    persistent_workers: true
+    prefetch_factor: 4
   needs_synthesis: true
   output_names:
   - deg
@@ -800,7 +804,7 @@ upn_v2:
     fraction_increment: 0.2
     plateau_patience: 4
     cooling_factor: 0.85
-    target_effective_batch: 256
+    target_effective_batch: 1024
     res_ladder:
     - 128
     - 192

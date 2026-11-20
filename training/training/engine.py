@@ -101,6 +101,13 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
             "SequentialSampler",
         ):
             curr_sampler = None
+        loader_cfg = getattr(ctx.models, "model_info", None) or {}
+        loader_overrides = loader_cfg.get("loader") or {}
+        num_w = (
+            ctx.run.args.num_workers
+            if hasattr(ctx.run.args, "num_workers") and ctx.run.args.num_workers is not None
+            else loader_overrides.get("num_workers")
+        )
         ctx.data.train_loader = rebuild_train_loader(
             old_loader=ctx.data.train_loader,
             dataset=train_ds,
@@ -109,9 +116,10 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
                 sampler=curr_sampler,
                 shuffle=(curr_sampler is None),
                 workers=WorkerOverrides(
-                    num_workers=ctx.run.args.num_workers
-                    if hasattr(ctx.run.args, "num_workers")
-                    else None
+                    num_workers=num_w,
+                    persistent_workers=loader_overrides.get("persistent_workers"),
+                    pin_memory=loader_overrides.get("pin_memory"),
+                    prefetch_factor=loader_overrides.get("prefetch_factor"),
                 ),
             ),
             placement=LoaderPlacement(

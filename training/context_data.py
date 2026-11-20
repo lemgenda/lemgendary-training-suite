@@ -281,8 +281,22 @@ def _placement(spec: RunSpec) -> LoaderPlacement:
 
 
 def _worker_overrides(spec: RunSpec) -> WorkerOverrides:
-    """``--num_workers`` override for the train loader (``None`` keeps the topology default)."""
-    return WorkerOverrides(num_workers=spec.args.num_workers)
+    """Worker overrides for the train loader: CLI takes precedence, followed by model_info configuration."""
+    loader_cfg = spec.model_info.get("loader") or {}
+    num_w = spec.args.num_workers
+    if num_w is None:
+        num_w = loader_cfg.get("num_workers")
+
+    persistent_w = loader_cfg.get("persistent_workers")
+    prefetch_f = loader_cfg.get("prefetch_factor")
+    pin_m = loader_cfg.get("pin_memory")
+
+    return WorkerOverrides(
+        num_workers=num_w,
+        persistent_workers=persistent_w,
+        pin_memory=pin_m,
+        prefetch_factor=prefetch_f,
+    )
 
 
 def build_initial_train_loader(
