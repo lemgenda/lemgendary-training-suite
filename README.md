@@ -26,6 +26,27 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.240 - Prompt 29 & Prompt 30 CLI and API Audit & Hardening
+
+- **CLI Global Version Option & Hardening (Prompt 29)**: Added eager global
+  `--version` / `-V` flag callback to `training/cli/lemtrain.py` printing the
+  single-source package version from `pyproject.toml`. Expanded CLI test suite
+  in `tests/unit/test_cli.py` to 24 tests covering parser behavior, flags,
+  subcommands, exit codes, and error reporting.
+- **Sidecar API Route Audit & Contract Alignment (Prompt 30)**: Audited all 41
+  REST and WebSocket routes. Aligned model management endpoints to canonical
+  `/api/models/{model_key}/...` paths (`docs/generate`, `export/stage`,
+  `variations/validate`, `verify`, `soup`) with full OpenAPI 3.1 schema
+  regeneration. Expanded `tests/unit/test_server.py` test suite covering
+  training, evaluation, LLM, unit-test-all, and dataset dispatch endpoints.
+- **Single-GPU Affinity Optimization (UPN_v2)**: Configured target effective
+  batch size 1024 with 4 workers, persistent workers, and prefetch factor 4 in
+  `unified_models_v2.yaml`, resolving DDP bottlenecking on WebDataset shard
+  decompression.
+- **Documentation Parity**: Synchronized `MANUAL_CLI.md`, `MANUAL_API.md`, and
+  their HTML companion twins in `lemgendary-docs/papers/`. Verified with
+  `scripts/audit_docs.py` with 0 findings.
+
 ### v16.9.240 - Prompt 25 Local / Kaggle / Colab Cloud Training Pipelines
 
 - **Execution Matrix Standardization**: Formalized and documented the
