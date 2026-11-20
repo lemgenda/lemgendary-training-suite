@@ -35,6 +35,7 @@ from training.services.checkpoint_service import CheckpointService
 from training.services.eval_service import EvaluationService
 from training.services.notebook_service import NotebookService
 from training.services.training_service import TrainingService
+from training.services.verification_service import VerificationService
 from training.utils.paths import get_project_root
 from training.version import __version__
 
@@ -177,6 +178,39 @@ def evaluate(
         typer.echo(f"  {metric_name}: {val:.6f}")
     typer.echo(f"  Checkpoint: {result.get('checkpoint_path')}")
     typer.echo(f"  Device: {result.get('device')}")
+
+
+@app.command("verify")
+def verify(
+    model: str = typer.Argument(..., help="Model architecture key to verify."),
+    checkpoint: str | None = typer.Option(
+        None, "--checkpoint", "-c", help="Path to explicit checkpoint file."
+    ),
+    output: str | None = typer.Option(
+        None, "--output", "-o", help="Path to emit machine-readable JSON verification report."
+    ),
+) -> None:
+    """Execute complete multi-pillar verification contract on model family."""
+    typer.echo(f"[VERIFY] Running verification contract for '{model}'...")
+    service = VerificationService()
+    report = service.verify_model(
+        model_key=model,
+        checkpoint_path=checkpoint,
+        output_report_path=output,
+    )
+
+    status_str = "PASSED" if report.overall_passed else "FAILED"
+    typer.echo(f"\n[VERIFICATION {status_str}] Model: {report.model_key} (Family: {report.family})")
+    for stage_name, res in report.stages.items():
+        sub_status = "PASS" if res.passed else "FAIL"
+        err_msg = f" - Error: {res.error}" if res.error else ""
+        typer.echo(f"  - [{sub_status}] {stage_name}{err_msg}")
+
+    if output:
+        typer.echo(f"\n[REPORT] Saved machine-readable report to: {output}")
+
+    if not report.overall_passed:
+        raise typer.Exit(1)
 
 
 @app.command("export")

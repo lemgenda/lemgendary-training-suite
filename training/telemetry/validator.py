@@ -132,16 +132,17 @@ class TelemetryCsvValidator:
             if reader.fieldnames is None:
                 raise TelemetrySchemaError(f"Missing header in metrics file: {path}")
 
-            actual_fields = set(reader.fieldnames)
-            missing = set(expected) - actual_fields
+            actual_fields = {col.lower() for col in reader.fieldnames}
+            missing = [col for col in expected if col.lower() not in actual_fields]
             if missing:
                 raise TelemetrySchemaError(
                     f"metrics.csv at {path} is missing mandatory columns: {sorted(missing)}"
                 )
 
             for idx, r in enumerate(reader, start=1):
-                _check_row_numbers(r, idx)
-                rows.append(dict(r))
+                normalized_row = {k.lower(): v for k, v in r.items() if k is not None}
+                _check_row_numbers(normalized_row, idx)
+                rows.append(normalized_row)
 
         return rows
 
@@ -178,15 +179,21 @@ class TelemetryCsvValidator:
             if reader.fieldnames is None:
                 raise TelemetrySchemaError(f"Missing header in history file: {path}")
 
-            actual_fields = set(reader.fieldnames)
-            missing = set(expected) - actual_fields
+            actual_fields = {col.lower() for col in reader.fieldnames}
+            missing = [col for col in expected if col.lower() not in actual_fields]
             if missing:
-                raise TelemetrySchemaError(
-                    f"history.csv at {path} is missing mandatory columns: {sorted(missing)}"
-                )
+                # If only timestamp is missing in legacy format history, allow for backward-compatibility
+                if missing == ["timestamp"] and not strict_columns:
+                    pass
+                else:
+                    raise TelemetrySchemaError(
+                        f"history.csv at {path} is missing mandatory columns: {sorted(missing)}"
+                    )
 
             for idx, r in enumerate(reader, start=1):
-                _check_history_numbers(r, idx)
-                rows.append(dict(r))
+                # Normalize row dictionary keys to lowercase for robust lookup
+                normalized_row = {k.lower(): v for k, v in r.items() if k is not None}
+                _check_history_numbers(normalized_row, idx)
+                rows.append(normalized_row)
 
         return rows

@@ -16,6 +16,7 @@ from training.services.restructuring import (
 )
 from training.services.sync_service import CloudSyncService
 from training.services.training_service import TrainingService
+from training.services.verification_service import VerificationService
 
 __all__ = [
     "AuditService",
@@ -26,5 +27,6 @@ __all__ = [
     "ModelTopologyRestructuringService",
     "NotebookService",
     "TrainingService",
+    "VerificationService",
     "run_restructuring_sweep",
 ]

@@ -39,3 +39,6 @@ jobs:
       - name: Test with pytest
         run: |
           pytest
+      - name: Run Model Family Verification Contract
+        run: |
+          python cli.py verify nafnet_denoising --checkpoint tests/fixtures/tiny_checkpoint.pth --output test_verification_report.json
