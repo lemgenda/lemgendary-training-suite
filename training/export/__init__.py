@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any
 
 _EXPORTS: dict[str, str] = {
     "BaseModelExporter": "training.export.base",
+    "ExportArtifactRecord": "training.export.manifest",
     "ExportError": "training.export.common",
+    "ExportManifest": "training.export.manifest",
     "ExportPlan": "training.export.pipeline",
     "ExporterFactory": "training.export.exporter_factory",
     "ForexModelExporter": "training.export.forex_exporter",
@@ -24,6 +26,7 @@ _EXPORTS: dict[str, str] = {
     "VariationStagingService": "training.export.staging",
     "VariationValidationReport": "training.export.validation",
     "YOLOModelExporter": "training.export.yolo_exporter",
+    "build_export_manifest": "training.export.manifest",
     "export_all": "training.export.pipeline",
     "export_forex_onnx": "training.export.mt5_signal",
     "export_llm_tri_format": "training.export.llm_exporter",
@@ -54,6 +57,11 @@ if TYPE_CHECKING:
     from training.export.exporter_factory import ExporterFactory, get_exporter_for_model
     from training.export.forex_exporter import ForexModelExporter
     from training.export.llm_exporter import LLMModelExporter, export_llm_tri_format
+    from training.export.manifest import (
+        ExportArtifactRecord,
+        ExportManifest,
+        build_export_manifest,
+    )
     from training.export.mt5_signal import export_forex_onnx
     from training.export.onnx import export_onnx
     from training.export.pipeline import ExportPlan, export_all
@@ -91,7 +99,9 @@ def __dir__() -> list[str]:
 
 __all__ = [
     "BaseModelExporter",
+    "ExportArtifactRecord",
     "ExportError",
+    "ExportManifest",
     "ExportPlan",
     "ExporterFactory",
     "ForexModelExporter",
@@ -104,6 +114,7 @@ __all__ = [
     "VariationStagingService",
     "VariationValidationReport",
     "YOLOModelExporter",
+    "build_export_manifest",
     "export_all",
     "export_forex_onnx",
     "export_llm_tri_format",

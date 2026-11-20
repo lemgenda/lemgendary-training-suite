@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.238-STABLE`
+- **Version**: `v16.9.239-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -26,35 +26,69 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.239 - Prompt 24 Model Export Pipelines & Verification
+
+- **Tri-Format Model Export Standardization**: Hardened universal
+  tri-format export (`[Stem].pt` PyTorch FP32, `[Stem]_FP32.onnx` +
+  `.onnx.data` FP32 with sidecar, `[Stem].onnx` FP16 embedded) across
+  Vision, YOLO, Forex, and Causal LLM families.
+- **Export Manifest Generation (`export_manifest.json`)**: Implemented
+  canonical manifest generator in `training/export/manifest.py` recording
+  opset version (18), model stems, input/output tensor signatures,
+  documented family parity tolerances, and cryptographic SHA-256 digests
+  and file sizes for all released binaries.
+- **Per-Family Parity Tolerances**: Documented and verified absolute
+  and relative tolerances (`FAMILY_PARITY_TOLERANCES`) for FP32 and FP16
+  graphs against PyTorch reference models across Vision, YOLO, Forex,
+  and LLM architectures.
+- **Export-Level Validation Tests**: Added unit tests in
+  `tests/unit/test_export.py` validating ONNX Runtime CPU inference
+  parity against PyTorch, cryptographic manifest consistency, and
+  family-specific tolerance resolution.
+
 ### v16.9.238 - Prompt 23 Vault Checkpoints Utilization & Consistency Validation
 
-- **Vault Checkpoint Enumeration & Storage**: Formally established the vault contract
-  for individual target SOTA milestones (`vault_[metric].pth`), `latest.pth`, `best.pth`,
+- **Vault Checkpoint Enumeration & Storage**: Formally established the vault
+  contract
+  for individual target SOTA milestones (`vault_[metric].pth`), `latest.pth`,
+  `best.pth`,
   and `progress.pth` in `LemGendaryModels/<ModelName>/checkpoints/`.
 - **Vault Consistency Validator**: Added `validate_vault_consistency` in
-  `training/checkpoint/vault.py` (`VaultConsistencyReport`) inspecting file readability,
+  `training/checkpoint/vault.py` (`VaultConsistencyReport`) inspecting file
+  readability,
   non-emptiness, weight dictionary payload validity, and target completeness.
-- **Automated Vault GC / Pruning**: Implemented `prune_vault_checkpoints` to sweep
-  stale `.tmp` writes and purge obsolete `progress.pth` files when `latest.pth` has advanced.
-- **Cross-Platform Recovery & Sync Hardening**: Extended `CheckpointRecoveryEngine`
-  indexing to recognize and mirror `vault_*` checkpoints alongside standard model weights.
-- **End-to-End Transfer Tests**: Added unit tests in `tests/unit/test_checkpoint.py`
-  validating vault consistency auditing, corruption detection, garbage collection, and
-  full end-to-end save -> upload -> download to fresh container -> resume workflows.
+- **Automated Vault GC / Pruning**: Implemented `prune_vault_checkpoints` to
+  sweep
+  stale `.tmp` writes and purge obsolete `progress.pth` files when `latest.pth`
+  has advanced.
+- **Cross-Platform Recovery & Sync Hardening**: Extended
+  `CheckpointRecoveryEngine`
+  indexing to recognize and mirror `vault_*` checkpoints alongside standard
+  model weights.
+- **End-to-End Transfer Tests**: Added unit tests in
+  `tests/unit/test_checkpoint.py`
+  validating vault consistency auditing, corruption detection, garbage
+  collection, and
+  full end-to-end save -> upload -> download to fresh container -> resume
+  workflows.
 
 ### v16.9.237 - Prompt 22 Checkpoint Save / Resume Modernization & Bit Reproducibility
 
-- **Universal Checkpoint Format Versioning**: Attached `checkpoint_format_version`
+- **Universal Checkpoint Format Versioning**: Attached
+  `checkpoint_format_version`
   (Version 2) to all checkpoints in `training/checkpoint/manager.py`.
 - **Atomic Save & Lock Resilience**: Validated atomic write-temp-and-rename
-  with disk headroom auditing and exponential backoff retry for filesystem locks.
-- **Backward-Compatible Migration & Error Handling**: Transparently migrates legacy
+  with disk headroom auditing and exponential backoff retry for filesystem
+  locks.
+- **Backward-Compatible Migration & Error Handling**: Transparently migrates
+  legacy
   state dictionary keys (`state_dict`, `model`) while raising explicit
   `CheckpointMigrationError` on incompatible or future format versions.
 - **Bit-Reproducible Kill-and-Resume**: Captures complete RNG state across host
   (Python, NumPy, Torch CPU) and accelerator devices, ensuring identical step
   trajectories and exact loss continuity upon resumption.
-- **Unit & Regression Testing**: Added unit tests in `tests/unit/test_checkpoint.py`
+- **Unit & Regression Testing**: Added unit tests in
+  `tests/unit/test_checkpoint.py`
   validating format versioning, migration error handling, and bit-reproducible
   kill-and-resume loss continuity.
 
@@ -62,7 +96,8 @@
 
 - **Canonical Telemetry Schemas**: Defined canonical schemas in
   `training/telemetry/schemas.py` for step-level telemetry (`metrics.csv`) and
-  epoch/eval-level telemetry (`history.csv`), covering losses, LR, gradient norm,
+  epoch/eval-level telemetry (`history.csv`), covering losses, LR, gradient
+  norm,
   throughput, VRAM/allocated memory, wall time, governor actions, pathology
   flags, and family-specific metrics (Vision, Forex, YOLO, RetinaFace, LLM).
 - **Atomic & Crash-Safe Recorders**: Re-architected CSV recording in
@@ -77,13 +112,15 @@
 
 ### v16.9.235 - Prompt 20 Unified Model Configuration Standardization
 
-- **Canonical JSON Schema & Validator**: Added `training/config/model_schema.json`
+- **Canonical JSON Schema & Validator**: Added
+  `training/config/model_schema.json`
   and `training/config/schema_validator.py` enforcing strict structure for all
   model configurations covering family, architecture, manifold reference,
   optimizer, LR schedule, batch size, precision, checkpoint policy, export
   targets, validation suite, and seed.
 - **Model Registry Preflight Integration**: Integrated `validate_registry_file`
-  directly into `ModelRegistryService._load()` in `training/registry/model_specs.py`,
+  directly into `ModelRegistryService._load()` in
+  `training/registry/model_specs.py`,
   halting runtime initialization if any configuration violates the contract.
 - **Unified 23 Model Specifications**: Standardized all 23 production models in
   `unified_models_v2.yaml` with explicit blocks for `optimizer`, `lr_schedule`,
@@ -97,10 +134,12 @@
 
 - **Adaptive Mosaic & Mixup Close-Up Schedule**: Integrated automatic
   close_mosaic scheduling into `training/governance/yolo_run.py`, disabling
-  mosaic, mixup, and cutmix transforms during the final epochs of each curriculum
+  mosaic, mixup, and cutmix transforms during the final epochs of each
+  curriculum
   rung to allow convergence onto the true visual manifold.
 - **Multi-Scale Spatial Training & Regularization**: Added `multi_scale` batch
-  resolution jittering (+/-50%) and `label_smoothing` cross-entropy regularisation
+  resolution jittering (+/-50%) and `label_smoothing` cross-entropy
+  regularisation
   to prevent overfitting on fixed spatial patterns and overconfident bboxes.
 - **Per-Class and Aggregate mAP Telemetry**: Enhanced
   `training/governance/yolo_callbacks.py` to extract granular per-class
@@ -117,14 +156,16 @@
   `PurgedKFoldCV` to eliminate overlapping label horizons and serial
   autocorrelation leakage per Marcos López de Prado (2018).
 - **Regime-Aware Validation Metrics**: Enhanced
-  `training/training/forex_equity.py` with `compute_regime_metrics`, partitioning
+  `training/training/forex_equity.py` with `compute_regime_metrics`,
+  partitioning
   win-rate, profit factor, Sharpe ratio, and maximum drawdown across Bull, Bear,
   and Volatile market conditions.
 - **Asymmetric Pinball / Quantile Loss**: Implemented `pinball_loss` in
   `training/losses.py` and integrated quantile regression support into
   `ForexDualLoss` and `ForexLossWeights` for downside risk and VaR estimation.
 - **Expected Calibration Error (ECE) Evaluator**: Implemented
-  `training/training/forex_calibration.py` with `CalibrationEvaluator` to measure
+  `training/training/forex_calibration.py` with `CalibrationEvaluator` to
+  measure
   ECE, MCE, and Brier score, ensuring confidence probability alignment.
 
 ### v16.9.232 - Prompt 17 Visual & WebDataset Manifold Improvements
@@ -135,7 +176,8 @@
 - **Easy-to-Hard Degradation Curriculum**: Added `DegradationCurriculum` to
   `training/data/degrade.py`, scaling corruptions (blur, noise, compression)
   monotonically across training epochs and resolution rungs.
-- **Mask-Aware Spatial Loss Weighting**: Implemented `_masked_spatial_l1_loss` in
+- **Mask-Aware Spatial Loss Weighting**: Implemented `_masked_spatial_l1_loss`
+  in
   `training/losses.py`, dynamically amplifying gradients on region-of-interest
   damage masks during image restoration and enhancement.
 - **Deterministic Shard Sampler**: Implemented

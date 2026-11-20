@@ -1,9 +1,11 @@
 """Unit tests for model export subsystem: ONNX, TorchScript, WebGPU, and export_all."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -11,9 +13,16 @@ from training.export.common import (
     extract_input_dimensions,
     resolve_export_paths,
 )
+from training.export.manifest import (
+    MANIFEST_FILENAME,
+    build_export_manifest,
+    compute_file_sha256,
+    resolve_family_tolerances,
+)
 from training.export.onnx import export_onnx
 from training.export.torch_standalone import export_torch_standalone
 from training.export.webgpu import export_webgpu_onnx
+from training.utils.lazy_imports import load_onnxruntime
 
 
 class DummyExportNet(nn.Module):
@@ -109,6 +118,83 @@ class TestModelExporters(unittest.TestCase):
             self.assertTrue(ok)
             self.assertTrue(out_webgpu.exists())
             self.assertGreater(out_webgpu.stat().st_size, 100)
+
+    def test_export_manifest_generation_and_validation(self) -> None:
+        """Verify export_manifest.json generation, hashing, and tolerance metadata."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pt_file = tmp_path / "DummyNet.pt"
+            onnx_fp32 = tmp_path / "DummyNet_FP32.onnx"
+            onnx_fp16 = tmp_path / "DummyNet.onnx"
+
+            export_torch_standalone(self.model, pt_file)
+            export_onnx(self.model, onnx_fp32, dummy_shape=(1, 3, 64, 64), half=False)
+            export_onnx(self.model, onnx_fp16, dummy_shape=(1, 3, 64, 64), half=True)
+
+            files = {
+                "pt": pt_file,
+                "onnx_fp32": onnx_fp32,
+                "onnx_fp16": onnx_fp16,
+            }
+            manifest = build_export_manifest("dummynet", files)
+            saved_manifest = manifest.save(tmp_path)
+
+            self.assertTrue(saved_manifest.is_file())
+            self.assertEqual(saved_manifest.name, MANIFEST_FILENAME)
+
+            content = json.loads(saved_manifest.read_text(encoding="utf-8"))
+            self.assertEqual(content["model_key"], "dummynet")
+            self.assertEqual(content["stem"], "dummynet")
+            self.assertEqual(content["opset"], 18)
+            self.assertIn("artifacts", content)
+            self.assertIn("pt", content["artifacts"])
+            self.assertIn("onnx_fp32", content["artifacts"])
+            self.assertIn("onnx_fp16", content["artifacts"])
+
+            # Verify checksums match reality
+            for artifact in content["artifacts"].values():
+                real_hash = compute_file_sha256(artifact["file_path"])
+                self.assertEqual(artifact["sha256"], real_hash)
+
+    def test_numerical_equivalence_fp32_onnx_vs_pytorch(self) -> None:
+        """Verify ONNX Runtime inference matches PyTorch output within documented tolerance."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out_onnx = Path(tmp) / "model_fp32.onnx"
+            export_onnx(self.model, out_onnx, dummy_shape=(1, 3, 64, 64), half=False)
+
+            # Load into ONNX Runtime
+            ort = load_onnxruntime()
+            session = ort.InferenceSession(str(out_onnx), providers=["CPUExecutionProvider"])
+
+            # Fixed deterministic test batch
+            torch.manual_seed(42)
+            test_x = torch.randn(2, 3, 64, 64, dtype=torch.float32)
+
+            with torch.no_grad():
+                expected_pt = self.model(test_x).numpy()
+
+            in_name = session.get_inputs()[0].name
+            actual_onnx = session.run(None, {in_name: test_x.numpy()})[0]
+
+            tols = resolve_family_tolerances("vision")["fp32"]
+            max_abs_diff = float(np.max(np.abs(expected_pt - actual_onnx)))
+
+            self.assertLessEqual(max_abs_diff, tols["atol"] * 5)
+            np.testing.assert_allclose(actual_onnx, expected_pt, atol=1e-3, rtol=1e-2)
+
+    def test_family_parity_tolerances(self) -> None:
+        """Verify family-specific parity tolerances for vision, yolo, forex, and llm."""
+        vision_tol = resolve_family_tolerances("nima_aesthetic_pro")
+        self.assertEqual(vision_tol["fp32"]["atol"], 1e-3)
+
+        yolo_tol = resolve_family_tolerances("yolov8n")
+        self.assertEqual(yolo_tol["fp32"]["atol"], 1e-3)
+
+        forex_tol = resolve_family_tolerances("forex_eurusd_h1")
+        self.assertEqual(forex_tol["fp32"]["atol"], 1e-4)
+
+        llm_tol = resolve_family_tolerances("ai_helper_lemgend")
+        self.assertEqual(llm_tol["fp32"]["atol"], 1e-3)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from torch import nn
 
 from models.factory import get_model
 from training.export.exporter_factory import ExporterFactory
+from training.export.manifest import build_export_manifest
 from training.export.pytorch_exporter import PyTorchModelExporter
 from training.export.staging import StagingResult, VariationStagingService
 from training.export.yolo_exporter import YOLOModelExporter
@@ -159,6 +160,14 @@ def export_universal_model(
             remove_tree(staging_dir, purpose="export staging cleanup")
         if staging_result.staged_files:
             exported = staging_result.staged_files
+
+    # Emit export_manifest.json per model in target_dir
+    manifest = build_export_manifest(
+        model_key=model_key,
+        exported_files=exported,
+        spec=spec,
+    )
+    manifest.save(target_dir)
 
     return exported, staging_result
 
