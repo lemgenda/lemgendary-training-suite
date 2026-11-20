@@ -75,11 +75,25 @@ class SyncManifest:
     def pulled_version(self, variation: str) -> int | None:
         """Hub version last merged for ``variation``, or None."""
         value = self._get(variation).get("pulled_version")
-        return int(value) if isinstance(value, int) else None
+        return value if isinstance(value, int) else None
 
-    def record_pull(self, variation: str, version: int) -> None:
-        """Remember that Hub ``version`` of ``variation`` was merged (call :meth:`save`)."""
-        self._entry(variation)["pulled_version"] = int(version)
+    def pulled_hashes(self, variation: str) -> dict[str, str]:
+        """File hashes of the payload last downloaded for ``variation`` (empty when none)."""
+        value = self._get(variation).get("pulled_files")
+        return dict(value) if isinstance(value, dict) else {}
+
+    def record_pull(
+        self,
+        variation: str,
+        version: int | None = None,
+        hashes: dict[str, str] | None = None,
+    ) -> None:
+        """Remember that Hub ``version``/``hashes`` of ``variation`` was merged (call :meth:`save`)."""
+        entry = self._entry(variation)
+        if version is not None:
+            entry["pulled_version"] = version
+        if hashes is not None:
+            entry["pulled_files"] = dict(hashes)
 
     def pushed_hashes(self, variation: str) -> dict[str, str]:
         """File hashes of the payload last uploaded for ``variation`` (empty when none)."""

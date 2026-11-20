@@ -223,7 +223,7 @@ class TestLemTrainCLI(unittest.TestCase):
         mgr.assert_called_once_with(username="me", hub_root=None)
         self.assertEqual(
             push.call_args.args[2],
-            {"variation": "onnx/fp16", "version_notes": None, "dry_run": True},
+            {"variation": "onnx/fp16", "version_notes": None, "dry_run": True, "force": False},
         )
 
     def test_cli_sync_push_rejects_legacy_variation_names(self) -> None:

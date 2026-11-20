@@ -34,10 +34,12 @@ PathFilter = Callable[[Path], bool]
 
 @dataclass
 class MergeReport:
-    """Relative paths written into the hub folder and local files kept."""
+    """Relative paths written into the hub folder, local files kept, and checksums."""
 
     written: list[str] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
+    checksums: dict[str, str] = field(default_factory=dict)
+    checksum_verified: bool = False
 
 
 def _read_checkpoint_epoch(path: Path) -> int | None:
@@ -93,6 +95,7 @@ def merge_downloaded_payload(
     force: bool,
     keep: PathFilter | None = None,
     epoch_of: EpochReader = _read_checkpoint_epoch,
+    expected_checksums: dict[str, str] | None = None,
 ) -> MergeReport:
     """Merge the files of ``download_dir`` that ``keep`` accepts (default all) into ``dest_dir``."""
     epochs = _memoized(epoch_of)
@@ -103,7 +106,20 @@ def merge_downloaded_payload(
         _newest([epochs(dest_dir / rel) for rel in checkpoints if (dest_dir / rel).is_file()]),
     )
 
-    report = MergeReport()
+    from training.cloud.sync_manifest import payload_hashes
+
+    actual_hashes = payload_hashes(download_dir)
+    checksum_verified = True
+    if expected_checksums:
+        for rel_posix, exp_hash in expected_checksums.items():
+            got_hash = actual_hashes.get(rel_posix)
+            if got_hash != exp_hash:
+                raise ValueError(
+                    f"Integrity check failed for pulled file '{rel_posix}': "
+                    f"expected sha256 {exp_hash}, got {got_hash}"
+                )
+
+    report = MergeReport(checksums=actual_hashes, checksum_verified=checksum_verified)
     for rel in files:
         src, dst = download_dir / rel, dest_dir / rel
         if dst.exists() and not force:

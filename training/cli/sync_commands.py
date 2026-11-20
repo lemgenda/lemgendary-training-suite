@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import datetime
+import json
 import logging
+import time
 from dataclasses import dataclass
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Any
 
 import typer
 import yaml
 
 from training.cli.option_groups import option_group
 from training.cloud.errors import kagglehub_errors
-from training.cloud.kaggle_model_sync import KaggleModelSyncManager
+from training.cloud.kaggle_model_sync import (
+    KaggleModelSyncManager,
+    ModelPushResult,
+    VariationPullResult,
+)
+from training.cloud.sync_report import ModelSyncReport, VariationSyncReport
 from training.cloud.variations import ALL_VARIATIONS, VARIATION_BY_KEY, selected_variations
 from training.registry import get_model_registry
 from training.services.sync_service import CloudSyncService
@@ -94,11 +103,25 @@ class PushOptions:
     version_notes: Annotated[
         str | None, typer.Option("--notes", "-n", help="Optional release version notes.")
     ] = None
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force", "-f", help="Bypass idempotent no-op check and force upload to Kaggle."
+        ),
+    ] = False
     dry_run: Annotated[
         bool,
         typer.Option(
             "--dry-run", help="Validate isolation and metadata without uploading to Kaggle."
         ),
+    ] = False
+    report: Annotated[
+        str | None,
+        typer.Option("--report", help="Path to write machine-readable JSON sync report."),
+    ] = None
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON sync report to stdout."),
     ] = False
     source_dir: Annotated[
         str | None,
@@ -120,7 +143,56 @@ class PushOptions:
             "variation": self.variation,
             "version_notes": self.version_notes,
             "dry_run": self.dry_run,
+            "force": self.force,
         }
+
+
+@dataclass(frozen=True)
+class PullOptions:
+    """Options of ``lemtrain sync pull``."""
+
+    variation: Annotated[
+        str,
+        typer.Option(
+            "--variation",
+            "-v",
+            callback=checked_variation,
+            help=f"Variation to pull: {', '.join(VARIATION_CHOICES)}.",
+        ),
+    ] = ALL_VARIATIONS
+    force_download: Annotated[
+        bool,
+        typer.Option(
+            "--force", "-f", help="Force re-download even if already present locally."
+        ),
+    ] = False
+    version: Annotated[
+        str | None,
+        typer.Option(
+            "--version", help="Pin specific model variation version (e.g. 2, '2', '@v2')."
+        ),
+    ] = None
+    report: Annotated[
+        str | None,
+        typer.Option("--report", help="Path to write machine-readable JSON sync report."),
+    ] = None
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable JSON sync report to stdout."),
+    ] = False
+    username: Annotated[
+        str | None, typer.Option("--username", "-u", help="Optional Kaggle username override.")
+    ] = None
+
+
+def _parse_version(version_str: str | None) -> int | None:
+    """Parse version option string ('2', 'v2', '@v2') into integer or None."""
+    if not version_str:
+        return None
+    cleaned = version_str.strip().lstrip("@").lstrip("v")
+    if not cleaned.isdigit():
+        raise typer.BadParameter(f"Version must be a positive integer, got '{version_str}'")
+    return int(cleaned)
 
 
 @sync_app.command("push")
@@ -137,11 +209,12 @@ def sync_push(
         typer.echo("[ERROR] Please specify either a model key or --all.")
         raise typer.Exit(code=1)
 
+    start_time = time.time()
     sync_mgr = KaggleModelSyncManager(username=opts.username, hub_root=opts.source_dir)
     push_opts = opts.push_kwargs()
 
     if opts.all_models:
-        _push_fleet(sync_mgr, push_opts)
+        _push_fleet(sync_mgr, push_opts, report_path=opts.report, json_out=opts.json_output)
         return
     if not model:
         typer.echo(
@@ -155,6 +228,43 @@ def sync_push(
         f"dry_run: {opts.dry_run})..."
     )
     res = _stage_and_push(sync_mgr, model, push_opts)
+    elapsed = time.time() - start_time
+
+    # Build machine-readable report
+    rep = ModelSyncReport(
+        action="push",
+        model_key=model,
+        success=res.success,
+        timestamp_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        elapsed_seconds=round(elapsed, 3),
+        errors=list(getattr(res, "errors", [])),
+        metadata=res.to_dict().get("metadata_sync") or {}
+        if hasattr(res, "to_dict")
+        else {},
+    )
+    variations_dict = getattr(res, "variations", {}) or {}
+    for k, v in variations_dict.items():
+        rep.variations[k] = VariationSyncReport(
+            variation=getattr(v, "variation", k),
+            handle=getattr(v, "handle", ""),
+            success=getattr(v, "success", False),
+            status="noop"
+            if getattr(v, "skipped", False)
+            else ("success" if getattr(v, "success", False) else "failed"),
+            files=getattr(v, "files", []),
+            checksums=getattr(v, "checksums", {}),
+            checksum_verified=bool(getattr(v, "checksums", {})),
+            idempotent_noop=getattr(v, "skipped", False),
+            retries=getattr(v, "retries", 0),
+            error=getattr(v, "error", None),
+        )
+
+    if opts.report:
+        rep.write_to(opts.report)
+        typer.echo(f"[REPORT] Wrote push report to {opts.report}")
+    if opts.json_output:
+        typer.echo(rep.to_json())
+
     if res.success:
         handles = [v.handle for v in res.variations.values() if v.success]
         typer.echo(f"[SUCCESS] Model '{model}' pushed successfully -> {handles}")
@@ -163,7 +273,9 @@ def sync_push(
         raise typer.Exit(code=1)
 
 
-def _stage_and_push(sync_mgr: KaggleModelSyncManager, model_key: str, push_opts: dict):
+def _stage_and_push(
+    sync_mgr: KaggleModelSyncManager, model_key: str, push_opts: dict
+) -> ModelPushResult:
     """Run the one push policy (stage, model page, uploads, metadata) for ``model_key``."""
     res = sync_mgr.push_model(model_key=model_key, **push_opts)
     unchanged = [key for key, v in res.variations.items() if v.skipped]
@@ -172,9 +284,14 @@ def _stage_and_push(sync_mgr: KaggleModelSyncManager, model_key: str, push_opts:
     return res
 
 
-def _push_fleet(sync_mgr: KaggleModelSyncManager, push_opts: dict) -> None:
+def _push_fleet(
+    sync_mgr: KaggleModelSyncManager,
+    push_opts: dict,
+    report_path: str | None = None,
+    json_out: bool = False,
+) -> None:
     """Push every registered model; exit 1 only when a real run pushed none."""
-    # Kaggle/transport/file errors, metadata YAML errors, and RuntimeError (kagglehub missing).
+    start_time = time.time()
     push_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), yaml.YAMLError, RuntimeError)
     models = get_model_registry().list_models()
     total_models = len(models)
@@ -184,12 +301,14 @@ def _push_fleet(sync_mgr: KaggleModelSyncManager, push_opts: dict) -> None:
     )
     succeeded = 0
     failed = 0
+    all_reports: dict[str, Any] = {}
 
     for idx, m_spec in enumerate(models, 1):
         m_key = m_spec.key
         typer.echo(f"[{idx}/{total_models}] Processing '{m_key}' ({m_spec.name})...")
         try:
             res = _stage_and_push(sync_mgr, m_key, push_opts)
+            all_reports[m_key] = res.to_dict()
             if res.success:
                 succeeded += 1
                 handles = [v.handle for v in res.variations.values() if v.success]
@@ -198,10 +317,28 @@ def _push_fleet(sync_mgr: KaggleModelSyncManager, push_opts: dict) -> None:
                 failed += 1
                 typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
         except push_errors as e:
-            # Fleet boundary: one model's push failure must not abort the remaining models.
             failed += 1
             logger.exception("Fleet Kaggle push failed for model '%s'", m_key)
             typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
+            all_reports[m_key] = {"model_key": m_key, "success": False, "error": str(e)}
+
+    elapsed = time.time() - start_time
+    fleet_rep = {
+        "action": "fleet_push",
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "elapsed_seconds": round(elapsed, 3),
+        "total_models": total_models,
+        "succeeded": succeeded,
+        "failed": failed,
+        "models": all_reports,
+    }
+    if report_path:
+        p = Path(report_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(fleet_rep, indent=2, sort_keys=True), encoding="utf-8")
+        typer.echo(f"[REPORT] Wrote fleet push report to {report_path}")
+    if json_out:
+        typer.echo(json.dumps(fleet_rep, indent=2, sort_keys=True))
 
     typer.echo(
         f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out "
@@ -212,66 +349,107 @@ def _push_fleet(sync_mgr: KaggleModelSyncManager, push_opts: dict) -> None:
 
 
 def _pull_variation(
-    sync_mgr: KaggleModelSyncManager, model: str, var_key: str, force_download: bool
-) -> bool:
-    """Pull one variation and report its outcome; True on success."""
-    target_dir = sync_mgr.pull_destination(model, var_key)
-    # Kaggle/transport/file errors, plus RuntimeError raised when kagglehub is not installed.
+    sync_mgr: KaggleModelSyncManager,
+    model: str,
+    var_key: str,
+    force_download: bool,
+    version: int | None = None,
+) -> VariationPullResult:
+    """Pull one variation and report its outcome as a VariationPullResult."""
     pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
     try:
-        ok = sync_mgr.pull_variation(
-            model_key=model, variation=var_key, force_download=force_download
+        return sync_mgr.pull_variation_detailed(
+            model_key=model,
+            variation=var_key,
+            force_download=force_download,
+            version=version,
         )
     except pull_errors as e:
-        # Per-variation boundary: report every variation's outcome instead of aborting the pull
-        # batch.
         logger.exception("Kaggle pull failed for model '%s' variation '%s'", model, var_key)
-        typer.echo(f"  [ERROR] Failed to pull {var_key}: {e}")
-        return False
-    if ok:
-        typer.echo(f"  [SUCCESS] Downloaded to {target_dir}")
-    else:
-        typer.echo(f"  [ERROR] Pull returned false for {var_key}")
-    return bool(ok)
+        target_dir = sync_mgr.pull_destination(model, var_key)
+        return VariationPullResult(
+            variation=var_key,
+            handle=sync_mgr.get_handle(model, var_key),
+            success=False,
+            destination=target_dir,
+            error=str(e),
+            version=version,
+        )
 
 
 @sync_app.command("pull")
+@option_group("opts", PullOptions)
 def sync_pull(
     model: str = typer.Argument(..., help="Target model key to download from Kaggle Models Hub."),
-    variation: str = typer.Option(
-        ALL_VARIATIONS,
-        "--variation",
-        "-v",
-        callback=checked_variation,
-        help=f"Variation to pull: {', '.join(VARIATION_CHOICES)}.",
-    ),
-    force_download: bool = typer.Option(
-        False, "--force", "-f", help="Force re-download even if already present locally."
-    ),
-    username: str | None = typer.Option(
-        None, "--username", "-u", help="Optional Kaggle username override."
-    ),
+    *,
+    opts: PullOptions,
 ) -> None:
     """Download model variation(s) from Kaggle Models Hub into canonical directories."""
-    sync_mgr = KaggleModelSyncManager(username=username)
-    vars_to_pull = selected_variations(variation)
+    start_time = time.time()
+    pinned_version = _parse_version(opts.version)
+    sync_mgr = KaggleModelSyncManager(username=opts.username)
+    vars_to_pull = selected_variations(opts.variation)
     total = len(vars_to_pull)
 
-    typer.echo(f"[START] Pulling {total} variation(s) for '{model}' from Kaggle Models Hub...")
+    ver_suffix = f" (version {pinned_version})" if pinned_version is not None else ""
+    typer.echo(
+        f"[START] Pulling {total} variation(s) for '{model}'{ver_suffix} from Kaggle Models Hub..."
+    )
     succeeded = 0
     failed = 0
+    var_results: dict[str, VariationPullResult] = {}
 
     for idx, var_key in enumerate(vars_to_pull, 1):
-        typer.echo(
-            f"[{idx}/{total}] Pulling variation [{var_key}] <- "
-            f"{sync_mgr.get_handle(model, var_key)}..."
+        handle = sync_mgr.get_handle(model, var_key)
+        if pinned_version is not None:
+            handle = f"{handle}/{pinned_version}"
+        typer.echo(f"[{idx}/{total}] Pulling variation [{var_key}] <- {handle}...")
+        res = _pull_variation(
+            sync_mgr, model, var_key, opts.force_download, version=pinned_version
         )
-        if _pull_variation(sync_mgr, model, var_key, force_download):
+        var_results[var_key] = res
+        if res.success:
             succeeded += 1
+            typer.echo(
+                f"  [SUCCESS] Downloaded to {res.destination} (verified checksums: {res.checksum_verified})"
+            )
         else:
             failed += 1
+            typer.echo(f"  [ERROR] Failed to pull {var_key}: {res.error}")
 
-    if succeeded == total:
+    elapsed = time.time() - start_time
+    is_success = succeeded == total
+
+    # Build machine-readable pull report
+    rep = ModelSyncReport(
+        action="pull",
+        model_key=model,
+        success=is_success,
+        timestamp_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        elapsed_seconds=round(elapsed, 3),
+        errors=[f"[{k}] {v.error}" for k, v in var_results.items() if not v.success],
+    )
+    for k, v in var_results.items():
+        rep.variations[k] = VariationSyncReport(
+            variation=v.variation,
+            handle=v.handle,
+            success=v.success,
+            status="success" if v.success else "failed",
+            files=v.files_written,
+            checksums=v.checksums,
+            checksum_verified=v.checksum_verified,
+            retries=v.retries,
+            version=v.version,
+            error=v.error,
+        )
+
+    if opts.report:
+        rep.write_to(opts.report)
+        typer.echo(f"[REPORT] Wrote pull report to {opts.report}")
+    if opts.json_output:
+        typer.echo(rep.to_json())
+
+    if is_success:
         typer.echo(
             f"[SUCCESS] Model '{model}' pulled successfully from Kaggle ({total} variations)."
         )

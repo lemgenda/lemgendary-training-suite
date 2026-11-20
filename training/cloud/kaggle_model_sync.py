@@ -28,6 +28,7 @@ from training.cloud.metadata_generator import KaggleMetadataService
 from training.cloud.model_metadata import METADATA_FILENAME, ModelMetadata
 from training.cloud.model_pull import merge_downloaded_payload
 from training.cloud.push_observer import PushObserver
+from training.cloud.retry import retry_with_backoff
 from training.cloud.sync_manifest import SyncManifest, payload_hashes
 from training.cloud.variations import (
     ALL_VARIATIONS,
@@ -86,6 +87,59 @@ class VariationPushResult:
     dry_run: bool = False
     skipped: bool = False
     """True when the payload equals the last uploaded one: no new Hub version (K-MDL-5)."""
+    checksums: dict[str, str] = field(default_factory=dict)
+    retries: int = 0
+
+
+@dataclass
+class VariationPullResult:
+    """Result of pulling a single model variation from Kaggle Models Hub."""
+
+    variation: str
+    handle: str
+    success: bool
+    destination: Path | str
+    files_written: list[str] = field(default_factory=list)
+    files_kept: list[str] = field(default_factory=list)
+    checksums: dict[str, str] = field(default_factory=dict)
+    checksum_verified: bool = False
+    error: str | None = None
+    version: int | None = None
+    retries: int = 0
+
+
+@dataclass
+class ModelPullResult:
+    """Result of multi-variation pull operation."""
+
+    model_key: str
+    success: bool
+    variations: dict[str, VariationPullResult] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize pull result to dictionary."""
+        return {
+            "model_key": self.model_key,
+            "success": self.success,
+            "variations": {
+                k: {
+                    "variation": v.variation,
+                    "handle": v.handle,
+                    "success": v.success,
+                    "destination": str(v.destination),
+                    "files_written": v.files_written,
+                    "files_kept": v.files_kept,
+                    "checksums": v.checksums,
+                    "checksum_verified": v.checksum_verified,
+                    "error": v.error,
+                    "version": v.version,
+                    "retries": v.retries,
+                }
+                for k, v in self.variations.items()
+            },
+            "errors": self.errors,
+        }
 
 
 @dataclass(frozen=True)
@@ -124,6 +178,8 @@ class ModelPushResult:
                     "error": v.error,
                     "dry_run": v.dry_run,
                     "skipped": v.skipped,
+                    "checksums": v.checksums,
+                    "retries": v.retries,
                 }
                 for k, v in self.variations.items()
             },
@@ -231,6 +287,7 @@ class KaggleModelSyncManager:
         version_notes: str | None = None,
         dry_run: bool = False,
         facts: ReleaseFacts | None = None,
+        force: bool = False,
     ) -> VariationPushResult:
         """Validate and upload a single isolated model variation to Kaggle Models Hub.
 
@@ -241,7 +298,7 @@ class KaggleModelSyncManager:
         A payload whose files hash exactly like the last upload of this variation (recorded in
         ``.kaggle_sync.json``) is skipped: no new Hub version (K-MDL-5). Without
         ``version_notes`` the notes come from :func:`build_version_notes` (``facts`` when the
-        caller already read them).
+        caller already read them). Passing ``force=True`` bypasses the hash check and re-uploads.
         """
         if variation not in VARIATION_BY_KEY:
             return VariationPushResult(
@@ -281,9 +338,12 @@ class KaggleModelSyncManager:
                     )
                 )
                 _stage_default_payload(variation_dir, upload_dir)
-            return self._upload_checked(_Upload(model_key, variation, upload_dir, notes, dry_run))
+            return self._upload_checked(
+                _Upload(model_key, variation, upload_dir, notes, dry_run),
+                force=force,
+            )
 
-    def _upload_checked(self, upload: _Upload) -> VariationPushResult:
+    def _upload_checked(self, upload: _Upload, force: bool = False) -> VariationPushResult:
         """Audit the payload, skip it when unchanged, else upload it (or report on dry run)."""
         model_key, variation = upload.model_key, upload.variation
         handle = self.get_handle(model_key, variation)
@@ -296,31 +356,52 @@ class KaggleModelSyncManager:
         files = [p.name for p in upload.payload_dir.iterdir() if p.is_file() or p.is_dir()]
         hashes = payload_hashes(upload.payload_dir)
         manifest = SyncManifest(self.get_model_dir(model_key))
-        if hashes and manifest.pushed_hashes(variation) == hashes:
+        if not force and hashes and manifest.pushed_hashes(variation) == hashes:
             logger.info("Skipping %s: payload unchanged since the last upload", handle)
             return VariationPushResult(
-                variation, handle, True, files, dry_run=upload.dry_run, skipped=True
+                variation,
+                handle,
+                True,
+                files,
+                dry_run=upload.dry_run,
+                skipped=True,
+                checksums=hashes,
             )
         if upload.dry_run:
             logger.info("[DRY-RUN] Verified Kaggle model variation payload %s", handle)
-            return VariationPushResult(variation, handle, True, files, dry_run=True)
+            return VariationPushResult(
+                variation, handle, True, files, dry_run=True, checksums=hashes
+            )
 
-        error = self._upload(handle, upload, self.variation_license(model_key, variation))
+        error, retries = self._upload(handle, upload, self.variation_license(model_key, variation))
         if error is not None:
-            return VariationPushResult(variation, handle, False, files, error=error)
+            return VariationPushResult(
+                variation,
+                handle,
+                False,
+                files,
+                error=error,
+                checksums=hashes,
+                retries=retries,
+            )
         manifest.record_push(variation, hashes, upload.notes)
         manifest.save()
         logger.info("[OK] Successfully uploaded %s to Kaggle Models Hub", handle)
-        return VariationPushResult(variation, handle, True, files)
+        return VariationPushResult(
+            variation, handle, True, files, checksums=hashes, retries=retries
+        )
 
     @staticmethod
-    def _upload(handle: str, upload: _Upload, license_name: str) -> str | None:
-        """Upload the payload as a new version of ``handle``; the error text, or None."""
+    def _upload(handle: str, upload: _Upload, license_name: str) -> tuple[str | None, int]:
+        """Upload the payload as a new version of ``handle``; returns (error, retries)."""
         try:
             kagglehub = importlib.import_module("kagglehub")
         except ImportError:
-            return "kagglehub SDK is not installed in runtime environment."
-        try:
+            return "kagglehub SDK is not installed in runtime environment.", 0
+
+        retries_count = 0
+
+        def _do_upload() -> None:
             logger.info("Uploading %s to Kaggle Models Hub: %s ...", upload.variation, handle)
             kagglehub.model_upload(
                 handle=handle,
@@ -328,10 +409,26 @@ class KaggleModelSyncManager:
                 license_name=license_name,
                 version_notes=upload.notes,
             )
-        except kagglehub_errors() as exc:
+
+        def _on_retry(attempt: int, exc: Exception, _sleep: float) -> None:
+            nonlocal retries_count
+            retries_count = attempt
+            logger.warning("Upload retry %d for %s after error: %s", attempt, handle, exc)
+
+        try:
+            retry_with_backoff(
+                _do_upload,
+                retries=3,
+                initial_delay=1.0,
+                backoff_factor=2.0,
+                max_delay=15.0,
+                retryable_exceptions=kagglehub_errors(),
+                on_retry=_on_retry,
+            )
+            return None, retries_count
+        except (*kagglehub_errors(), RuntimeError) as exc:
             logger.error("Failed uploading %s to Kaggle Models Hub: %s", handle, exc)
-            return str(exc)
-        return None
+            return str(exc), retries_count
 
     def _payload_problem(
         self, model_key: str, variation: str, variation_dir: Path, handle: str, dry_run: bool
@@ -375,6 +472,7 @@ class KaggleModelSyncManager:
         version_notes: str | None = None,
         dry_run: bool = False,
         observer: PushObserver | None = None,
+        force: bool = False,
     ) -> ModelPushResult:
         """Publish ``variation`` (one key or ``"all"``) of a model: the one push policy.
 
@@ -385,7 +483,7 @@ class KaggleModelSyncManager:
         2. create or update the model page (title, license) BEFORE the first upload; when that
            fails nothing is uploaded (K-MDL-6);
         3. upload each variation with its license and version notes (epoch, metrics, suite
-           version), skipping payloads unchanged since the last upload (K-MDL-5);
+           version), skipping payloads unchanged since the last upload (K-MDL-5) unless force=True;
         4. sync model and instance metadata again (instances created by step 3).
         """
         variations = selected_variations(variation)
@@ -410,7 +508,12 @@ class KaggleModelSyncManager:
             if observer is not None:
                 observer.variation_started(index, total, var, self.get_handle(model_key, var))
             var_res = self.push_variation(
-                model_key, var, version_notes=version_notes, dry_run=dry_run, facts=facts
+                model_key,
+                var,
+                version_notes=version_notes,
+                dry_run=dry_run,
+                facts=facts,
+                force=force,
             )
             result.variations[var] = var_res
             if not var_res.success:
@@ -475,13 +578,33 @@ class KaggleModelSyncManager:
         variation: str,
         force_download: bool = False,
         version: int | None = None,
+        expected_checksums: dict[str, str] | None = None,
     ) -> bool:
         """Download one variation into a temporary folder and merge it into the hub folder.
 
         Local files are never deleted. ``force_download`` overwrites only the files being
         pulled; without it, newer local checkpoints (by stored epoch) are kept. See
         :mod:`training.cloud.model_pull`. ``version`` pins the Hub version (default latest).
+        ``expected_checksums`` optionally verifies file SHA-256 hashes post-download.
         """
+        res = self.pull_variation_detailed(
+            model_key=model_key,
+            variation=variation,
+            force_download=force_download,
+            version=version,
+            expected_checksums=expected_checksums,
+        )
+        return res.success
+
+    def pull_variation_detailed(
+        self,
+        model_key: str,
+        variation: str,
+        force_download: bool = False,
+        version: int | None = None,
+        expected_checksums: dict[str, str] | None = None,
+    ) -> VariationPullResult:
+        """Download one variation, verify checksums, and return a structured VariationPullResult."""
         if variation not in VARIATION_BY_KEY:
             raise ValueError(
                 f"Unknown variation '{variation}'. Allowed: {list(VARIATION_BY_KEY.keys())}"
@@ -489,7 +612,7 @@ class KaggleModelSyncManager:
 
         handle = self.get_handle(model_key, variation)
         if version is not None:
-            handle = f"{handle}/{int(version)}"
+            handle = f"{handle}/{version}"
         dest_dir = self.pull_destination(model_key, variation)
 
         try:
@@ -499,23 +622,98 @@ class KaggleModelSyncManager:
 
         self.hub_root.mkdir(parents=True, exist_ok=True)
         logger.info("Pulling Kaggle variation %s -> %s", handle, dest_dir)
+
+        retries_count = 0
+
+        def _do_download(target_path: Path) -> str:
+            return kagglehub.model_download(handle=handle, output_dir=str(target_path / "download"))
+
+        def _on_retry(attempt: int, exc: Exception, _sleep: float) -> None:
+            nonlocal retries_count
+            retries_count = attempt
+            logger.warning("Download retry %d for %s after error: %s", attempt, handle, exc)
+
         with tempfile.TemporaryDirectory(
             prefix=f".kaggle-pull-{model_key}-", dir=self.hub_root
         ) as tmp:
-            downloaded = kagglehub.model_download(
-                handle=handle, output_dir=str(Path(tmp) / "download")
-            )
+            tmp_path = Path(tmp)
+            try:
+                downloaded = retry_with_backoff(
+                    lambda: _do_download(tmp_path),
+                    retries=3,
+                    initial_delay=1.0,
+                    backoff_factor=2.0,
+                    max_delay=15.0,
+                    retryable_exceptions=kagglehub_errors(),
+                    on_retry=_on_retry,
+                )
+            except (*kagglehub_errors(), RuntimeError) as exc:
+                logger.error("Failed pulling %s: %s", handle, exc)
+                return VariationPullResult(
+                    variation=variation,
+                    handle=handle,
+                    success=False,
+                    destination=dest_dir,
+                    error=str(exc),
+                    version=version,
+                    retries=retries_count,
+                )
+
             if not downloaded or not Path(downloaded).is_dir():
                 logger.warning("Kaggle returned no folder for %s", handle)
-                return False
-            report = merge_downloaded_payload(
-                Path(downloaded),
-                dest_dir,
-                force=force_download,
-                keep=is_default_payload_file if variation == PYTORCH_DEFAULT.key else None,
-            )
-        logger.info("Pulled %s: wrote %s; kept newer local %s", handle, report.written, report.kept)
-        return True
+                return VariationPullResult(
+                    variation=variation,
+                    handle=handle,
+                    success=False,
+                    destination=dest_dir,
+                    error="Kaggle returned no folder",
+                    version=version,
+                    retries=retries_count,
+                )
+
+            try:
+                report = merge_downloaded_payload(
+                    Path(downloaded),
+                    dest_dir,
+                    force=force_download,
+                    keep=is_default_payload_file if variation == PYTORCH_DEFAULT.key else None,
+                    expected_checksums=expected_checksums,
+                )
+            except ValueError as val_err:
+                logger.error("Checksum integrity check failed for %s: %s", handle, val_err)
+                return VariationPullResult(
+                    variation=variation,
+                    handle=handle,
+                    success=False,
+                    destination=dest_dir,
+                    error=str(val_err),
+                    version=version,
+                    retries=retries_count,
+                )
+
+        manifest = SyncManifest(self.get_model_dir(model_key))
+        manifest.record_pull(variation, version=version, hashes=report.checksums)
+        manifest.save()
+
+        logger.info(
+            "Pulled %s: wrote %s; kept newer local %s (verified checksums: %s)",
+            handle,
+            report.written,
+            report.kept,
+            report.checksum_verified,
+        )
+        return VariationPullResult(
+            variation=variation,
+            handle=handle,
+            success=True,
+            destination=dest_dir,
+            files_written=report.written,
+            files_kept=report.kept,
+            checksums=report.checksums,
+            checksum_verified=report.checksum_verified,
+            version=version,
+            retries=retries_count,
+        )
 
     def pull_default_if_newer(self, model_key: str, versions: VersionLookup) -> int | None:
         """Pull ``pytorch/default`` only when the Hub has a version newer than the last pull.
@@ -536,17 +734,56 @@ class KaggleModelSyncManager:
         manifest.save()
         return latest
 
-    def pull_model(self, model_key: str, force_download: bool = False) -> bool:
+    def pull_model(
+        self,
+        model_key: str,
+        force_download: bool = False,
+        version: int | None = None,
+        expected_checksums: dict[str, str] | None = None,
+    ) -> bool:
         """Download all 4 variations of a model from Kaggle Models Hub."""
-        success = True
-        # RuntimeError: raised by pull_variation when the kagglehub SDK is missing.
+        res = self.pull_model_detailed(
+            model_key=model_key,
+            force_download=force_download,
+            version=version,
+            expected_checksums=expected_checksums,
+        )
+        return res.success
+
+    def pull_model_detailed(
+        self,
+        model_key: str,
+        force_download: bool = False,
+        version: int | None = None,
+        expected_checksums: dict[str, str] | None = None,
+    ) -> ModelPullResult:
+        """Download all 4 variations of a model and return a structured ModelPullResult."""
         pull_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), RuntimeError)
+        result = ModelPullResult(model_key=model_key, success=True)
         for var_key in VARIATION_BY_KEY:
             try:
-                var_ok = self.pull_variation(model_key, var_key, force_download=force_download)
-                if not var_ok:
-                    success = False
+                var_res = self.pull_variation_detailed(
+                    model_key=model_key,
+                    variation=var_key,
+                    force_download=force_download,
+                    version=version,
+                    expected_checksums=expected_checksums,
+                )
+                result.variations[var_key] = var_res
+                if not var_res.success:
+                    result.success = False
+                    if var_res.error:
+                        result.errors.append(f"[{var_key}] {var_res.error}")
             except pull_errors as exc:
                 logger.warning("Failed pulling variation %s for %s: %s", var_key, model_key, exc)
-                success = False
-        return success
+                result.success = False
+                result.errors.append(f"[{var_key}] {exc}")
+                result.variations[var_key] = VariationPullResult(
+                    variation=var_key,
+                    handle=self.get_handle(model_key, var_key),
+                    success=False,
+                    destination=self.pull_destination(model_key, var_key),
+                    error=str(exc),
+                    version=version,
+                )
+        return result
