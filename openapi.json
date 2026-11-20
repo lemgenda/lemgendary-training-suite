@@ -3,7 +3,7 @@
   "info": {
     "title": "LemGendary Model Training Suite Sidecar API",
     "description": "Local background daemon coordinating training runs, evaluations, exports, and telemetry.",
-    "version": "16.9.229"
+    "version": "16.9.240"
   },
   "paths": {
     "/api/health": {
@@ -614,6 +614,67 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Validate Model Variations Api Models  Model Key  Variations Validate Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/models/{model_key}/verify": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Verify Model Contract",
+        "description": "Execute complete multi-pillar verification contract on model family.",
+        "operationId": "verify_model_contract_api_models__model_key__verify_post",
+        "parameters": [
+          {
+            "name": "model_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Key"
+            }
+          },
+          {
+            "name": "checkpoint",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Checkpoint"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Verify Model Contract Api Models  Model Key  Verify Post"
                 }
               }
             }

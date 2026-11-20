@@ -201,6 +201,36 @@ class TestServerSubsystem(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             self.assertIn("lines", resp.json())
 
+            # 7. Additional training dispatch endpoints
+            resp = client.post("/api/training/evaluate", json={"model": "test_model"})
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["status"], "pending")
+
+            resp = client.post("/api/training/export", json={"model": "test_model"})
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["status"], "pending")
+
+            resp = client.post("/api/training/llm/train", json={"model": "test_model"})
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["status"], "pending")
+
+            resp = client.post("/api/training/llm/export", json={"model": "test_model"})
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["status"], "pending")
+
+            resp = client.post("/api/training/unit-test-all", json={"epochs": 1})
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["status"], "pending")
+
+            # 8. Datasets and Kaggle endpoints
+            resp = client.get("/api/datasets")
+            self.assertEqual(resp.status_code, 200)
+            self.assertIsInstance(resp.json(), list)
+
+            resp = client.get("/api/training/kaggle/accelerators")
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn("accelerators", resp.json())
+
     def test_token_authentication(self) -> None:
         """Verify token enforcement when enforce_auth is enabled."""
         app = create_app(project_root=self.root, enforce_auth=True)
