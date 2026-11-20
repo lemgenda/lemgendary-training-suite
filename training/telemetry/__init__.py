@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from training.telemetry.engine import (
+    FACE_DETECTION_LAYOUT,
     EpochLosses,
     EpochRow,
     ForexRowTag,
@@ -28,6 +29,7 @@ from training.telemetry.validator import TelemetryCsvValidator, TelemetrySchemaE
 __all__ = [
     "COMMON_HISTORY_COLUMNS",
     "COMMON_STEP_COLUMNS",
+    "FACE_DETECTION_LAYOUT",
     "FACE_DETECTION_METRIC_COLUMNS",
     "FOREX_METRIC_COLUMNS",
     "GOVERNOR_TELEMETRY_COLUMNS",
