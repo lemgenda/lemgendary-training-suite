@@ -45,6 +45,7 @@ LIMIT_HOURS_ENV = "LEMGENDARY_SESSION_LIMIT_HOURS"
 MARGIN_MINUTES_ENV = "LEMGENDARY_SESSION_MARGIN_MINUTES"
 """Per-launch ``margin_minutes`` override exported by the generated training cell."""
 CONFIG_SECTION = "kaggle_session"
+COLAB_CONFIG_SECTION = "colab_session"
 DEADLINE_STATUS = "session_deadline"
 """``TrainingSummary.status`` / ``stop_reason`` of a run stopped at its deadline."""
 
@@ -59,9 +60,11 @@ class SessionDeadlineConfig:
     max_resumes: int = 3
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any] | None) -> SessionDeadlineConfig:
-        """Read and validate ``config['kaggle_session']`` (missing keys keep the defaults)."""
-        raw = (config or {}).get(CONFIG_SECTION) or {}
+    def from_config(
+        cls, config: Mapping[str, Any] | None, section: str = CONFIG_SECTION
+    ) -> SessionDeadlineConfig:
+        """Read and validate session config (defaults when section is missing)."""
+        raw = (config or {}).get(section) or {}
         defaults = cls()
         settings = cls(
             limit_hours=float(raw.get("limit_hours", defaults.limit_hours)),
@@ -69,18 +72,20 @@ class SessionDeadlineConfig:
             auto_resume=raw.get("auto_resume", defaults.auto_resume),
             max_resumes=raw.get("max_resumes", defaults.max_resumes),
         )
-        settings.check_window()
-        settings.check_chain()
+        settings.check_window(section)
+        settings.check_chain(section)
         return settings
 
-    def check_window(self) -> None:
+    def check_window(self, section: str = CONFIG_SECTION) -> None:
         """Validate the session window (``limit_hours``, ``margin_minutes``)."""
         if self.limit_hours <= 0 or self.margin_minutes < 0:
-            raise ValueError(f"{CONFIG_SECTION}: limit_hours must be > 0, margin_minutes >= 0")
+            raise ValueError(f"{section}: limit_hours must be > 0, margin_minutes >= 0")
         if self.margin_minutes * 60 >= self.limit_hours * 3600:
-            raise ValueError(f"{CONFIG_SECTION}: margin_minutes must be below limit_hours")
+            raise ValueError(f"{section}: margin_minutes must be below limit_hours")
 
-    def with_window(self, override: SessionWindowOverride) -> SessionDeadlineConfig:
+    def with_window(
+        self, override: SessionWindowOverride, section: str = CONFIG_SECTION
+    ) -> SessionDeadlineConfig:
         """These settings with a per-launch window override (None fields keep the value)."""
         settings = replace(
             self,
@@ -91,19 +96,19 @@ class SessionDeadlineConfig:
                 self.margin_minutes if override.margin_minutes is None else override.margin_minutes
             ),
         )
-        settings.check_window()
+        settings.check_window(section)
         return settings
 
-    def check_chain(self) -> None:
+    def check_chain(self, section: str = CONFIG_SECTION) -> None:
         """Validate the resume-chain settings (``auto_resume``, ``max_resumes``)."""
         if not isinstance(self.auto_resume, bool):
-            raise TypeError(f"{CONFIG_SECTION}.auto_resume must be true or false")
+            raise TypeError(f"{section}.auto_resume must be true or false")
         if (
             isinstance(self.max_resumes, bool)
             or not isinstance(self.max_resumes, int)
             or self.max_resumes < 0
         ):
-            raise ValueError(f"{CONFIG_SECTION}.max_resumes must be an integer >= 0")
+            raise ValueError(f"{section}.max_resumes must be an integer >= 0")
 
     def with_chain(
         self, auto_resume: bool | None = None, max_resumes: int | None = None
@@ -193,13 +198,17 @@ def session_deadline(
     environ: Mapping[str, str] = os.environ,
     clock: Callable[[], float] = time.time,
 ) -> SessionDeadline | None:
-    """The deadline of a Kaggle run (``env == "kaggle"``); None on every other platform."""
-    if env != "kaggle":
+    """The deadline of a cloud run (``env in ("kaggle", "colab")``); None on local/other."""
+    if env not in ("kaggle", "colab"):
         return None
+    section = COLAB_CONFIG_SECTION if env == "colab" else CONFIG_SECTION
+    platform_name = "Colab" if env == "colab" else "Kaggle"
     override = SessionWindowOverride.from_environ(environ)
-    settings = SessionDeadlineConfig.from_config(config).with_window(override)
+    settings = SessionDeadlineConfig.from_config(config, section=section).with_window(
+        override, section=section
+    )
     if override.active:
-        logger.info("Kaggle session window overridden by the launch: %s", override)
+        logger.info("%s session window overridden by the launch: %s", platform_name, override)
     raw_start = environ.get(SESSION_START_ENV, "")
     try:
         start = float(raw_start) if raw_start else clock()
@@ -208,7 +217,8 @@ def session_deadline(
         start = clock()
     stop_at = start + settings.limit_hours * 3600 - settings.margin_minutes * 60
     logger.info(
-        "Kaggle session deadline in %.1f min (limit %.1f h, margin %.0f min)",
+        "%s session deadline in %.1f min (limit %.1f h, margin %.0f min)",
+        platform_name,
         (stop_at - clock()) / 60,
         settings.limit_hours,
         settings.margin_minutes,
@@ -220,7 +230,7 @@ class SessionDeadlineReached(RuntimeError):
     """Raised inside an epoch when the session deadline passed (progress already saved)."""
 
     def __init__(self, epoch: int, phase: str, step: int) -> None:
-        super().__init__(f"Kaggle session deadline reached at epoch {epoch} ({phase} {step})")
+        super().__init__(f"Session deadline reached at epoch {epoch} ({phase} {step})")
         self.epoch = epoch
         self.phase = phase
         self.step = step

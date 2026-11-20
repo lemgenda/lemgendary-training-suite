@@ -11,7 +11,7 @@ from typing import Any
 
 from training.cloud.errors import kagglehub_errors
 from training.ecosystem import kaggle_owner
-from training.platform_paths import kaggle_paths, on_kaggle
+from training.platform_paths import colab_paths, kaggle_paths, on_colab, on_kaggle
 from training.utils.paths import (
     MODELS_FOLDER,
     get_models_hub_root,
@@ -150,6 +150,10 @@ class CheckpointRecoveryEngine:
         if self.env == "kaggle" or on_kaggle():
             self._add_kaggle_roots(roots, model_name)
 
+        # Colab Google Drive mounted roots and working directory
+        if self.env == "colab" or on_colab():
+            self._add_colab_roots(roots, model_name)
+
         return unique_resolved(roots)
 
     def _local_roots(self, model_name: str, cfg: dict[str, Any]) -> list[Path]:
@@ -181,6 +185,21 @@ class CheckpointRecoveryEngine:
             if hc.exists() and hc not in roots:
                 roots.append(hc)
         return roots
+
+    def _add_colab_roots(self, roots: list[Path], model_name: str) -> None:
+        """Add Colab Google Drive mounted directories for ``model_name``."""
+        colab = colab_paths()
+        colab_working = Path(colab.hub_root) / model_name / "checkpoints"
+        if colab_working.exists():
+            roots.append(colab_working)
+
+        drive_base = Path("/content/drive/MyDrive/LemGendaryModels") / model_name / "checkpoints"
+        if drive_base.exists():
+            roots.append(drive_base)
+
+        drive_direct = Path("/content/drive/MyDrive") / model_name
+        if drive_direct.exists():
+            roots.append(drive_direct)
 
     def _add_kaggle_roots(self, roots: list[Path], model_name: str) -> None:
         """Add the Kaggle working dir, matching input mounts and a KaggleHub download (first)."""

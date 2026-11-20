@@ -26,14 +26,22 @@ from pathlib import Path
 from training.ecosystem import ENV_MANAGER_FOLDER
 from training.utils.paths import MODELS_FOLDER
 
+COLAB_RELEASE_ENV = "COLAB_RELEASE_TAG"
+"""Set by Google Colab runtime environment."""
+COLAB_WORKING_DIR = "/content"
+"""Standard root working directory for Google Colab."""
+
 __all__ = [
+    "COLAB_RELEASE_ENV",
     "DATASETS_FOLDER",
     "KAGGLE_RUN_TYPE_ENV",
     "KAGGLE_WORKING_DIR_ENV",
     "MODELS_FOLDER",
     "SUITE_FOLDER",
     "PlatformPaths",
+    "colab_paths",
     "kaggle_paths",
+    "on_colab",
     "on_kaggle",
     "platform_paths",
 ]
@@ -106,6 +114,18 @@ def platform_paths(target: str) -> PlatformPaths:
 def kaggle_paths() -> PlatformPaths:
     """Folders of a Kaggle kernel session."""
     return _KAGGLE
+
+
+def colab_paths() -> PlatformPaths:
+    """Folders of a Google Colab session."""
+    return _COLAB
+
+
+def on_colab() -> bool:
+    """Whether this process runs inside a Google Colab session."""
+    if os.environ.get(COLAB_RELEASE_ENV):
+        return True
+    return Path(_COLAB.working_dir).is_dir() and Path("/content/sample_data").exists()
 
 
 def on_kaggle() -> bool:

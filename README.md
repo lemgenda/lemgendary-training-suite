@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.239-STABLE`
+- **Version**: `v16.9.240-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,26 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.240 - Prompt 25 Local / Kaggle / Colab Cloud Training Pipelines
+
+- **Execution Matrix Standardization**: Formalized and documented the
+  execution matrix mapping all model families (Vision, YOLO, Forex, LLM)
+  across Local, Kaggle Cloud, and Google Colab environments for train,
+  optimize, and export workflows.
+- **Fail-Fast Environment Preflight**: Implemented `EnvironmentPreflight` in
+  `training/environment/preflight.py` verifying package dependencies,
+  disk storage headroom thresholds, GPU accelerator readiness, and
+  manifold existence before launching workloads.
+- **Google Colab Auto-Resume & Disconnect Recovery**: Extended session
+  deadline detection and checkpoint recovery in
+  `training/cloud/session_deadline.py` and `training/checkpoint/recovery.py`
+  to support Google Colab sessions, enabling atomic progress saves and
+  background Google Drive sync prior to session termination.
+- **Cloud Resilience Tests**: Added unit and regression test suite in
+  `tests/unit/test_environment_preflight.py` validating fail-fast
+  preflight alerts, disk checks, hardware warnings, and Colab deadline
+  computation.
 
 ### v16.9.239 - Prompt 24 Model Export Pipelines & Verification
 

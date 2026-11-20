@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from training.core_loop import build_training_context
+from training.environment.preflight import EnvironmentPreflight
 from training.governance.yolo_governor import run_governed_yolo_training
 from training.services.notebook_service import NotebookService
 from training.training.engine import TrainingSummary, run_training
@@ -159,7 +160,18 @@ class TrainingService:
             TrainingSummary: Completed run metrics and summary.
         """
         model_key, hyper = request.model_key, request.hyper
-        # 0. Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
+        # 0. Execute fail-fast environment preflight check
+        preflight = EnvironmentPreflight(env=request.env)
+        report = preflight.run_preflight(
+            working_dir=self.project_root,
+            model_key=model_key,
+            strict=False,
+        )
+        if report.has_critical_failures:
+            for issue in report.issues:
+                if issue.critical:
+                    logger.error("Preflight failure [%s]: %s (%s)", issue.category, issue.message, issue.remediation)
+        # 0.1 Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
         # and training dirs
         self._sync_notebooks(model_key)
 
