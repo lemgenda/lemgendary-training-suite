@@ -14,7 +14,6 @@ from training.checkpoint import (
     CheckpointRecoveryEngine,
     MetricVault,
     ResumeState,
-    VaultConsistencyReport,
     audit_disk_space,
     parse_resume_state,
     prune_vault_checkpoints,

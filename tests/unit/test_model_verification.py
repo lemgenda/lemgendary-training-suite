@@ -12,12 +12,6 @@ from tests.fixtures.models import SingleConvModel
 from training.checkpoint.manager import safe_atomic_save
 from training.telemetry.schemas import TaskFamily
 from training.verification.contracts import (
-    CheckpointContract,
-    DeterminismContract,
-    ExportEquivalenceContract,
-    MetricThresholdContract,
-    ModelFamilyContract,
-    SchemaConformanceContract,
     VerificationStage,
 )
 from training.verification.engine import ModelVerificationEngine
@@ -68,7 +62,7 @@ class TestModelVerification(unittest.TestCase):
         safe_atomic_save(payload, ckpt_file)
 
         contract = get_verification_contract("nafnet")
-        res, loaded_model, loaded_path = self.engine.verify_loadability(
+        res, _loaded_model, loaded_path = self.engine.verify_loadability(
             model_key="nafnet",
             checkpoint_path=ckpt_file,
             contract=contract,
