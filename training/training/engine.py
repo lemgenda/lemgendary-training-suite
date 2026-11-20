@@ -10,11 +10,12 @@ import logging
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sized
 from dataclasses import dataclass, field
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import torch
+from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler
 
 from data.forex_sampler import RowGroupAwareSampler
@@ -85,22 +86,21 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
         if r_chg:
             refit_batch_for_resolution(ctx)
         fallback_batch = loader_batch_size(ctx.data.train_loader, 16)
-        curr_batch = int(
-            getattr(ctx.governance.governor.curriculum, "current_batch", fallback_batch)
-        )
-        ctx.data.accumulation_steps = max(
-            1, int(getattr(ctx.governance.governor, "current_acc", ctx.data.accumulation_steps))
-        )
-        curr_sampler = getattr(ctx.data.train_loader, "sampler", None)
-        if curr_sampler is not None and type(curr_sampler).__name__ == "RowGroupAwareSampler":
+        raw_curr_batch = getattr(ctx.governance.governor.curriculum, "current_batch", fallback_batch)
+        curr_batch = int(raw_curr_batch) if not isinstance(raw_curr_batch, int) else raw_curr_batch
+        raw_acc = getattr(ctx.governance.governor, "current_acc", ctx.data.accumulation_steps)
+        ctx.data.accumulation_steps = max(1, int(raw_acc) if not isinstance(raw_acc, int) else raw_acc)
+        raw_sampler = getattr(ctx.data.train_loader, "sampler", None)
+        curr_sampler: Sampler[Any] | None = None
+        if raw_sampler is not None and type(raw_sampler).__name__ == "RowGroupAwareSampler":
             curr_sampler = RowGroupAwareSampler(train_ds, shuffle=True, seed=42)
-        elif curr_sampler is not None and type(curr_sampler).__name__ == "DistributedSampler":
+        elif raw_sampler is not None and type(raw_sampler).__name__ == "DistributedSampler":
             curr_sampler = DistributedSampler(train_ds, shuffle=True)
-        elif curr_sampler is not None and type(curr_sampler).__name__ in (
+        elif isinstance(raw_sampler, Sampler) and type(raw_sampler).__name__ not in (
             "RandomSampler",
             "SequentialSampler",
         ):
-            curr_sampler = None
+            curr_sampler = raw_sampler
         loader_cfg = getattr(ctx.models, "model_info", None) or {}
         loader_overrides = loader_cfg.get("loader") or {}
         num_w = (
@@ -128,8 +128,9 @@ def _rebuild_loader_on_directive(ctx: TrainingContext, f_chg: bool, r_chg: bool)
                 config=ctx.run.config,
             ),
         )
+        train_samples_count = len(train_ds) if isinstance(train_ds, Sized) else getattr(train_ds, "active_samples", "unknown")
         print(
-            f"[CURRICULUM] Updated train loader: {len(train_ds)} active samples "
+            f"[CURRICULUM] Updated train loader: {train_samples_count} active samples "
             f"(fraction={float(new_frac or 1.0) * 100:.0f}%, res={new_res}, "
             f"batch_size={curr_batch}, total_batches={len(ctx.data.train_loader)})",
             flush=True,
