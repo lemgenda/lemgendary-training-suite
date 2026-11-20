@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.237-STABLE`
+- **Version**: `v16.9.238-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,22 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.238 - Prompt 23 Vault Checkpoints Utilization & Consistency Validation
+
+- **Vault Checkpoint Enumeration & Storage**: Formally established the vault contract
+  for individual target SOTA milestones (`vault_[metric].pth`), `latest.pth`, `best.pth`,
+  and `progress.pth` in `LemGendaryModels/<ModelName>/checkpoints/`.
+- **Vault Consistency Validator**: Added `validate_vault_consistency` in
+  `training/checkpoint/vault.py` (`VaultConsistencyReport`) inspecting file readability,
+  non-emptiness, weight dictionary payload validity, and target completeness.
+- **Automated Vault GC / Pruning**: Implemented `prune_vault_checkpoints` to sweep
+  stale `.tmp` writes and purge obsolete `progress.pth` files when `latest.pth` has advanced.
+- **Cross-Platform Recovery & Sync Hardening**: Extended `CheckpointRecoveryEngine`
+  indexing to recognize and mirror `vault_*` checkpoints alongside standard model weights.
+- **End-to-End Transfer Tests**: Added unit tests in `tests/unit/test_checkpoint.py`
+  validating vault consistency auditing, corruption detection, garbage collection, and
+  full end-to-end save -> upload -> download to fresh container -> resume workflows.
 
 ### v16.9.237 - Prompt 22 Checkpoint Save / Resume Modernization & Bit Reproducibility
 

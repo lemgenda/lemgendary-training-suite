@@ -25,7 +25,13 @@ from training.checkpoint.resume import (
     scale_resume_progress,
     stretch_scheduler_runway,
 )
-from training.checkpoint.vault import MetricRecord, MetricVault
+from training.checkpoint.vault import (
+    MetricRecord,
+    MetricVault,
+    VaultConsistencyReport,
+    prune_vault_checkpoints,
+    validate_vault_consistency,
+)
 
 __all__ = [
     "CHECKPOINT_FORMAT_VERSION",
@@ -38,13 +44,16 @@ __all__ = [
     "MetricVault",
     "ResumeProgress",
     "ResumeState",
+    "VaultConsistencyReport",
     "audit_disk_space",
     "canonicalize_checkpoints",
     "generate_all_preflight_assets",
     "generate_preflight_assets",
     "parse_resume_state",
+    "prune_vault_checkpoints",
     "safe_atomic_save",
     "safe_load_checkpoint",
     "scale_resume_progress",
     "stretch_scheduler_runway",
+    "validate_vault_consistency",
 ]

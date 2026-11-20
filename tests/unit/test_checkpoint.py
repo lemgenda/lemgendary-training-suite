@@ -14,12 +14,15 @@ from training.checkpoint import (
     CheckpointRecoveryEngine,
     MetricVault,
     ResumeState,
+    VaultConsistencyReport,
     audit_disk_space,
     parse_resume_state,
+    prune_vault_checkpoints,
     safe_atomic_save,
     safe_load_checkpoint,
     scale_resume_progress,
     stretch_scheduler_runway,
+    validate_vault_consistency,
 )
 from training.utils.rng_state import restore_rng_state, rng_payload
 
@@ -403,6 +406,109 @@ class TestCheckpointSubsystem(unittest.TestCase):
         # Assert loss continuity and exact bit-reproducibility
         self.assertAlmostEqual(loss2_ref.item(), loss2_resumed.item(), places=6)
         self.assertTrue(torch.equal(ref_weight, resumed_model.weight.data))
+
+    def test_vault_consistency_validator_and_pruning(self) -> None:
+        """Verify vault consistency auditing, corruption detection, and garbage collection."""
+        ckpt_dir = self.root / "checkpoints"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Valid checkpoints: best.pth, latest.pth, vault_psnr.pth
+        best_p = ckpt_dir / "best.pth"
+        latest_p = ckpt_dir / "latest.pth"
+        vault_psnr_p = ckpt_dir / "vault_psnr.pth"
+        payload = {"epoch": 2, "model_state": {"w": torch.tensor([1.0])}}
+        safe_atomic_save(payload, best_p)
+        safe_atomic_save(payload, latest_p)
+        safe_atomic_save(payload, vault_psnr_p)
+
+        report = validate_vault_consistency("test_model", ckpt_dir, {"psnr": 30.0})
+        self.assertTrue(report.is_valid)
+        self.assertIn("vault_psnr.pth", report.checkpoints_found)
+        self.assertEqual(len(report.missing_targets), 0)
+
+        # 2. Add stale progress.pth (epoch 1 vs latest epoch 2) and orphan temp file
+        progress_p = ckpt_dir / "progress.pth"
+        safe_atomic_save({"epoch": 1, "model_state": {"w": torch.tensor([1.0])}}, progress_p)
+        orphan_tmp = ckpt_dir / "stray.tmp"
+        orphan_tmp.write_text("incomplete write", encoding="utf-8")
+
+        stale_report = validate_vault_consistency("test_model", ckpt_dir)
+        self.assertFalse(stale_report.is_valid)
+        self.assertIn("progress.pth", stale_report.stale_checkpoints)
+
+        # 3. Prune vault: removes stray .tmp and stale progress.pth
+        pruned = prune_vault_checkpoints(ckpt_dir)
+        self.assertIn("stray.tmp", pruned)
+        self.assertIn("progress.pth", pruned)
+        self.assertFalse(orphan_tmp.exists())
+        self.assertFalse(progress_p.exists())
+
+        # 4. Corruption detection: empty (0-byte) checkpoint file
+        corrupt_p = ckpt_dir / "corrupted.pth"
+        corrupt_p.touch()
+        corrupt_report = validate_vault_consistency("test_model", ckpt_dir)
+        self.assertFalse(corrupt_report.is_valid)
+        self.assertIn("corrupted.pth", corrupt_report.corrupted_checkpoints)
+
+    def test_e2e_vault_save_download_fresh_container_resume(self) -> None:
+        """Simulate end-to-end: training save -> upload staging -> download to fresh -> resume."""
+        source_dir = self.root / "source_hub" / "model_x" / "checkpoints"
+        source_dir.mkdir(parents=True, exist_ok=True)
+
+        torch.manual_seed(42)
+        model = torch.nn.Linear(2, 2)
+        optim = torch.optim.Adam(model.parameters(), lr=0.01)
+        save_payload = {
+            "epoch": 5,
+            "step": 500,
+            "model_state": model.state_dict(),
+            "optimizer_state": optim.state_dict(),
+            **rng_payload(),
+        }
+        vault_pth = source_dir / "vault_psnr.pth"
+        latest_pth = source_dir / "latest.pth"
+        safe_atomic_save(save_payload, vault_pth)
+        safe_atomic_save(save_payload, latest_pth)
+
+        # Simulate upload to remote storage container
+        remote_store = self.root / "remote_cloud_storage"
+        remote_store.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source_dir, remote_store / "checkpoints")
+
+        # Simulate fresh container initialization
+        fresh_container_root = self.root / "fresh_container"
+        dest_checkpoints = fresh_container_root / "LemGendaryModels" / "model_x" / "checkpoints"
+        recovery_engine = CheckpointRecoveryEngine(
+            workspace_root=fresh_container_root,
+            project_root=fresh_container_root / "suite",
+            env="local",
+        )
+        # Pull / sync from remote container
+        recovery_engine.sync_to_local_hub(
+            source_root=remote_store / "checkpoints",
+            target_dir=dest_checkpoints,
+            model_name="model_x",
+        )
+        self.assertTrue((dest_checkpoints / "vault_psnr.pth").exists())
+        self.assertTrue((dest_checkpoints / "latest.pth").exists())
+
+        # Validate vault consistency on the freshly initialized container
+        report = validate_vault_consistency("model_x", dest_checkpoints, {"psnr": 30.0})
+        self.assertTrue(report.is_valid)
+
+        # Resume model from recovered vault checkpoint
+        resumed_model = torch.nn.Linear(2, 2)
+        resumed_optim = torch.optim.Adam(resumed_model.parameters(), lr=0.01)
+        resumed_data = safe_load_checkpoint(dest_checkpoints / "vault_psnr.pth")
+        resume_state = parse_resume_state(resumed_data)
+        resumed_model.load_state_dict(resume_state.model_state_dict)
+        if resume_state.optimizer_state_dict:
+            resumed_optim.load_state_dict(resume_state.optimizer_state_dict)
+        restore_rng_state(resumed_data)
+
+        self.assertEqual(resume_state.epoch, 5)
+        for p1, p2 in zip(model.parameters(), resumed_model.parameters()):
+            self.assertTrue(torch.equal(p1, p2))
 
 
 if __name__ == "__main__":

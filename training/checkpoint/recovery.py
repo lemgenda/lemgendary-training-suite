@@ -38,7 +38,7 @@ def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str) -> Path | None:
         print(
             f"[RECOVERY] Probing KaggleHub checkpoints for '{k_handle}' (5s timeout)...", flush=True
         )
-    probe_errors = (RuntimeError, *kagglehub_errors())
+    probe_tuple = tuple(kagglehub_errors())
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(model_download_fn, k_handle)
@@ -49,7 +49,7 @@ def _probe_kagglehub_checkpoints(kh_mod: Any, model_name: str) -> Path | None:
             flush=True,
         )
         return None
-    except probe_errors as kh_exc:
+    except (RuntimeError, *probe_tuple) as kh_exc:
         logger.debug("KaggleHub checkpoint probe notice for %s: %s", k_handle, kh_exc)
         return None
     dl_path = Path(str(dl_res))
@@ -111,10 +111,13 @@ def _index_checkpoint_file(
 
     if ("latest" in name_lower or "last" in name_lower) and "latest" not in discovered:
         discovered["latest"] = entry
-    elif "best" in name_lower and "best" not in discovered:
+    elif "best" in name_lower and "vault_" not in name_lower and "best" not in discovered:
         discovered["best"] = entry
     elif "progress" in name_lower and "progress" not in discovered:
         discovered["progress"] = entry
+    elif "vault_" in name_lower:
+        vault_key = name_lower.split("vault_")[-1].replace(".pth", "").replace(".pt", "")
+        discovered[f"vault_{vault_key}"] = entry
 
     # Check for epoch patterns (e.g. model_epoch_015.pth)
     match = re.search(r"epoch_?(\d+)", name_lower)

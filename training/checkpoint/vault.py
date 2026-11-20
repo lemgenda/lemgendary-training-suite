@@ -9,7 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from training.checkpoint.manager import _resilient_replace
+from training.checkpoint.manager import (
+    CHECKPOINT_LOAD_ERRORS,
+    _resilient_replace,
+    safe_load_checkpoint,
+)
 from training.utils.atomic import remove_temp_file_safely
 
 logger = logging.getLogger("lemtrain.checkpoint.vault")
@@ -171,3 +175,154 @@ class MetricVault:
                     self.record_epoch(epoch, metrics, checkpoint_path=ckpt_path)
         except (OSError, csv.Error, ValueError, TypeError, AttributeError) as exc:
             logger.warning("Error reading metrics CSV from %s: %s", target, exc)
+
+
+@dataclass(frozen=True)
+class VaultConsistencyReport:
+    """Report emitted by validate_vault_consistency."""
+
+    is_valid: bool
+    checkpoints_found: list[str]
+    missing_targets: list[str]
+    stale_checkpoints: list[str]
+    corrupted_checkpoints: list[str]
+    issues: list[str]
+
+
+def validate_vault_consistency(
+    model_name: str,
+    checkpoints_dir: Path | str,
+    sota_targets: dict[str, float] | None = None,
+) -> VaultConsistencyReport:
+    """Audit and validate the consistency of vault checkpoints for a model.
+
+    Verifies:
+    1. Readability and non-emptiness of all checkpoints (best, latest, progress, vault_*).
+    2. Payload integrity (loads with safe_load_checkpoint, contains model weights).
+    3. Consistency with sota_targets (checks for missing or unachieved targets).
+    4. Detection of corrupt, truncated, or stale artifacts.
+    """
+    ckpt_path = Path(checkpoints_dir).resolve()
+    if not ckpt_path.exists():
+        return VaultConsistencyReport(
+            is_valid=False,
+            checkpoints_found=[],
+            missing_targets=list((sota_targets or {}).keys()),
+            stale_checkpoints=[],
+            corrupted_checkpoints=[],
+            issues=[f"Checkpoints directory does not exist: {ckpt_path}"],
+        )
+
+    checkpoints_found: list[str] = []
+    corrupted: list[str] = []
+    stale: list[str] = []
+    issues: list[str] = []
+
+    for item in ckpt_path.glob("*.pth"):
+        if not item.is_file():
+            continue
+        checkpoints_found.append(item.name)
+        if item.stat().st_size == 0:
+            corrupted.append(item.name)
+            issues.append(f"Checkpoint {item.name} is 0 bytes (truncated/empty).")
+            continue
+
+        try:
+            payload = safe_load_checkpoint(item, map_location="cpu")
+            if not isinstance(payload, dict):
+                corrupted.append(item.name)
+                issues.append(f"Checkpoint {item.name} payload is not a dictionary.")
+                continue
+
+            has_weights = any(
+                k in payload and isinstance(payload[k], dict)
+                for k in ("model_state", "model_state_dict", "state_dict", "model")
+            )
+            if not has_weights:
+                corrupted.append(item.name)
+                issues.append(f"Checkpoint {item.name} lacks model weight state dictionary.")
+        except CHECKPOINT_LOAD_ERRORS as exc:
+            corrupted.append(item.name)
+            issues.append(f"Failed loading checkpoint {item.name}: {exc}")
+
+    # Check for stale progress.pth when latest.pth has higher epoch
+    latest_p = ckpt_path / "latest.pth"
+    progress_p = ckpt_path / "progress.pth"
+    if latest_p.exists() and progress_p.exists():
+        try:
+            l_data = safe_load_checkpoint(latest_p, map_location="cpu")
+            p_data = safe_load_checkpoint(progress_p, map_location="cpu")
+            if int(l_data.get("epoch", 0)) >= int(p_data.get("epoch", 0)):
+                stale.append(progress_p.name)
+                issues.append(
+                    f"Stale progress checkpoint {progress_p.name} persists while "
+                    f"latest.pth is at equal or newer epoch."
+                )
+        except CHECKPOINT_LOAD_ERRORS as e:
+            logger.debug("Notice inspecting latest vs progress: %s", e)
+
+    missing_targets: list[str] = []
+    if sota_targets:
+        for target in sota_targets:
+            target_clean = target.lower().strip().replace("-", "_")
+            expected_name = f"vault_{target_clean}.pth"
+            if expected_name not in checkpoints_found:
+                missing_targets.append(target)
+
+    is_valid = len(corrupted) == 0 and len(stale) == 0
+    return VaultConsistencyReport(
+        is_valid=is_valid,
+        checkpoints_found=sorted(checkpoints_found),
+        missing_targets=missing_targets,
+        stale_checkpoints=sorted(stale),
+        corrupted_checkpoints=sorted(corrupted),
+        issues=issues,
+    )
+
+
+def prune_vault_checkpoints(checkpoints_dir: Path | str, dry_run: bool = False) -> list[str]:
+    """Prune stale, redundant, and temporary files from the checkpoint vault.
+
+    Removes:
+    1. Stray '.tmp' files left from interrupted saves.
+    2. Stale progress.pth when latest.pth represents an equal or newer epoch.
+    Returns list of deleted/pruned file names.
+    """
+    ckpt_path = Path(checkpoints_dir).resolve()
+    if not ckpt_path.exists():
+        return []
+
+    pruned: list[str] = []
+
+    # 1. Prune temporary files
+    for item in ckpt_path.glob("*.tmp"):
+        if item.is_file():
+            pruned.append(item.name)
+            if not dry_run:
+                try:
+                    item.unlink()
+                    logger.info("Pruned temporary file: %s", item.name)
+                except OSError as e:
+                    logger.warning("Could not unlink temp file %s: %s", item.name, e)
+
+    # 2. Prune obsolete progress.pth
+    latest_p = ckpt_path / "latest.pth"
+    progress_p = ckpt_path / "progress.pth"
+    if latest_p.exists() and progress_p.exists():
+        try:
+            l_data = safe_load_checkpoint(latest_p, map_location="cpu")
+            p_data = safe_load_checkpoint(progress_p, map_location="cpu")
+            if int(l_data.get("epoch", 0)) >= int(p_data.get("epoch", 0)):
+                pruned.append(progress_p.name)
+                if not dry_run:
+                    progress_p.unlink()
+                    logger.info(
+                        "Pruned obsolete progress checkpoint %s (latest ep %d >= progress ep %d)",
+                        progress_p.name,
+                        int(l_data.get("epoch", 0)),
+                        int(p_data.get("epoch", 0)),
+                    )
+        except CHECKPOINT_LOAD_ERRORS as e:
+            logger.debug("Notice while checking progress pruning: %s", e)
+
+    return pruned
