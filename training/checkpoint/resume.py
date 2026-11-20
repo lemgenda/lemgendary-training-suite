@@ -14,6 +14,7 @@ class ResumeProgress:
     """Where in the epoch the checkpoint was taken."""
 
     iteration: int
+    total_steps: int = 0
     is_intra_epoch: bool = False
     phase: str = "train"
 
@@ -66,6 +67,11 @@ class ResumeState:
     def iteration(self) -> int:
         """``progress.iteration``."""
         return self.progress.iteration
+
+    @property
+    def total_steps(self) -> int:
+        """``progress.total_steps``."""
+        return self.progress.total_steps
 
     @property
     def is_intra_epoch(self) -> bool:
@@ -136,8 +142,8 @@ def _model_state(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _progress(payload: dict[str, Any], iteration: int) -> tuple[str, bool, int]:
-    """``(phase, is_intra_epoch, iteration)`` from ``progress_metadata`` or top-level keys."""
+def _progress(payload: dict[str, Any], iteration: int) -> tuple[str, bool, int, int]:
+    """``(phase, is_intra_epoch, iteration, total_steps)`` from ``progress_metadata`` or top-level keys."""
     progress_meta = payload.get("progress_metadata")
     if isinstance(progress_meta, dict):
         step = int(progress_meta.get("step", iteration))
@@ -149,17 +155,19 @@ def _progress(payload: dict[str, Any], iteration: int) -> tuple[str, bool, int]:
             str(progress_meta.get("phase", "train")),
             not is_completed,
             step,
+            total_steps,
         )
     phase = str(payload.get("phase", "train"))
     step_val = payload.get("step")
     total_val = payload.get("total_steps")
+    total_steps = int(total_val) if total_val is not None else 0
     is_step_present = payload.get("phase") == "train" and step_val is not None
-    if is_step_present and total_val is not None and int(total_val) > 0:
-        is_completed = (int(step_val) / float(int(total_val))) >= 0.999
+    if is_step_present and total_steps > 0:
+        is_completed = (int(step_val) / float(total_steps)) >= 0.999
         is_intra = not is_completed
     else:
         is_intra = is_step_present
-    return phase, is_intra, iteration
+    return phase, is_intra, iteration, total_steps
 
 
 def _first(payload: dict[str, Any], *keys: str) -> Any:
@@ -188,7 +196,7 @@ def _emd_form(payload: dict[str, Any]) -> str | None:
 
 def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
     """Parse a checkpoint dictionary into a structured ResumeState object."""
-    phase, is_intra, iteration = _progress(
+    phase, is_intra, iteration, total_steps = _progress(
         payload, int(payload.get("iteration", payload.get("iter", 0)))
     )
     best_score = payload.get("best_score")
@@ -203,7 +211,9 @@ def parse_resume_state(payload: dict[str, Any]) -> ResumeState:
     return ResumeState(
         epoch=int(payload.get("epoch", 0)),
         model_state_dict=_model_state(payload),
-        progress=ResumeProgress(iteration=iteration, is_intra_epoch=is_intra, phase=phase),
+        progress=ResumeProgress(
+            iteration=iteration, total_steps=total_steps, is_intra_epoch=is_intra, phase=phase
+        ),
         optim=ResumeOptimStates(
             optimizer_state_dict=_dict_or_none(
                 _first(payload, "optimizer_state", "optimizer_state_dict", "optimizer")

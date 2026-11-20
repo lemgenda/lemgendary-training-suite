@@ -13,6 +13,7 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
+from training.checkpoint.resume import scale_resume_progress
 from training.loss_emd import EMD_FORM_KEY
 from training.run_settings.record import PAYLOAD_KEY as RUN_SETTINGS_KEY
 from training.training.context import TrainingContext
@@ -60,12 +61,24 @@ class BatchClock:
         return max(1, done - self.resume_step) / max(0.001, elapsed), elapsed
 
 
-def resume_iteration(resume_state: Any, phase: str, handled: bool) -> int:
+def resume_iteration(
+    resume_state: Any, phase: str, handled: bool, current_loader_len: int = 0
+) -> int:
     """Return the batches already done in ``phase`` for an unhandled intra-epoch resume."""
     if resume_state is None or handled:
         return 0
     if resume_state.is_intra_epoch and resume_state.phase == phase and resume_state.iteration > 0:
-        return resume_state.iteration
+        raw_iter = int(resume_state.iteration)
+        recorded_total = int(getattr(resume_state, "total_steps", 0) or 0)
+        if recorded_total > 0 and current_loader_len > 0 and recorded_total != current_loader_len:
+            scaled = scale_resume_progress(
+                raw_iter,
+                recorded_total,
+                current_loader_len,
+                is_progress_snapshot=True,
+            )
+            return scaled
+        return raw_iter
     return 0
 
 

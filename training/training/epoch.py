@@ -115,8 +115,12 @@ class _TrainingPass:
     def resume(self) -> None:
         """Restore the totals of an interrupted epoch, if any."""
         ctx = self.ctx
+        num_batches = len(ctx.data.train_loader) if hasattr(ctx.data.train_loader, "__len__") else 0
         resume_step = resume_iteration(
-            ctx.state.resume_state, "train", ctx.state.guards.train_step_handled
+            ctx.state.resume_state,
+            "train",
+            ctx.state.guards.train_step_handled,
+            current_loader_len=num_batches,
         )
         if resume_step <= 0:
             return
