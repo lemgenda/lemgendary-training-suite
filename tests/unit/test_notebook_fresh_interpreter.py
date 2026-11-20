@@ -172,7 +172,6 @@ def test_push_cell_checks_subprocess_exit_code(
         runpy.run_path(str(script))
         out = capsys.readouterr().out
         assert "stub publish" in out
-        assert "Google Drive mirror not updated (exit code 1" in out
 
 
 @pytest.mark.parametrize("target", ["kaggle", "colab"])

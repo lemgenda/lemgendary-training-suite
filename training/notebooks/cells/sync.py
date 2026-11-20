@@ -35,7 +35,11 @@ def build_fuse_mount_cell() -> dict[str, Any]:
 def build_continuous_sync_cell(meta: ModelNotebookMeta) -> dict[str, Any]:
     """Build background Google Drive sync worker code cell for Colab."""
     source = [
-        "import os, time, shutil, threading\n",
+        "import os\n",
+        "import shutil\n",
+        "import threading\n",
+        "import time\n",
+        "\n",
         f"model_key = '{meta.identity.model_key}'\n",
         "hub_root = '/content/LemGendaryModels'\n",
         "model_hub_dir = os.path.join(hub_root, model_key)\n",
@@ -147,7 +151,7 @@ _GPU_COUNT_LINES = [
     "gpu_probe = subprocess.run(\n",
     "    [sys.executable, '-c',\n",
     "     'import torch; print(torch.cuda.device_count() if torch.cuda.is_available() else 0)'],\n",
-    "    capture_output=True, text=True)\n",
+    "    check=False, capture_output=True, text=True)\n",
     "if gpu_probe.returncode == 0 and gpu_probe.stdout.strip():\n",
     "    num_gpus = int(gpu_probe.stdout.split()[-1])\n",
     "else:\n",
@@ -167,11 +171,14 @@ def _exit_gate_lines(meta: ModelNotebookMeta, target: str) -> list[str]:
     model_dir = f"{platform_paths(target).hub_root}/{meta.identity.model_key}"
     return [
         "\n",
-        "if active_suite_dir not in sys.path:\n",
-        "    sys.path.insert(0, active_suite_dir)\n",
-        "from pathlib import Path\n",
-        "from training.cloud.trainer_exit import TrainerOutcome, check_trainer_exit\n",
-        f"trainer_outcome = check_trainer_exit(p.wait(), Path({model_dir!r}))\n",
+        "trainer_exit = __import__(\n",
+        "    'training.cloud.trainer_exit', fromlist=['TrainerOutcome', 'check_trainer_exit']\n",
+        ")\n",
+        "check_trainer_exit = trainer_exit.check_trainer_exit\n",
+        "TrainerOutcome = trainer_exit.TrainerOutcome\n",
+        "trainer_outcome = check_trainer_exit(p.wait(), Path(\n",
+        f"    {model_dir!r}\n",
+        "))\n",
         "if trainer_outcome is TrainerOutcome.DEADLINE_STOP:\n",
         (
             "    print('[DEADLINE] Training stopped at the session deadline; progress is "
@@ -206,10 +213,12 @@ def build_training_cell(
         f"model_key = '{meta.identity.model_key}'\n",
         f"preferred_parallel = '{meta.preferred_parallel}'\n",
         *_GPU_COUNT_LINES,
-        (
-            "use_ddp = (num_gpus > 1) and (preferred_parallel == 'ddp' or (preferred_parallel != "
-            "'single' and not is_forex and 'yolo' not in model_key.lower()))\n"
-        ),
+        "use_ddp = (\n",
+        "    num_gpus > 1\n",
+        "    and (preferred_parallel == 'ddp' or (\n",
+        "        preferred_parallel != 'single' and not is_forex and 'yolo' not in model_key.lower()\n",
+        "    ))\n",
+        ")\n",
         "\n",
         "if is_forex:\n",
         "    cmd = [sys.executable, '-u', '-m', 'training.train_forex_curriculum']\n",
@@ -220,24 +229,28 @@ def build_training_cell(
         ),
         "    print('[TPU] Google Cloud TPU XLA runtime detected. Launching TPU training...')\n",
         (
-            "    cmd = [sys.executable, '-u', 'training/train.py', '--model', "
-            f"'{meta.identity.model_key}', "
-            f"'--env', '{env_flag}', '--auto_sync']\n"
+            "    cmd = [\n"
+            "        sys.executable, '-u', 'training/train.py',\n"
+            f"        '--model', '{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
+            "    ]\n"
         ),
         "elif use_ddp and os.path.exists('tools/launch_ddp.py'):\n",
         (
-            '    print(f"[DDP] Dual-GPU acceleration detected ({num_gpus} GPUs). Launching '
-            'multi-process DDP via tools/launch_ddp.py...")\n'
+            '    print(f"[DDP] Dual-GPU acceleration detected ({num_gpus} GPUs). "\n'
+            '          "Launching multi-process DDP via tools/launch_ddp.py...")\n'
         ),
         (
-            "    cmd = [sys.executable, '-u', 'tools/launch_ddp.py', '--model', "
-            f"'{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync']\n"
+            "    cmd = [\n"
+            "        sys.executable, '-u', 'tools/launch_ddp.py',\n"
+            f"        '--model', '{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
+            "    ]\n"
         ),
         "else:\n",
         (
-            "    cmd = [sys.executable, '-u', 'training/train.py', '--model', "
-            f"'{meta.identity.model_key}', "
-            f"'--env', '{env_flag}', '--auto_sync']\n"
+            "    cmd = [\n"
+            "        sys.executable, '-u', 'training/train.py',\n"
+            f"        '--model', '{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
+            "    ]\n"
         ),
     ]
     flags = options.trainer_flags()
@@ -257,12 +270,21 @@ def build_training_cell(
 
     source = (
         [
-            "import os, subprocess, sys\n",
+            "import os\n",
+            "import subprocess\n",
+            "import sys\n",
+            "from pathlib import Path\n",
+            "\n",
             f"suite_candidates = {suite_candidates!r}\n",
             (
-                "active_suite_dir = next((p for p in suite_candidates if "
-                f"os.path.exists(os.path.join(p, 'training', 'train.py'))), {default_dir!r})\n"
+                "active_suite_dir = next(\n"
+                "    (p for p in suite_candidates if os.path.exists(os.path.join(p, 'training', 'train.py'))),\n"
+                f"    {default_dir!r}\n"
+                ")\n"
             ),
+            "if active_suite_dir not in sys.path:\n",
+            "    sys.path.insert(0, active_suite_dir)\n",
+            "\n",
             "os.chdir(active_suite_dir)\n",
             "print(f'[OK] [SUITE] Active working directory set to: {os.getcwd()}')\n",
             "\n",
@@ -278,12 +300,12 @@ def build_training_cell(
                 "                print(f'[JANITOR] Killing stale zombie training process (PID "
                 "{pid})...')\n"
             ),
-            "                subprocess.run(['kill', '-9', str(pid)], capture_output=True)\n",
+            "                subprocess.run(['kill', '-9', str(pid)], check=False, capture_output=True)\n",
             "except (OSError, ValueError, subprocess.SubprocessError) as janitor_err:\n",
             "    print(f'[JANITOR] Stale process scan skipped: {janitor_err}')\n",
             "\n",
             (
-                f"print(f'[LAUNCH] [NUCLEAR] Initiating {launch_msg} "
+                f"print('[LAUNCH] [NUCLEAR] Initiating {launch_msg} "
                 f"for {meta.identity.model_key}...')\n"
             ),
         ]
@@ -323,7 +345,10 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
     paths = platform_paths(target)
     local_path = f"{paths.hub_root}/{model_key}"
     source = [
-        "import os, subprocess, sys\n",
+        "import os\n",
+        "import subprocess\n",
+        "import sys\n",
+        "\n",
         f"model_key = {model_key!r}\n",
         f"local_path = {local_path!r}\n",
         f"suite_dir = {paths.suite_dir!r}\n",
@@ -333,8 +358,10 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
         "publish_code = _run_suite('training.cloud.release_publish_cli', model_key)\n",
         "if publish_code != 0:\n",
         (
-            "    raise RuntimeError(f'[ERROR] Release publish of {model_key} failed with exit "
-            "code {publish_code}; see the log above.')\n"
+            "    raise RuntimeError(\n"
+            f"        f'[ERROR] Release publish of {model_key} failed with exit '\n"
+            "        f'code {publish_code}; see the log above.'\n"
+            "    )\n"
         ),
     ]
     return make_code_cell(_skip_after_deadline(source, local_path))

@@ -17,6 +17,7 @@ def build_hub_prep_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict
     hub_root = platform_paths(target).hub_root
     source = [
         "import os\n",
+        "\n",
         f"hub_root = '{hub_root}'\n",
         f"model_key = '{meta.identity.model_key}'\n",
         "model_dir = os.path.join(hub_root, model_key)\n",
@@ -44,7 +45,11 @@ def _suite_import_lines(target: str) -> list[str]:
     purpose. The training notebook's recovery cell reads epochs in a fresh interpreter.
     """
     return [
-        "import glob, os, shutil, sys\n",
+        "import glob\n",
+        "import os\n",
+        "import shutil\n",
+        "import sys\n",
+        "import torch\n",
         f"suite_path = {platform_paths(target).suite_dir!r}\n",
         "if suite_path not in sys.path:\n",
         "    sys.path.insert(0, suite_path)\n",
@@ -53,19 +58,40 @@ def _suite_import_lines(target: str) -> list[str]:
 
 
 def _recovery_preamble_lines(target: str) -> list[str]:
-    """The suite checkout the recovery cell runs its epoch probe in (no suite import here)."""
+    """The suite checkout the recovery cell runs its epoch probe in."""
+    if target == "kaggle":
+        return [
+            "import json\n",
+            "import os\n",
+            "import shutil\n",
+            "import subprocess\n",
+            "import sys\n",
+            "\n",
+            "import kagglehub\n",
+            "from kagglehub import exceptions as kh_exc\n",
+            "\n",
+            f"suite_path = {platform_paths(target).suite_dir!r}\n",
+        ]
     return [
-        "import json, os, shutil, subprocess, sys\n",
+        "import json\n",
+        "import os\n",
+        "import shutil\n",
+        "import subprocess\n",
+        "import sys\n",
+        "\n",
         f"suite_path = {platform_paths(target).suite_dir!r}\n",
     ]
 
 
 def _model_dir_lines(meta: ModelNotebookMeta, target: str) -> list[str]:
     paths = platform_paths(target)
+    hub_root = paths.hub_root.replace("\\", "/")
     return [
+        "\n",
+        f"hub_root = {hub_root!r}\n",
         f"model_key = {meta.identity.model_key!r}\n",
         f"model_slug = {meta.kaggle.slug!r}\n",
-        f"model_hub_dir = {paths.hub_root + '/' + meta.identity.model_key!r}\n",
+        f"model_hub_dir = {hub_root + '/' + meta.identity.model_key!r}\n",
         "ckpt_hub_dir = os.path.join(model_hub_dir, 'checkpoints')\n",
         "os.makedirs(ckpt_hub_dir, exist_ok=True)\n",
     ]
@@ -119,7 +145,7 @@ _RECOVERY_HELPERS = [
     "    if not paths:\n",
     "        return {}\n",
     "    probe = subprocess.run([sys.executable, '-m', 'training.utils.epoch_probe', *paths],\n",
-    "                           cwd=suite_path, capture_output=True, text=True)\n",
+    "                           cwd=suite_path, check=False, capture_output=True, text=True)\n",
     "    if probe.stderr.strip():\n",
     "        print(probe.stderr.rstrip()[-2000:])\n",
     "    if probe.returncode != 0 or not probe.stdout.strip():\n",
@@ -135,7 +161,7 @@ _RECOVERY_HELPERS = [
     "    held = {os.path.join(ckpt_hub_dir, n) for n in names}\n",
     "    probed = {src for src, _ in candidates} | {p for p in held if os.path.exists(p)}\n",
     "    epochs = _stored_epochs(sorted(probed))\n",
-    "    for (src, label), name in zip(candidates, names):\n",
+    "    for (src, label), name in zip(candidates, names, strict=False):\n",
     "        dst = os.path.join(ckpt_hub_dir, name)\n",
     "        src_epoch = epochs.get(src)\n",
     "        if src_epoch is None:\n",
@@ -190,8 +216,6 @@ def build_checkpoint_recovery_cell(
     ]
     if target == "kaggle":
         source += [
-            "import kagglehub\n",
-            "from kagglehub import exceptions as kh_exc\n",
             "hub_errors = (OSError, ValueError, kh_exc.BackendError, kh_exc.NotFoundError,\n",
             "              kh_exc.CredentialError, kh_exc.UnauthenticatedError,\n",
             "              kh_exc.DataCorruptionError, kh_exc.KaggleEnvironmentError)\n",
@@ -228,7 +252,6 @@ def build_stealth_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
     """
     source = [
         *_suite_import_lines(target),
-        "import torch\n",
         *_model_dir_lines(meta, target),
         "device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n",
         "ckpts = [p for ext in ('*.pth', '*.pt')\n",

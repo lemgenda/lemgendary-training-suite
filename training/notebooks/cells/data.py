@@ -13,15 +13,23 @@ from .base import make_code_cell
 def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
     """Build the dataset manifold resolution and symlink mapping code cell."""
     if target == "kaggle":
+        key_list = [
+            meta.identity.model_key.lower(),
+            meta.identity.model_key.replace("_", "-"),
+            meta.identity.model_key.replace("_", ""),
+        ] + [d.lower() for d in meta.dataset.ds_list] + (["forex"] if meta.identity.is_forex else [])
+        formatted_keys = "[\n" + "".join(f"    {k!r},\n" for k in key_list) + "]"
         source = [
-            "import os, re\n",
+            "import os\n",
+            "import re\n",
+            "\n",
             f"model_key = '{meta.identity.model_key}'\n",
             "target_dir = '/kaggle/working/LemGendaryDatasets'\n",
             "os.makedirs(target_dir, exist_ok=True)\n",
             "\n",
             "print(f'[DATA] Resolving manifolds for {model_key}...')\n",
             "found = []\n",
-            f"keys = {meta.dataset.ds_keys_repr}\n",
+            f"keys = {formatted_keys}\n",
             "\n",
             f"if {meta.identity.is_forex} or any('forex' in k for k in keys):\n",
             "    forex_composite_dir = os.path.join(target_dir, 'LemGendizedForexUniverse')\n",
@@ -41,8 +49,9 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             ),
             "                                break\n",
             (
-                "                dirs[:] = [d for d in dirs if d.lower() not in ['models', "
-                "'checkpoints', 'weights', 'images', 'targets']]\n"
+                "                dirs[:] = [d for d in dirs if d.lower() not in [\n"
+                "                    'models', 'checkpoints', 'weights', 'images', 'targets'\n"
+                "                ]]\n"
             ),
             "                for d in dirs:\n",
             (
@@ -65,10 +74,12 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             ),
             "                                            break\n",
             (
-                "                            if any(p in subs for p in ['EURUSD', 'USDJPY', "
-                "'GBPUSD', 'AUDUSD', 'XAUUSD', 'category.txt', 'dataset_info.yaml', "
-                "'classes.txt']):\n"
+                "                            forex_markers = [\n"
+                "                                'EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD', 'XAUUSD',\n"
+                "                                'category.txt', 'dataset_info.yaml', 'classes.txt'\n"
+                "                            ]\n"
             ),
+            "                            if any(p in subs for p in forex_markers):\n",
             "                                yr_clean = d\n",
             "                                for y in range(2019, 2027):\n",
             "                                    if str(y) in d:\n",
@@ -80,7 +91,7 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "                            print(f'[REMEDY] Cannot list {cand}: {list_err}')\n",
             "        except Exception as e:\n",
             "            print(f'[REMEDY] Forex manifold scan notice: {e}')\n",
-            "    \n",
+            "\n",
             "    if forex_years_found:\n",
             (
                 "        print(f'[FOREX] Assembling {len(forex_years_found)} annual manifolds into "
@@ -122,8 +133,8 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "            except OSError as link_err:\n",
             "                print(f'[REMEDY] Symlink error for {link_alias}: {link_err}')\n",
             (
-                "        print(f'[OK] [FOREX] Assembly complete: {len(forex_years_found)} annual "
-                "manifolds operational for Walk-Forward Curriculum.')\n"
+                "        print(f'[OK] [FOREX] Assembly complete: {len(forex_years_found)} '\n"
+                "              'annual manifolds operational for Walk-Forward Curriculum.')\n"
             ),
             "        found.append(forex_composite_dir)\n",
             "\n",
@@ -179,13 +190,18 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "        if not os.path.isdir(top_path):\n",
             "            continue\n",
             "        if top == 'datasets':\n",
-            "            try: owners = os.listdir(top_path)\n",
-            "            except OSError: continue\n",
+            "            try:\n",
+            "                owners = os.listdir(top_path)\n",
+            "            except OSError:\n",
+            "                continue\n",
             "            for owner in owners:\n",
             "                owner_path = os.path.join(top_path, owner)\n",
-            "                if not os.path.isdir(owner_path): continue\n",
-            "                try: slugs = os.listdir(owner_path)\n",
-            "                except OSError: continue\n",
+            "                if not os.path.isdir(owner_path):\n",
+            "                    continue\n",
+            "                try:\n",
+            "                    slugs = os.listdir(owner_path)\n",
+            "                except OSError:\n",
+            "                    continue\n",
             "                for slug in slugs:\n",
             "                    slug_path = os.path.join(owner_path, slug)\n",
             "                    if os.path.isdir(slug_path):\n",
@@ -218,9 +234,11 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "                        aliases.add(stem)\n",
             "                        aliases.add(stem.lower())\n",
             "            for alias in aliases:\n",
-            "                if not alias: continue\n",
+            "                if not alias:\n",
+            "                    continue\n",
             "                link_name = os.path.join(target_dir, alias)\n",
-            "                if os.path.exists(link_name): continue\n",
+            "                if os.path.exists(link_name):\n",
+            "                    continue\n",
             "                try:\n",
             "                    os.symlink(cand, link_name)\n",
             "                    print(f'   -> [OK] [LINKED] {alias} -> {cand}')\n",
@@ -239,7 +257,11 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
         ]
     else:
         source = [
-            "import os, subprocess, shutil, sys, re\n",
+            "import os\n",
+            "import re\n",
+            "import shutil\n",
+            "import subprocess\n",
+            "import sys\n",
             f"model_key = '{meta.identity.model_key}'\n",
             f"kaggle_repo = '{meta.dataset.clean_kaggle_repo}'\n",
             f"primary_manifold = '{meta.dataset.primary_manifold}'\n",
@@ -302,13 +324,18 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "        if not os.path.isdir(top_path):\n",
             "            continue\n",
             "        if top == 'datasets':\n",
-            "            try: owners = os.listdir(top_path)\n",
-            "            except OSError: continue\n",
+            "            try:\n",
+            "                owners = os.listdir(top_path)\n",
+            "            except OSError:\n",
+            "                continue\n",
             "            for owner in owners:\n",
             "                owner_path = os.path.join(top_path, owner)\n",
-            "                if not os.path.isdir(owner_path): continue\n",
-            "                try: slugs = os.listdir(owner_path)\n",
-            "                except OSError: continue\n",
+            "                if not os.path.isdir(owner_path):\n",
+            "                    continue\n",
+            "                try:\n",
+            "                    slugs = os.listdir(owner_path)\n",
+            "                except OSError:\n",
+            "                    continue\n",
             "                for slug in slugs:\n",
             "                    slug_path = os.path.join(owner_path, slug)\n",
             "                    if os.path.isdir(slug_path):\n",

@@ -32,7 +32,13 @@ def _req_candidates(target: str) -> list[str]:
 
 
 _ACCELERATOR_LINES = [
-    "import os, sys, subprocess, platform, shutil, tempfile\n",
+    "import os\n",
+    "import platform\n",
+    "import shutil\n",
+    "import subprocess\n",
+    "import sys\n",
+    "import tempfile\n",
+    "\n",
     "print('[ENV] Probing hardware accelerator...')\n",
     "\n",
     "torch_index = 'https://download.pytorch.org/whl/cpu'\n",
@@ -57,7 +63,7 @@ _ACCELERATOR_LINES = [
     "        [sys.executable, '-c',\n",
     "         'import torch; print(torch.version.cuda if torch.cuda.is_available() else \"\"); '\n",
     '         \'print(getattr(torch.version, "hip", None) or "")\'],\n',
-    "        capture_output=True, text=True)\n",
+    "        check=False, capture_output=True, text=True)\n",
     "    if torch_probe.returncode != 0:\n",
     "        print('[ENV] torch is not installed yet; using the CPU index.')\n",
     "    else:\n",
@@ -88,7 +94,7 @@ _TORCH_VERSION_PROBE_LINES = [
     "            [sys.executable, '-c',\n",
     "             'import torch; print(torch.__version__, \"on\", '\n",
     '             \'"CUDA " + torch.version.cuda if torch.cuda.is_available() else "CPU")\'],\n',
-    "            capture_output=True, text=True)\n",
+    "            check=False, capture_output=True, text=True)\n",
     "        if version_probe.returncode == 0:\n",
     "            print(f'[OK] torch {version_probe.stdout.strip()}')\n",
     "        else:\n",
@@ -105,7 +111,7 @@ _TORCH_BUILD_LINES = [
     "        print(f'[ENV] Torch build: {torch_pins}')\n",
     "        torch_res = subprocess.run(\n",
     "            [sys.executable, '-m', 'pip', 'install', '-q', '--index-url', torch_index,\n",
-    "             *torch_pins], capture_output=True, text=True)\n",
+    "             *torch_pins], check=False, capture_output=True, text=True)\n",
     "        if torch_res.returncode != 0:\n",
     "            print('[WARNING] Torch build installation finished with non-zero exit code.')\n",
     "            print(torch_res.stderr[-2000:])\n",
@@ -134,22 +140,26 @@ def _install_lines(target: str) -> list[str]:
     that index alone (:data:`_TORCH_BUILD_LINES`), then the manifest without it, constrained
     to those builds so no PyPI wheel replaces them.
     """
-    upgrade = "'--upgrade', 'kaggle>=2.2.5', " if target == "kaggle" else ""
+    upgrade_line = "        '--upgrade', 'kaggle>=2.2.5',\n" if target == "kaggle" else ""
+    pin_list = list(CLOUD_CUDA_BUILD.pins)
     return [
         f"torch_family = {TORCH_FAMILY!r}\n",
         (
-            f"torch_pins = {list(CLOUD_CUDA_BUILD.pins)!r} "
-            f"if torch_index == {CLOUD_CUDA_BUILD.index_url!r} else []\n"
+            f"torch_pins = (\n"
+            f"    {pin_list!r}\n"
+            f"    if torch_index == {CLOUD_CUDA_BUILD.index_url!r} else []\n"
+            ")\n"
         ),
         "if req_path:\n",
         "    print(f'[ENV] Manifest: {req_path}')\n",
         *_TORCH_BUILD_LINES,
         "    res = subprocess.run(\n",
-        f"        [sys.executable, '-m', 'pip', 'install', '-q', {upgrade}\n",
+        "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
+        f"{upgrade_line}"
         "         '--extra-index-url', torch_index,\n",
         "         '--upgrade-strategy', 'only-if-needed',\n",
         "         *constraint_args, '-r', install_req],\n",
-        "        capture_output=True, text=True)\n",
+        "        check=False, capture_output=True, text=True)\n",
         "    if res.returncode == 0:\n",
         "        print('[OK] Environment Ready.')\n",
         *_TORCH_VERSION_PROBE_LINES,
@@ -168,17 +178,15 @@ def _missing_manifest_lines(target: str) -> list[str]:
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
         "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
-        (
-            "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because "
-            f"SUITE_PAT is missing from {place}.')\n"
-        ),
-        f"    print({'[ACTION REQUIRED] Fix: ' + fix!r})\n",
+        "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because "
+        f"SUITE_PAT is missing from {place}.')\n",
+        "    print('[ACTION REQUIRED] Fix: '\n",
+        f"          {fix!r})\n",
         "    print('[INFO] Installing core container streaming dependencies as fallback...')\n",
-        (
-            "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', "
-            "'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', "
-            "'zstandard>=0.23.0'])\n"
-        ),
+        "    fallback_deps = [\n",
+        "        'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', 'zstandard>=0.23.0'\n",
+        "    ]\n",
+        "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *fallback_deps], check=False)\n",
     ]
 
 

@@ -36,7 +36,13 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
     paths = platform_paths(target)
     secret_ui_action = "Kaggle Add-ons -> Secrets" if target == "kaggle" else "Colab Secrets"
     source = [
-        "import os, shutil, stat, subprocess, sys, tempfile\n",
+        "import os\n",
+        "import shutil\n",
+        "import stat\n",
+        "import subprocess\n",
+        "import sys\n",
+        "import tempfile\n",
+        "\n",
         f"suite_url = {github_repo_url(SUITE_FOLDER)!r}\n",
         f"suite_ref = {refs.suite!r}\n",
         f"checkout_dir = {paths.checkout_dir!r}\n",
@@ -69,7 +75,7 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
         "def _git(args, cwd=None):\n",
         (
             "    return subprocess.run(['git', *args], cwd=cwd, env=git_env, "
-            "capture_output=True, text=True)\n"
+            "check=False, capture_output=True, text=True)\n"
         ),
         "\n",
         "def _sync_repo(url, path, marker, ref):\n",
@@ -90,16 +96,20 @@ def build_clone_cell(target: str = "kaggle", refs: GitRefs = DEFAULT_GIT_REFS) -
         "        return f'remote set-url failed: {seturl.stderr.strip()}'\n",
         "    # One ref (branch, tag or full commit SHA), fetched shallow and checked out.\n",
         "    fetch = _git(['fetch', '--depth', '1', 'origin', ref], cwd=path)\n",
+        "    err = None\n",
         "    if fetch.returncode != 0:\n",
-        "        return f'fetch of {ref} failed: {fetch.stderr.strip()}'\n",
-        "    reset = _git(['reset', '--hard', 'FETCH_HEAD'], cwd=path)\n",
-        "    if reset.returncode != 0:\n",
-        "        return f'reset to {ref} failed: {reset.stderr.strip()}'\n",
-        "    head = _git(['rev-parse', '--short', 'HEAD'], cwd=path)\n",
-        "    if head.returncode != 0:\n",
-        "        return f'rev-parse after {ref} failed: {head.stderr.strip()}'\n",
-        "    print(f'[GIT] {url} at {ref} ({head.stdout.strip()})')\n",
-        "    return None\n",
+        "        err = f'fetch of {ref} failed: {fetch.stderr.strip()}'\n",
+        "    else:\n",
+        "        reset = _git(['reset', '--hard', 'FETCH_HEAD'], cwd=path)\n",
+        "        if reset.returncode != 0:\n",
+        "            err = f'reset to {ref} failed: {reset.stderr.strip()}'\n",
+        "        else:\n",
+        "            head = _git(['rev-parse', '--short', 'HEAD'], cwd=path)\n",
+        "            if head.returncode != 0:\n",
+        "                err = f'rev-parse after {ref} failed: {head.stderr.strip()}'\n",
+        "            else:\n",
+        "                print(f'[GIT] {url} at {ref} ({head.stdout.strip()})')\n",
+        "    return err\n",
         "\n",
         "try:\n",
         (

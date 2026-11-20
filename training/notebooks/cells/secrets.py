@@ -59,6 +59,7 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
     client = _CLIENTS["kaggle" if target == "kaggle" else "colab"]
     source = [
         "import os\n",
+        "\n",
         *client.imports,
         "\n",
         f"SECRET_NAMES = {SECRET_NAMES!r}\n",
@@ -81,21 +82,21 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
         "    os.environ.pop('KAGGLE_KEY', None)\n",
         "elif kaggle_token:\n",
         (
-            f"    print('[REMEDY] {KAGGLE_TOKEN_SECRET} must be a Kaggle API token "
-            f"({KAGGLE_ACCESS_TOKEN_PREFIX}...); legacy keys are not used.')\n"
+            f"    print('[REMEDY] {KAGGLE_TOKEN_SECRET} must be a Kaggle API token '\n"
+            f"          '({KAGGLE_ACCESS_TOKEN_PREFIX}...); legacy keys are not used.')\n"
         ),
         "else:\n",
         (
-            f"    print('[REMEDY] Add the secret {KAGGLE_TOKEN_SECRET} (your Kaggle API "
-            f"token, {KAGGLE_ACCESS_TOKEN_PREFIX}...) in {client.ui_hint}.')\n"
+            f"    print('[REMEDY] Add the secret {KAGGLE_TOKEN_SECRET} (your Kaggle API '\n"
+            f"          'token, {KAGGLE_ACCESS_TOKEN_PREFIX}...) in {client.ui_hint}.')\n"
         ),
         "\n",
         "active = [name for name, value in secrets.items() if value]\n",
         "print(f'[AUTH] Secrets available: {active}')\n",
         f"if not any(secrets[name] for name in {PAT_SECRETS!r}):\n",
         (
-            f"    print('[REMEDY] Add SUITE_PAT in {client.ui_hint}; private "
-            "repositories cannot be cloned without it (legacy GITHUB_PAT is unsupported).')\n"
+            f"    print('[REMEDY] Add SUITE_PAT in {client.ui_hint}; private '\n"
+            "          'repositories cannot be cloned without it (legacy GITHUB_PAT is unsupported).')\n"
         ),
     ]
     return make_code_cell(source)

@@ -128,7 +128,8 @@ def _hardware_probe_lines(text: _SentinelText) -> list[str]:
     backslash and no triple quote, so the cell embeds them in a triple-quoted string.
     """
     return [
-        "import os, sys\n",
+        "import os\n",
+        "import sys\n",
         "import torch\n",
         (
             "tpu_detected = bool(\n"
@@ -201,14 +202,21 @@ def build_sentinel_cell(target: str = "kaggle") -> dict[str, Any]:
     """
     text = _SENTINEL_TEXT["kaggle" if target == "kaggle" else "colab"]
     env_lines = _build_env_var_lines(_load_runtime_env())
-    header = ["import os, subprocess, sys, time\n"]
+    header = [
+        "import os\n",
+        "import subprocess\n",
+        "import sys\n",
+        "import time\n",
+    ]
     if target == "kaggle":
         header += [
+            "\n",
             "# Session start for the training loop's deadline guard (first run only)\n",
             f"os.environ.setdefault({SESSION_START_ENV!r}, str(time.time()))\n",
         ]
     source = [
         *header,
+        "\n",
         "# Runtime environment (LemGendary env-manager SSOT)\n",
         *env_lines,
         "print('[OK] [SENTINEL] Auditing Hardware Manifold...')\n",
@@ -219,7 +227,7 @@ def build_sentinel_cell(target: str = "kaggle") -> dict[str, Any]:
         *_hardware_probe_lines(text),
         "'''\n",
         "hw_probe = subprocess.run([sys.executable, '-c', HW_PROBE],\n",
-        "                          capture_output=True, text=True)\n",
+        "                          check=False, capture_output=True, text=True)\n",
         "print(hw_probe.stdout, end='')\n",
         f"if hw_probe.returncode == {NO_GPU_EXIT_CODE}:\n",
         f"    raise RuntimeError({'[ABORT] No GPU accelerator detected. ' + text.abort!r})\n",

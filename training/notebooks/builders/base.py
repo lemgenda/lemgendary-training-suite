@@ -302,6 +302,19 @@ def training_preamble_cells(
     ]
 
 
+def sync_models_hub_notebook(
+    model_key: str,
+    filename: str,
+    json_str: str,
+) -> None:
+    """Sync generated notebook JSON to LemGendaryModels/<model_key>/notebooks/."""
+    workspace_root = _get_workspace_root()
+    models_hub_dir = workspace_root / "LemGendaryModels" / model_key / "notebooks"
+    if models_hub_dir.parent.exists():
+        models_hub_dir.mkdir(parents=True, exist_ok=True)
+        _write_notebook(models_hub_dir / filename, json_str)
+
+
 def publish_training_notebook(
     cells: list[dict[str, Any]],
     model_key: str,
@@ -333,6 +346,11 @@ def publish_training_notebook(
         filename=output_filename,
         json_str=json_str,
         display_title=platform_title,
+    )
+    sync_models_hub_notebook(
+        model_key=model_key,
+        filename=output_filename,
+        json_str=json_str,
     )
     return output_path
 
@@ -383,10 +401,15 @@ def write_usage_notebook(
         ),
         build_onnx_fp16_cell(meta),
     ]
-    output_path = os.path.join(
-        notebooks_dir(export_dir), f"{model_key}_{platform_title.lower()}_usage.ipynb"
-    )
-    if write_notebook(notebook_document(cells), output_path) is None:
+    filename = f"{model_key}_{platform_title.lower()}_usage.ipynb"
+    output_path = os.path.join(notebooks_dir(export_dir), filename)
+    json_str = write_notebook(notebook_document(cells), output_path)
+    if json_str is None:
         return None
     print(f"[OK] Generated {platform_title} Usage Notebook: {output_path}")
+    sync_models_hub_notebook(
+        model_key=model_key,
+        filename=filename,
+        json_str=json_str,
+    )
     return output_path
