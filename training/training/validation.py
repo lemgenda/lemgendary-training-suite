@@ -68,8 +68,14 @@ class _ValidationPass:
 
     def resume(self) -> None:
         """Restore accumulators of an interrupted validation pass, if any."""
+        num_batches = (
+            len(self.loader) if self.loader is not None and hasattr(self.loader, "__len__") else 0
+        )
         resume_step = resume_iteration(
-            self.ctx.state.resume_state, "val", self.ctx.state.guards.val_step_handled
+            self.ctx.state.resume_state,
+            "val",
+            self.ctx.state.guards.val_step_handled,
+            current_loader_len=num_batches,
         )
         if resume_step <= 0:
             return

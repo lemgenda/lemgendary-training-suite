@@ -509,6 +509,35 @@ class TestCheckpointSubsystem(unittest.TestCase):
         for p1, p2 in zip(model.parameters(), resumed_model.parameters()):
             self.assertTrue(torch.equal(p1, p2))
 
+    def test_resume_iteration_scales_across_batch_sizes(self) -> None:
+        """Verify resume_iteration scales proportionally when loader length changes."""
+        from training.training.step_progress import resume_iteration
+
+        payload = {
+            "epoch": 42,
+            "phase": "train",
+            "progress_metadata": {
+                "step": 2243,
+                "total_steps": 3887,
+                "phase": "train",
+            },
+            "model_state": {"w": torch.tensor([1.0])},
+        }
+        state = parse_resume_state(payload)
+        self.assertEqual(state.total_steps, 3887)
+        self.assertEqual(state.iteration, 2243)
+
+        # Same loader size returns exact iteration
+        same_step = resume_iteration(state, "train", False, current_loader_len=3887)
+        self.assertEqual(same_step, 2243)
+
+        # Scaled loader size (e.g. batch size shrunk from 256 to 32 -> loader expanded from 3887 to 31097)
+        scaled_step = resume_iteration(state, "train", False, current_loader_len=31097)
+        # Expected: int((2243 / 3887) * 31097) = 17946
+        expected = int((2243 / 3887.0) * 31097)
+        self.assertEqual(scaled_step, expected)
+        self.assertAlmostEqual(scaled_step / 31097.0, 2243 / 3887.0, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()
