@@ -52,7 +52,7 @@ def generate_colab_inference_notebook(
         build_continuous_sync_cell(meta),
         make_markdown_cell(["## 10. Nuclear Training Matrix\n"]),
         build_training_cell(meta, "colab"),
-        make_markdown_cell(["## 11. SOTA Models Hub & Google Drive Publishing (4 Variations)\n"]),
+        make_markdown_cell(["## 11. SOTA Models Hub Publishing (4 Variations)\n"]),
         build_push_cell(meta, "colab"),
     ]
     return publish_training_notebook(

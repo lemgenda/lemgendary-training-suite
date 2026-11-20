@@ -3,12 +3,10 @@
 The cell imports the platform's secrets client with a plain import, reads each secret through
 one helper that catches only the client's "secret missing / not granted" errors, and exports:
 
-* ``SUITE_PAT`` and ``GOOGLE_DRIVE`` as environment variables;
+* ``SUITE_PAT`` as an environment variable;
 * ``KAGGLE_API_TOKEN`` only when it is a ``KGAT_`` API token (the Kaggle SDK and kagglehub read
   it from the environment); no ``kaggle.json`` or other Kaggle credential file is written and
-  legacy keys are not used;
-* ``GOOGLE_DRIVE_JSON`` as the service-account file ``~/.gdrive/service_account.json``
-  (mode 0600, outside the kernel output) for the Google client libraries.
+  legacy keys are not used.
 """
 
 from __future__ import annotations
@@ -24,9 +22,7 @@ KAGGLE_TOKEN_SECRET = "KAGGLE_API_TOKEN"
 """Secret holding the Kaggle API token (``KGAT_...``)."""
 PAT_SECRETS: tuple[str, ...] = ("SUITE_PAT",)
 """GitHub token secrets; SUITE_PAT is needed to clone the private repositories."""
-OPTIONAL_SECRETS: tuple[str, ...] = ("GOOGLE_DRIVE", "GOOGLE_DRIVE_JSON")
-"""Google Drive mirror secrets (optional)."""
-SECRET_NAMES: tuple[str, ...] = (*PAT_SECRETS, KAGGLE_TOKEN_SECRET, *OPTIONAL_SECRETS)
+SECRET_NAMES: tuple[str, ...] = (*PAT_SECRETS, KAGGLE_TOKEN_SECRET)
 
 
 @dataclass(frozen=True)
@@ -75,7 +71,7 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
         "        return None\n",
         "\n",
         "secrets = {name: read_secret(name) for name in SECRET_NAMES}\n",
-        f"for name in {(*PAT_SECRETS, 'GOOGLE_DRIVE')!r}:\n",
+        f"for name in {PAT_SECRETS!r}:\n",
         "    if secrets[name]:\n",
         "        os.environ[name] = secrets[name]\n",
         "\n",
@@ -93,17 +89,6 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
             f"    print('[REMEDY] Add the secret {KAGGLE_TOKEN_SECRET} (your Kaggle API "
             f"token, {KAGGLE_ACCESS_TOKEN_PREFIX}...) in {client.ui_hint}.')\n"
         ),
-        "\n",
-        "service_account = secrets['GOOGLE_DRIVE_JSON']\n",
-        "if service_account:\n",
-        "    sa_dir = os.path.expanduser('~/.gdrive')\n",
-        "    os.makedirs(sa_dir, exist_ok=True)\n",
-        "    sa_path = os.path.join(sa_dir, 'service_account.json')\n",
-        "    with open(sa_path, 'w', encoding='utf-8') as sa_file:\n",
-        "        sa_file.write(service_account)\n",
-        "    os.chmod(sa_path, 0o600)\n",
-        "    os.environ['GOOGLE_DRIVE_JSON'] = service_account\n",
-        "    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = sa_path\n",
         "\n",
         "active = [name for name, value in secrets.items() if value]\n",
         "print(f'[AUTH] Secrets available: {active}')\n",

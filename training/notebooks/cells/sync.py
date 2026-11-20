@@ -310,14 +310,14 @@ stream its output into the cell and return its exit code."""
 
 
 def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str, Any]:
-    """Build the release cell: one call into the suite's publish policy, then Google Drive.
+    """Build the release cell: call into the suite's publish policy for Kaggle Models Hub.
 
     ``training.cloud.release_publish_cli`` runs ``publish_release``, which exports every format
     and runs ``KaggleModelSyncManager.push_model``, the same policy as the GUI and CLI push
     (model page first, license, unchanged variations skipped, version notes with epoch, metrics
-    and suite version). Both steps run in a fresh interpreter (:data:`_RUN_SUITE_LINES`), never
+    and suite version). It runs in a fresh interpreter (:data:`_RUN_SUITE_LINES`), never
     in the notebook's own kernel process. A failed export or upload raises ``RuntimeError``,
-    so the kernel ends with an error; a failed Google Drive mirror is reported only.
+    so the kernel ends with an error.
     """
     model_key = meta.identity.model_key
     paths = platform_paths(target)
@@ -335,16 +335,6 @@ def build_push_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[str
         (
             "    raise RuntimeError(f'[ERROR] Release publish of {model_key} failed with exit "
             "code {publish_code}; see the log above.')\n"
-        ),
-        "\n",
-        "print('[GDRIVE] Synchronizing production artifacts to Google Drive...')\n",
-        "gdrive_code = _run_suite('training.gdrive_cloud_manager', '--model', model_key)\n",
-        "if gdrive_code == 0:\n",
-        "    print('[GDRIVE] Google Drive mirror updated.')\n",
-        "else:\n",
-        (
-            "    print(f'[GDRIVE] Google Drive mirror not updated (exit code {gdrive_code}; see "
-            "the log above).')\n"
         ),
     ]
     return make_code_cell(_skip_after_deadline(source, local_path))

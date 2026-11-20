@@ -38,7 +38,7 @@ def training_cells(
         build_checkpoint_recovery_cell(meta, "kaggle"),
         make_markdown_cell(["## 8. Nuclear Training Matrix\n"]),
         build_training_cell(meta, "kaggle", options),
-        make_markdown_cell(["## 9. SOTA Models Hub & Google Drive Publishing (4 Variations)\n"]),
+        make_markdown_cell(["## 9. SOTA Models Hub Publishing (4 Variations)\n"]),
         build_push_cell(meta, "kaggle"),
     ]
 
