@@ -303,9 +303,10 @@ def test_segmentation_without_mask_returns_ignored_target(
 
     dataset = _dataset_from(tmp_path, "parsenet", _image_members(paired=False))
     with caplog.at_level("WARNING", logger="lemtrain.dataset"):
-        input_tensor, target, task_id = dataset.getitem_container(
+        model_input, target, task_id = dataset.getitem_container(
             dataset.catalog.samples[0][0], 0, seed=0
         )
+    assert model_input.shape == (3, dataset.size[0], dataset.size[1])
     assert task_id == "segmentation"
     assert target.shape == dataset.size
     assert torch.all(target == IGNORE_TARGET)
