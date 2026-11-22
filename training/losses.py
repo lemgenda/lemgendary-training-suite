@@ -757,7 +757,14 @@ class CombinedLoss(nn.Module):
                 target = torch.zeros(
                     (pred.size(0), pred.size(2), pred.size(3)), dtype=torch.long, device=pred.device
                 )
-            return self.criteria.ce(pred, target.long())
+            target_long = target.long()
+            if not bool(labelled(target_long).any()):
+                logger.warning(
+                    "[ZERO LOSS GUARD] Entire segmentation batch contains unlabelled "
+                    "targets (IGNORE_TARGET). Returning zero loss to avoid NaN divergence."
+                )
+                return pred.sum() * 0.0
+            return self.criteria.ce(pred, target_long)
 
         if (
             self.task_type == "face_detection"

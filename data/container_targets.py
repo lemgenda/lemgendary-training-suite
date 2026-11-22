@@ -269,15 +269,22 @@ class ContainerTargetsMixin:
     def _container_segmentation_item(self, decoded: DecodedSample):
         """Class mask target decoded from the sample's ``.mask.*`` member.
 
-        Raises ``RuntimeError`` when the sample has no mask: training a segmentation
-        model on all-zero masks would silently learn nothing.
+        When a sample lacks a mask member, returns a full-image ``IGNORE_TARGET`` mask
+        tensor so cross-entropy loss and mIoU validation skip it without breaking or
+        crashing intra-epoch training passes on remote cloud accelerators.
         """
         mask_bytes = decoded.sample.mask_bytes
         if not mask_bytes:
-            raise RuntimeError(
-                f"Segmentation sample '{decoded.sample.name}' in '{decoded.ds_name}' has no "
-                "mask member (expected '<key>.mask.webp'); recompile the manifold with masks."
+            logger.warning(
+                "Segmentation sample '%s' in '%s' has no mask member; "
+                "substituted IGNORE_TARGET (%d) mask.",
+                decoded.sample.name,
+                decoded.ds_name,
+                IGNORE_TARGET,
             )
+            h, w = self.opts.size
+            ignored_mask = torch.full((h, w), IGNORE_TARGET, dtype=torch.long)
+            return decoded.img_tensor, ignored_mask, "segmentation"
         with Image.open(io.BytesIO(mask_bytes)) as raw_mask:
             mask_img = raw_mask.convert("L")
         reseed(decoded.seed)

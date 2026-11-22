@@ -16,7 +16,7 @@ from typing import Any
 import torch
 
 from data.sample_labels import FACE_TARGET_LEN
-from training.ignored_targets import labelled
+from training.ignored_targets import IGNORE_TARGET, labelled
 from training.training.amp import compute_ssim_gpu
 from training.training.face_detection_metrics import (
     FACE_DETECTION_METRICS,
@@ -309,8 +309,13 @@ def update_segmentation(acc: ValAccumulators, batch: ValBatch) -> None:
             preds, targets = pair
             pred_seg = torch.argmax(preds, dim=1) if preds.ndim == 4 else preds
             tgt_seg = targets.squeeze(1) if targets.ndim == 4 else targets
-            inter = torch.logical_and(tgt_seg > 0, pred_seg == tgt_seg).sum().item()
-            union = torch.logical_or(tgt_seg > 0, pred_seg > 0).sum().item()
+            valid_mask = tgt_seg != IGNORE_TARGET
+            inter = torch.logical_and(
+                valid_mask, torch.logical_and(tgt_seg > 0, pred_seg == tgt_seg)
+            ).sum().item()
+            union = torch.logical_and(
+                valid_mask, torch.logical_or(tgt_seg > 0, pred_seg > 0)
+            ).sum().item()
             acc.tasks.total_miou_inter += float(inter)
             acc.tasks.total_miou_union += float(union)
     except METRIC_ERRORS as exc:

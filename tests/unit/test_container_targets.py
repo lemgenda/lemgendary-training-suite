@@ -295,11 +295,21 @@ def test_face_box_only_label_masks_landmarks(tmp_path: Path) -> None:
     assert torch.all(target[5:] == LANDMARK_ABSENT)
 
 
-def test_segmentation_without_mask_raises(tmp_path: Path) -> None:
-    """A segmentation sample without a mask member fails loudly instead of all-zero masks."""
+def test_segmentation_without_mask_returns_ignored_target(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A segmentation sample without a mask member yields IGNORE_TARGET instead of crashing."""
+    from training.ignored_targets import IGNORE_TARGET
+
     dataset = _dataset_from(tmp_path, "parsenet", _image_members(paired=False))
-    with pytest.raises(RuntimeError, match="no mask member"):
-        dataset.getitem_container(dataset.catalog.samples[0][0], 0, seed=0)
+    with caplog.at_level("WARNING", logger="lemtrain.dataset"):
+        input_tensor, target, task_id = dataset.getitem_container(
+            dataset.catalog.samples[0][0], 0, seed=0
+        )
+    assert task_id == "segmentation"
+    assert target.shape == dataset.size
+    assert torch.all(target == IGNORE_TARGET)
+    assert any("has no mask member" in record.getMessage() for record in caplog.records)
 
 
 def _spec(model_key: str) -> context_data.RunSpec:

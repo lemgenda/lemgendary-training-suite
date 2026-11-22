@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.240-STABLE`
+- **Version**: `v16.9.241-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -26,15 +26,36 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.241 - ParseNet Missing-Mask WebDataset Resilience & Zero-Loss Guard
+
+- **Graceful WebDataset Segmentation Recovery**: Replaced hard `RuntimeError`
+  on segmentation samples lacking a companion `.mask.webp` member with a
+  resilient fallback in `data/container_targets.py`. Missing masks now yield a
+  full-image `IGNORE_TARGET` (255) mask tensor and log a diagnostic warning
+  instead of crashing remote cloud training passes mid-epoch (such as SFHQ
+  part-4 unmasked samples on Kaggle).
+- **Segmentation Loss Zero-Loss Guard**: Hardened `CombinedLoss` for
+  segmentation tasks in `training/losses.py` with an empty-target check using
+  `labelled()`, returning a graph-connected zero loss when an entire batch
+  contains only unlabelled targets to prevent NaN divergence.
+- **Validation mIoU Exclusion of Ignored Pixels**: Updated `update_segmentation`
+  in `training/training/val_metrics.py` to filter out `IGNORE_TARGET` pixels
+  from both intersection and union accumulators, preserving strictly honest
+  mIoU evaluation.
+- **Unit Test Coverage**: Updated `tests/unit/test_container_targets.py` to
+  assert resilient fallback, target shape, `IGNORE_TARGET` values, and warning
+  logs on maskless samples.
+
 ### v16.9.240 - Prompt 29 & Prompt 30 CLI and API Audit & Hardening
 
 - **Single-Repo Cloud Training Notebooks & Self-Contained Ecosystem**:
   Refactored Kaggle and Google Colab notebook builders (`repo.py`, `deps.py`,
-  `platform_paths.py`, `ecosystem.py`) to clone only `lemgendary-training-suite`.
-  Eliminated auxiliary cloning of `lemgendary-env-manager` and `LemGendaryModels`
-  on cloud kernels, drastically reducing disk footprint and setup latency.
-  Bundled `training/ecosystem.json` and pointed dependency cells directly to
-  the suite's canonical `requirements.txt`.
+  `platform_paths.py`, `ecosystem.py`) to clone only
+  `lemgendary-training-suite`. Eliminated auxiliary cloning of
+  `lemgendary-env-manager` and `LemGendaryModels` on cloud kernels, drastically
+  reducing disk footprint and setup latency. Bundled `training/ecosystem.json`
+  and pointed dependency cells directly to the suite's canonical
+  `requirements.txt`.
 - **CLI Global Version Option & Hardening (Prompt 29)**: Added eager global
   `--version` / `-V` flag callback to `training/cli/lemtrain.py` printing the
   single-source package version from `pyproject.toml`. Expanded CLI test suite
