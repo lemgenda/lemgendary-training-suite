@@ -14,7 +14,10 @@ from typing import Any, NamedTuple
 
 from training.cloud.variations import ONNX_FP16, ONNX_FP32, PYTORCH_FP32, variation_ready
 from training.export.validation import resolve_model_stem
-from training.fid_reeval.ledger import filter_metrics_row_for_fid_provenance
+from training.fid_reeval.ledger import (
+    _safe_read_ledger,
+    filter_metrics_row_for_fid_provenance,
+)
 from training.governance.curriculum import (
     DEFAULT_FOREX_LADDER,
     DEFAULT_SPATIAL_LADDER,
@@ -318,10 +321,13 @@ def _read_csv_stats(
     if chosen is None:
         return stats, rungs
     provenance_hub = hub_dir if hub_dir is not None else chosen.parent
+    cached_ledger = _safe_read_ledger(provenance_hub)
     try:
         with open(chosen, encoding="utf-8", errors="ignore") as f:
             for raw_row in csv.DictReader(f):
-                row = filter_metrics_row_for_fid_provenance(raw_row, provenance_hub)
+                row = filter_metrics_row_for_fid_provenance(
+                    raw_row, provenance_hub, cached_rows=cached_ledger
+                )
                 _read_epoch(stats, row, chosen)
                 row_res = _read_res(stats, row, chosen)
                 _read_fold(stats, row, chosen)

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.243-STABLE`
+- **Version**: `v16.9.244-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,15 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.244 - Fast Model Stats Aggregation & FID Ledger Caching
+
+- **One-Time Ledger Read in Model Stats**: Updated `_read_csv_stats` in
+  `training/server/routes/gui_model_stats.py` to pre-read `fid_provenance.csv`
+  once per model directory instead of repeatedly per row of `metrics.csv`.
+- **Async Non-Blocking Route Execution**: Wrapped `get_models_with_stats` in
+  `training/server/routes/gui.py` with `loop.run_in_executor` to prevent
+  model stats computation from stalling the FastAPI event loop during training.
 
 ### v16.9.243 - ONNX FP16 Canary Rejection & Multi-Task Numerical Stability
 

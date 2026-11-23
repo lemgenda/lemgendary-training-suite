@@ -69,7 +69,7 @@ def new_row(**values: str) -> LedgerRow:
     missing = [k for k in _REQUIRED if not values.get(k)]
     if unknown or missing:
         raise LedgerError(f"bad ledger row: unknown {sorted(unknown)}, missing {missing}")
-    return {k: str(values.get(k, "")) for k in LEDGER_FIELDS}
+    return {k: values.get(k, "") for k in LEDGER_FIELDS}
 
 
 def utc_now() -> str:
@@ -226,7 +226,11 @@ def reevaluated_fid_by_epoch(hub_dir: Path) -> dict[str, float]:
     return out
 
 
-def filter_metrics_row_for_fid_provenance(row: Mapping[str, Any], hub_dir: Path) -> dict[str, Any]:
+def filter_metrics_row_for_fid_provenance(
+    row: Mapping[str, Any],
+    hub_dir: Path,
+    cached_rows: list[LedgerRow] | None = None,
+) -> dict[str, Any]:
     """Return a copy of a ``metrics.csv`` row with unverified FID/Quality_Score stripped or updated.
 
     - If the row's epoch is in :func:`unverified_fid_epochs`, ``FID``/``fid`` and
@@ -240,13 +244,24 @@ def filter_metrics_row_for_fid_provenance(row: Mapping[str, Any], hub_dir: Path)
     ep = str(filtered.get("Epoch") or filtered.get("epoch") or "").strip()
     if not ep:
         return filtered
-    rows = _safe_read_ledger(hub_dir)
+    rows = cached_rows if cached_rows is not None else _safe_read_ledger(hub_dir)
     if not rows:
         return filtered
     was_unverified = any(
         (r.get("epoch") or "").strip() == ep and r.get("status") == STATUS_UNVERIFIED for r in rows
     )
-    reeval = reevaluated_fid_by_epoch(hub_dir)
+    reeval: dict[str, float] = {}
+    for r in rows:
+        if r.get("status") != STATUS_REEVALUATED:
+            continue
+        row_ep = (r.get("epoch") or "").strip()
+        val_str = (r.get("value") or "").strip()
+        if not row_ep or not val_str:
+            continue
+        try:
+            reeval[row_ep] = float(val_str)
+        except ValueError as exc:
+            logger.debug("Failed parsing FID float %s for %s: %s", val_str, row_ep, exc)
     if ep in reeval:
         if "FID" in filtered:
             filtered["FID"] = f"{reeval[ep]:.4f}"

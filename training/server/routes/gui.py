@@ -103,15 +103,7 @@ def _unknown_entry(model_key: str, info: Any, exc: Exception) -> ModelWithStats:
     )
 
 
-@router.get("/models/with-stats", response_model=list[ModelWithStats])
-def get_models_with_stats(request: Request) -> list[ModelWithStats]:
-    """Retrieve model architectures paired with checkpoint existence and size.
-
-    Every entry carries ``training_status`` and ``is_fully_trained``. A
-    registry entry whose stats cannot be computed is still listed, with
-    status ``unknown`` and the reason in ``stats_error``.
-    """
-    root = _get_root(request)
+def _compute_models_with_stats(root: Path) -> list[ModelWithStats]:
     registry = _load_registry(root)
     ckpt_svc = CheckpointService(project_root=root)
     checkpoints = ckpt_svc.list_checkpoints()
@@ -134,6 +126,19 @@ def get_models_with_stats(request: Request) -> list[ModelWithStats]:
         results.append(entry)
 
     return sorted(results, key=lambda m: m.model_key)
+
+
+@router.get("/models/with-stats", response_model=list[ModelWithStats])
+async def get_models_with_stats(request: Request) -> list[ModelWithStats]:
+    """Retrieve model architectures paired with checkpoint existence and size.
+
+    Every entry carries ``training_status`` and ``is_fully_trained``. A
+    registry entry whose stats cannot be computed is still listed, with
+    status ``unknown`` and the reason in ``stats_error``.
+    """
+    root = _get_root(request)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _compute_models_with_stats, root)
 
 
 @router.post("/quick-train")
