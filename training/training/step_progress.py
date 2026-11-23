@@ -28,6 +28,9 @@ class BatchClock:
     start_time: float
     last_log_time: float
     resume_step: int = 0
+    smoothed_rate: float | None = None
+    last_step: int | None = None
+    last_step_time: float | None = None
 
     def skip_resumed(self, batch_idx: int, tag: str, phase: str) -> bool:
         """Return True for batches finished before an intra-epoch resume.
@@ -36,6 +39,13 @@ class BatchClock:
         last skipped batch.
         """
         if batch_idx >= self.resume_step:
+            if self.last_step_time is None:
+                # Reset clock precisely when the first active un-skipped batch begins
+                now = time.time()
+                self.start_time = now
+                self.last_log_time = now
+                self.last_step_time = now
+                self.last_step = batch_idx
             return False
         ff_interval = max(1, min(500, self.resume_step // 20))
         if (batch_idx + 1) % ff_interval == 0 or (batch_idx + 1) == self.resume_step:
@@ -48,17 +58,42 @@ class BatchClock:
             )
         if (batch_idx + 1) == self.resume_step:
             # Fast-forward time must not count towards s/it and ETA of the live batches.
-            self.start_time = time.time()
-            self.last_log_time = self.start_time
+            now = time.time()
+            self.start_time = now
+            self.last_log_time = now
+            self.last_step_time = now
+            self.last_step = self.resume_step
         return True
 
     def rate(self, done: int, now: float) -> tuple[float, float]:
-        """Return ``(iterations per second since start, elapsed seconds)`` after ``done`` steps.
+        """Return ``(iterations per second, elapsed seconds)`` after ``done`` steps.
 
-        Only the steps run in this session (``done - resume_step``, at least 1) count.
+        Applies exponential moving average smoothing during the first 10 batches after
+        resumption to prevent cold multiprocessing queue latency and transient timer
+        skew from inflating s/it and ETA metrics.
         """
         elapsed = now - self.start_time
-        return max(1, done - self.resume_step) / max(0.001, elapsed), elapsed
+        steps_in_session = max(1, done - self.resume_step)
+        cumulative_rate = steps_in_session / max(0.001, elapsed)
+
+        # Instantaneous rate between logged steps
+        if self.last_step is not None and self.last_step_time is not None:
+            step_delta = done - self.last_step
+            time_delta = now - self.last_step_time
+            if step_delta > 0 and time_delta > 0.001:
+                inst_rate = step_delta / time_delta
+                if self.smoothed_rate is None:
+                    self.smoothed_rate = inst_rate
+                else:
+                    # Adaptive EMA: faster adaptation during first batches, steady at 0.85/0.15
+                    alpha = 0.4 if steps_in_session <= 5 else 0.15
+                    self.smoothed_rate = (1.0 - alpha) * self.smoothed_rate + alpha * inst_rate
+
+        self.last_step = done
+        self.last_step_time = now
+
+        reported_rate = self.smoothed_rate if self.smoothed_rate is not None else cumulative_rate
+        return max(0.001, reported_rate), elapsed
 
 
 def resume_iteration(
