@@ -67,8 +67,9 @@ class MultiTaskRestorer(nn.Module):
         feat = self.encoder(x)
 
         # Soft Routing (Mixture of Experts)
+        # Compute softmax in FP32 to prevent numeric overflow under FP16/half-precision
         logits = self.classifier(feat)  # [B, num_tasks]
-        weights = F.softmax(logits, dim=1)
+        weights = F.softmax(logits.float(), dim=1).to(logits.dtype)
 
         # If a specific task is requested (inference override), we can still support it
         # But by default, we use the learned weights
@@ -81,4 +82,11 @@ class MultiTaskRestorer(nn.Module):
             out = head(feat)
             outputs.append(out * weights[:, i].view(-1, 1, 1, 1))
 
-        return torch.stack(outputs).sum(dim=0).contiguous(), logits
+        # Sum in FP32 accumulator to prevent FP16 summation overflow across 11 heads
+        stacked = torch.stack(outputs)
+        if stacked.dtype == torch.float16:
+            blended = stacked.float().sum(dim=0).half().contiguous()
+        else:
+            blended = stacked.sum(dim=0).contiguous()
+
+        return blended, logits

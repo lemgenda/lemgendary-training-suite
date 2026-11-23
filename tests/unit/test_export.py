@@ -196,6 +196,27 @@ class TestModelExporters(unittest.TestCase):
         llm_tol = resolve_family_tolerances("ai_helper_lemgend")
         self.assertEqual(llm_tol["fp32"]["atol"], 1e-3)
 
+    def test_verify_canary_rejects_non_finite_fp16(self):
+        from training.export.base import ExportError
+        from training.export.common import OnnxGraphSpec
+        from training.export.onnx_variants import ONNX_FP16_VARIANT, OnnxVariantWriter
+
+        class NanModule(nn.Module):
+            def forward(self, x):
+                return torch.full_like(x, float("nan"))
+
+        mod = NanModule().eval()
+        dummy = torch.randn(1, 3, 32, 32)
+        writer = OnnxVariantWriter(mod, (dummy,), OnnxGraphSpec())
+
+        class MockProgram:
+            def __call__(self, *args):
+                return (torch.tensor([float("nan")]),)
+
+        with self.assertRaises(ExportError) as ctx:
+            writer.verify_canary(MockProgram(), ONNX_FP16_VARIANT)
+        self.assertEqual(ctx.exception.code, "ONNX_CANARY_FAILED")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.242-STABLE`
+- **Version**: `v16.9.243-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,20 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.243 - ONNX FP16 Canary Rejection & Multi-Task Numerical Stability
+
+- **Canary Rejection on Non-Finite Export**: Hardened `verify_canary()` in
+  `training/export/onnx_variants.py` to raise
+  `ExportError("ONNX_CANARY_FAILED")` instead of solely logging a warning,
+  strictly preventing corrupted or overflowed half-precision graphs from being
+  written or uploaded.
+- **MultiTaskRestorer FP16 Numerical Stability**: Updated `forward()` in
+  `models/multitask_restorer.py` to evaluate soft routing softmax in full
+  precision (`float32`) and compute task head blending with an FP32
+  accumulator, preventing half-precision arithmetic overflow across 11 heads.
+- **Canary Unit Tests**: Added regression tests in `tests/unit/test_export.py`
+  validating that canary detection properly rejects non-finite FP16 models.
 
 ### v16.9.242 - Kaggle Model Hub Metadata Sync & Title Constraint Enforcement
 

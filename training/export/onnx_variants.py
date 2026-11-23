@@ -26,7 +26,7 @@ from torch import nn
 
 from training.cloud.variations import ONNX_FP16_SUFFIX, ONNX_FP32_SUFFIX
 from training.export.base import EXPORT_ERRORS
-from training.export.common import OnnxGraphSpec
+from training.export.common import ExportError, OnnxGraphSpec
 from training.export.dynamo_onnx import (
     VerifiedProgram,
     build_verified_program,
@@ -150,13 +150,15 @@ class OnnxVariantWriter:
             for i, out in enumerate(outputs):
                 if isinstance(out, torch.Tensor):
                     if not torch.isfinite(out).all():
-                        logger.warning(
-                            "[CANARY] Non-finite output (NaN/Inf) detected in %s at output %d",
-                            variant.key,
-                            i,
+                        err_msg = (
+                            f"[CANARY] Non-finite output (NaN/Inf) detected in {variant.key} "
+                            f"at output {i}"
                         )
-                    else:
-                        logger.debug("[CANARY] %s output %d verified finite.", variant.key, i)
+                        logger.error(err_msg)
+                        raise ExportError("ONNX_CANARY_FAILED", err_msg)
+                    logger.debug("[CANARY] %s output %d verified finite.", variant.key, i)
+        except ExportError:
+            raise
         except (RuntimeError, ValueError, TypeError) as exc:
             logger.debug("[CANARY] Skipping runtime canary for %s: %s", variant.key, exc)
 
