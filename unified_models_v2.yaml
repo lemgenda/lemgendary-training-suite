@@ -7,7 +7,7 @@ _registry_metadata:
   models_count: 23
 forex_predictor:
   status: TRAINING
-  name: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
+  name: LemGendary Forex Predictor (CNN-Transformer)
   class_name: ForexPredictor
   parameters_m: 3.5358
   category: forex
@@ -114,7 +114,7 @@ forex_predictor:
   canonical_format: parquet
   kaggle_metadata:
     slug: forex-predictor
-    title: LemGendary Forex Predictor (Multi-Scale CNN-Transformer)
+    title: LemGendary Forex Predictor (CNN-Transformer)
     subtitle: Multi-Scale CNN-Transformer predicting multi-timeframe directional order
       flow and pip targets
     is_private: false
@@ -296,7 +296,7 @@ nima_aesthetic_mobile:
   seed: 42
 nima_aesthetic_efficientnet:
   status: VALIDATED
-  name: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
+  name: LemGendary NIMA Scorer (EfficientNetV2-S)
   class_name: NIMA_Model
   parameters_m: 20.508
   category: enhance
@@ -363,7 +363,7 @@ nima_aesthetic_efficientnet:
   canonical_format: webdataset
   kaggle_metadata:
     slug: nima-aesthetic-efficientnet
-    title: LemGendary NIMA Aesthetic Scorer (EfficientNetV2-S)
+    title: LemGendary NIMA Scorer (EfficientNetV2-S)
     subtitle: EfficientNet-based aesthetic quality assessment model with earth mover
       distance loss
     is_private: false
@@ -2003,7 +2003,7 @@ yolov8n:
   seed: 42
 professional_multitask_restoration:
   status: DATASET_READY
-  name: LemGendary Professional Multi-Task Restoration Model
+  name: LemGendary Professional Multi-Task Restorer
   class_name: MultiTaskRestorer
   parameters_m: 0.7277
   category: restoration
@@ -2048,7 +2048,7 @@ professional_multitask_restoration:
   canonical_format: webdataset
   kaggle_metadata:
     slug: professional-multitask-restoration
-    title: LemGendary Professional Multi-Task Restoration Model
+    title: LemGendary Professional Multi-Task Restorer
     subtitle: Unified multi-head restorative architecture addressing composite real-world
       degradation manifolds
     is_private: false

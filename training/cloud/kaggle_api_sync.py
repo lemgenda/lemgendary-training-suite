@@ -45,10 +45,15 @@ def _sync_model_metadata(
 
         try:
             logger.info("Updating model-level metadata for '%s'...", full_model_ref)
-            api.model_update(str(tmp_path))
+            update_res = api.model_update(str(tmp_path))
+            err = getattr(update_res, "error", None) or (
+                update_res.get("error") if isinstance(update_res, dict) else None
+            )
+            if err:
+                raise RuntimeError(f"Kaggle model_update returned error: {err}")
             results["model"] = "updated"
             logger.info("Model-level metadata updated for %s", full_model_ref)
-        except KAGGLE_API_ERRORS as update_err:
+        except (*KAGGLE_API_ERRORS, RuntimeError) as update_err:
             logger.info(
                 "model_update failed for '%s' (%s). Attempting model_create_new...",
                 full_model_ref,
@@ -56,11 +61,16 @@ def _sync_model_metadata(
             )
             try:
                 create_res = api.model_create_new(str(tmp_path))
+                create_err_msg = getattr(create_res, "error", None) or (
+                    create_res.get("error") if isinstance(create_res, dict) else None
+                )
+                if create_err_msg:
+                    raise RuntimeError(f"Kaggle model_create_new returned error: {create_err_msg}")
                 results["model"] = "created"
                 logger.info(
                     "Model created on Kaggle: %s", getattr(create_res, "url", full_model_ref)
                 )
-            except KAGGLE_API_ERRORS as create_err:
+            except (*KAGGLE_API_ERRORS, RuntimeError) as create_err:
                 err_msg = (
                     f"Failed to create/update model {full_model_ref}: {update_err} | {create_err}"
                 )
@@ -193,10 +203,15 @@ class KaggleApiSyncService:
                 # Check if instance exists
                 api.model_instance_get(instance_ref)
                 logger.info("Variation '%s' exists. Updating instance metadata...", instance_ref)
-                api.model_instance_update(str(tmp_path))
+                inst_res = api.model_instance_update(str(tmp_path))
+                inst_err = getattr(inst_res, "error", None) or (
+                    inst_res.get("error") if isinstance(inst_res, dict) else None
+                )
+                if inst_err:
+                    raise RuntimeError(f"Kaggle model_instance_update returned error: {inst_err}")
                 results["variations"][var_key] = "updated"
                 logger.info("Instance metadata updated for %s", instance_ref)
-            except KAGGLE_API_ERRORS as get_inst_err:
+            except (*KAGGLE_API_ERRORS, RuntimeError) as get_inst_err:
                 logger.info(
                     ("Variation '%s' not found (%s). It will be registered on upload or created."),
                     instance_ref,
@@ -204,9 +219,16 @@ class KaggleApiSyncService:
                 )
                 try:
                     # Attempt model_instance_update anyway in case get errored
-                    api.model_instance_update(str(tmp_path))
+                    inst_res = api.model_instance_update(str(tmp_path))
+                    inst_err = getattr(inst_res, "error", None) or (
+                        inst_res.get("error") if isinstance(inst_res, dict) else None
+                    )
+                    if inst_err:
+                        raise RuntimeError(
+                            f"Kaggle model_instance_update returned error: {inst_err}"
+                        )
                     results["variations"][var_key] = "updated"
-                except KAGGLE_API_ERRORS as upd_err:
+                except (*KAGGLE_API_ERRORS, RuntimeError) as upd_err:
                     # Variation instances are formally created when binaries are
                     # uploaded via kagglehub / instance create
                     logger.info(

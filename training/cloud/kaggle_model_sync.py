@@ -263,15 +263,15 @@ class KaggleModelSyncManager:
         section = metadata.variations.get(variation)
         return section.licensing.license if section else metadata.model.publishing.license
 
-    def ensure_model_metadata(self, model_key: str) -> Path:
-        """Ensure both model_metadata.yaml and model-metadata.json are materialized.
+    def ensure_model_metadata(self, model_key: str, force_refresh: bool = False) -> Path:
+        """Ensure both model_metadata.yaml and model-metadata.json are materialized and up to date.
 
         ``write_metadata`` validates ``model_key`` against the registry before it
         creates the model folder, so an unknown key leaves no directory behind.
         """
         model_dir = self.get_model_dir(model_key)
         yaml_file = model_dir / METADATA_FILENAME
-        if not yaml_file.exists():
+        if force_refresh or not yaml_file.exists():
             return self.metadata_service.write_metadata(model_key, output_dir=model_dir)
         return yaml_file
 
@@ -487,7 +487,7 @@ class KaggleModelSyncManager:
         4. sync model and instance metadata again (instances created by step 3).
         """
         variations = selected_variations(variation)
-        self.ensure_model_metadata(model_key)
+        self.ensure_model_metadata(model_key, force_refresh=True)
         if not dry_run:
             staged = self.staging_service.stage_variations(
                 model_key, base_dir=self.get_model_dir(model_key)

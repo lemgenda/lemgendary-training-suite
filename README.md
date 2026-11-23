@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.241-STABLE`
+- **Version**: `v16.9.242-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,25 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.242 - Kaggle Model Hub Metadata Sync & Title Constraint Enforcement
+
+- **Kaggle 50-Character Model Title Validation**: Added validation constraint
+  in `training/cloud/model_metadata.py` checking `len(model.title) <= 50`,
+  preventing silent failure against Kaggle's backend title length limit.
+- **Title Normalization in Registry**: Shortened titles in
+  `unified_models_v2.yaml` for `forex_predictor` (45 chars),
+  `nima_aesthetic_efficientnet` (42 chars), and
+  `professional_multitask_restoration` (44 chars) to comply with Kaggle limits.
+- **Kaggle API Error Inspection**: Hardened `training/cloud/kaggle_api_sync.py`
+  to check for `.error` / `['error']` across `model_update`,
+  `model_create_new`, and `model_instance_update`, raising explicit
+  `RuntimeError` rather than silently continuing when the Kaggle API returns an
+  error payload without raising an HTTP exception.
+- **Forced Metadata Refresh on Model Push**: Updated `ensure_model_metadata` in
+  `training/cloud/kaggle_model_sync.py` with `force_refresh=True` parameter and
+  invoked it during `push_model` to ensure `model_metadata.yaml` and
+  `model-metadata.json` are always updated from registry specs before upload.
 
 ### v16.9.241 - ParseNet Missing-Mask WebDataset Resilience & Zero-Loss Guard
 

@@ -40,6 +40,8 @@ def _model_errors(m: Any) -> list[str]:
         errors.append(f"model.slug '{m.slug}' must be lowercase letters, digits and hyphens")
     if not m.text.title.strip():
         errors.append("model.title is required")
+    elif len(m.text.title.strip()) > 50:
+        errors.append(f"model.title cannot exceed 50 characters (got {len(m.text.title.strip())})")
     if not m.text.subtitle.strip():
         errors.append("model.subtitle is required")
     if not m.text.description.strip():
