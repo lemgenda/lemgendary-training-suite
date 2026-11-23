@@ -401,6 +401,19 @@ class WebDatasetReader:
         """Shard file holding sample ``index`` (``None`` for loose-file samples)."""
         return self.index_map[index][1]
 
+    def skip_shards_offset(self, num_shards_to_skip: int) -> int:
+        """Return the sample offset corresponding to skipping the first N tar shards.
+
+        Enables O(1) shard-level fast-forwarding upon resumption without decoding samples.
+        """
+        if num_shards_to_skip <= 0 or not self.tar_files:
+            return 0
+        shards_to_skip = set(self.tar_files[:num_shards_to_skip])
+        for idx, entry in enumerate(self.index_map):
+            if entry[1] not in shards_to_skip:
+                return idx
+        return len(self.index_map)
+
     def open_handle_count(self) -> int:
         """Shard handles this process currently keeps open."""
         return len(self._raw_handles) + len(self._tar_handles)

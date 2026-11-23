@@ -80,10 +80,10 @@ class ResumableBatchSampler(Sampler[list[int]]):
         super().__init__()
         if batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
-        self.num_samples = int(num_samples)
-        self.batch_size = int(batch_size)
+        self.num_samples = num_samples
+        self.batch_size = batch_size
         self.drop_last = drop_last
-        self._order = EpochOrder(shuffle=shuffle, seed=int(seed))
+        self._order = EpochOrder(shuffle=shuffle, seed=seed)
         self._topology = distributed_rank_world()
         self._start_batch = 0
 
@@ -114,7 +114,7 @@ class ResumableBatchSampler(Sampler[list[int]]):
 
     @rank.setter
     def rank(self, rank: int) -> None:
-        self._topology = (int(rank), self._topology[1])
+        self._topology = (rank, self._topology[1])
 
     @property
     def world_size(self) -> int:
@@ -123,7 +123,7 @@ class ResumableBatchSampler(Sampler[list[int]]):
 
     @world_size.setter
     def world_size(self, world_size: int) -> None:
-        self._topology = (self._topology[0], int(world_size))
+        self._topology = (self._topology[0], world_size)
 
     def set_shard_window(self, window: ShardWindow | None) -> None:
         """Order shuffled epochs by ``window`` (``None`` restores the uniform permutation)."""
@@ -133,11 +133,11 @@ class ResumableBatchSampler(Sampler[list[int]]):
 
     def set_epoch(self, epoch: int) -> None:
         """Select the permutation of ``epoch``."""
-        self._order.epoch = int(epoch)
+        self._order.epoch = epoch
 
     def set_start_batch(self, start_batch: int) -> None:
         """Begin the next iteration at ``start_batch`` (resets after that iteration)."""
-        self._start_batch = max(0, int(start_batch))
+        self._start_batch = max(0, start_batch)
 
     def _rank_indices(self) -> list[int]:
         indices = self._order.indices(self.num_samples)
@@ -192,7 +192,7 @@ def set_loader_epoch(loader: Any, epoch: int) -> None:
             set_epoch(epoch)
     generator = getattr(loader, "generator", None)
     if isinstance(generator, torch.Generator):
-        generator.manual_seed(DEFAULT_SAMPLER_SEED + int(epoch))
+        generator.manual_seed(DEFAULT_SAMPLER_SEED + epoch)
 
 
 def resume_start_batch(loader: Any, resume_step: int) -> int:
@@ -204,5 +204,9 @@ def resume_start_batch(loader: Any, resume_step: int) -> int:
     batch_sampler = getattr(loader, "batch_sampler", None)
     if resume_step > 0 and isinstance(batch_sampler, ResumableBatchSampler):
         batch_sampler.set_start_batch(resume_step)
+        return resume_step
+    sampler = getattr(loader, "sampler", None)
+    if resume_step > 0 and hasattr(sampler, "set_start_shard"):
+        sampler.set_start_shard(resume_step)
         return resume_step
     return 0

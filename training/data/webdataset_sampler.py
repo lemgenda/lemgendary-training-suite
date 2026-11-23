@@ -45,15 +45,22 @@ class DeterministicShardSampler(Sampler[int]):
         self.seed = seed
         self.drop_last = drop_last
         self.epoch = 0
+        self._start_shard = 0
 
+    @property
+    def num_samples(self) -> int:
+        """Number of shard samples assigned to this rank."""
         if self.drop_last:
-            self.num_samples = self.num_shards // self.num_replicas
-        else:
-            self.num_samples = (
-                math.ceil((self.num_shards - self.rank) / self.num_replicas)
-                if self.num_shards > self.rank
-                else 0
-            )
+            return self.num_shards // self.num_replicas
+        return (
+            math.ceil((self.num_shards - self.rank) / self.num_replicas)
+            if self.num_shards > self.rank
+            else 0
+        )
+
+    def set_start_shard(self, start_shard: int) -> None:
+        """Begin the next iteration at ``start_shard`` offset."""
+        self._start_shard = max(0, start_shard)
 
     @property
     def total_size(self) -> int:
@@ -83,7 +90,8 @@ class DeterministicShardSampler(Sampler[int]):
             # Rank gets stride across original indices
             sub_indices = indices[self.rank :: self.num_replicas]
 
-        return iter(sub_indices)
+        start, self._start_shard = self._start_shard, 0
+        return iter(sub_indices[start:])
 
     def __len__(self) -> int:
         return self.num_samples

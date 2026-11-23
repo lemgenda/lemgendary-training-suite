@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import torch
 from torch.utils.data import DataLoader
 
 from data.dataset import MultiTaskDataset
@@ -71,14 +72,19 @@ class RunSpec:
 
 
 def build_instruction_train_loader(
-    dataset: InstructionDataset, batch_size: int
+    dataset: InstructionDataset, batch_size: int, num_workers: int = 0
 ) -> DataLoader[dict[str, Any]]:
     """Build the instruction-tuning train loader with dynamic-padding collation."""
-    return DataLoader(
-        dataset=dataset,
-        batch_sampler=ResumableBatchSampler(len(dataset), batch_size, shuffle=True),
-        collate_fn=collate_instruction_batch,
-    )
+    kwargs: dict[str, Any] = {
+        "dataset": dataset,
+        "batch_sampler": ResumableBatchSampler(len(dataset), batch_size, shuffle=True),
+        "collate_fn": collate_instruction_batch,
+        "num_workers": num_workers,
+        "pin_memory": torch.cuda.is_available(),
+    }
+    if num_workers > 0:
+        kwargs["persistent_workers"] = True
+    return DataLoader(**kwargs)
 
 
 def _cli_batch_size(raw_batch: Any) -> int | None:
@@ -281,7 +287,7 @@ def _placement(spec: RunSpec) -> LoaderPlacement:
 
 
 def _worker_overrides(spec: RunSpec) -> WorkerOverrides:
-    """Worker overrides for the train loader: CLI takes precedence, followed by model_info configuration."""
+    """Worker overrides for the train loader: CLI takes precedence over model_info."""
     loader_cfg = spec.model_info.get("loader") or {}
     num_w = spec.args.num_workers
     if num_w is None:
@@ -304,7 +310,9 @@ def build_initial_train_loader(
 ):
     """Build the first train loader for ``train_ds``."""
     if isinstance(train_ds, InstructionDataset):
-        return build_instruction_train_loader(train_ds, batch_size)
+        overrides = _worker_overrides(spec)
+        num_w = overrides.num_workers or 0
+        return build_instruction_train_loader(train_ds, batch_size, num_workers=num_w)
     sampler_kwargs = _sampler_kwargs(spec, train_ds)
     if sampler_kwargs:
         logger.info(
