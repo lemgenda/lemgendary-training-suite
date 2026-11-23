@@ -26,8 +26,22 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
-### v16.9.244 - Fast Model Stats Aggregation & FID Ledger Caching
+### v16.9.244 - Fast Model Stats Aggregation & Resumption Optimization
 
+- **Shard-Level Offset Skipping & Resumption Fast-Forwarding**: In
+  `training/data/containers/webdataset.py` and
+  `training/data/webdataset_sampler.py`, added `skip_shards_offset()` and
+  `set_start_shard()` to fast-forward past completed `.tar` archives instantly
+  without iterating member indices.
+- **Worker Persistence & Non-Blocking Transfers**: In
+  `training/context_data.py`, enforced `persistent_workers=True` and
+  `pin_memory=torch.cuda.is_available()` across instruction-tuning and
+  fine-tuning loaders whenever `num_workers > 0`.
+- **Adaptive BatchClock EMA Rate Smoothing**: Decoupled batch fast-forwarding
+  time from active loop timing in `training/training/step_progress.py`. Anchored
+  `start_time` strictly to the first active un-skipped batch and applied dynamic
+  Exponential Moving Average (EMA) rate smoothing to eliminate startup latency
+  skew and distorted $s/\text{it}$ and ETAs.
 - **One-Time Ledger Read in Model Stats**: Updated `_read_csv_stats` in
   `training/server/routes/gui_model_stats.py` to pre-read `fid_provenance.csv`
   once per model directory instead of repeatedly per row of `metrics.csv`.
