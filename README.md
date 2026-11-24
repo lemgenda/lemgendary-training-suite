@@ -26,14 +26,41 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.247 - Python 3.14.10 & Permissive Ecosystem Modernization
+
+- **Python 3.14.10 Runtime LTS Alignment**:
+  Transitioned target runtime to Python `3.14.10` (supported through October
+  2030, incorporating stable generational GC). Updated
+  `requires-python = ">=3.14,<3.15"`, `.python-version`, and toolchain
+  configurations (`ruff`, `pyright`).
+- **DataLoader Multiprocessing & Forkserver Hardening**:
+  Hardened `training/data/workers.py` and `training/data/loaders.py` for
+  deterministic multiprocessing topology. Explicitly configured
+  `multiprocessing_context="forkserver"` on POSIX environments and `"spawn"` on
+  Windows. Initialized `SIGINT` (ignore) and `SIGTERM` handlers within worker
+  processes to eliminate shutdown crashes.
+- **Strict Permissive Licensing (Zero AGPL Copyleft Exposure)**:
+  Completely removed archived `albumentations==2.0.8` (and guarded against AGPL
+  `albumentationsx`). Standardized custom transforms on Apache-2.0
+  `kornia==0.8.2` and BSD-3-Clause `torchvision.transforms.v2`
+  (`torchvision==0.29.2`). Verified `ultralytics` graceful fallback without
+  albumentations.
+- **Dependency & Regression Verification**:
+  Established automated test suite under
+  `tests/regression/test_env_and_abi_compatibility.py` and
+  `tests/regression/test_training_and_export_regression.py`.
+
 ### v16.9.246 - Cloud Sync Hardening, ONNX Canary & Relative Manifest
 
-- **Cloud CUDA 13.4 Torch Build & Notebook Synthesis (`training/notebooks/torch_build.py`)**:
-  Updated the authoritative cloud CUDA accelerator build to `torch==2.15.0+cu134`,
-  `torchvision==0.29.2+cu134`, and `torchaudio==2.11.1+cu134` hosted on the
+- **Cloud CUDA 13.4 Torch Build & Notebook Synthesis
+  (`training/notebooks/torch_build.py`)**:
+  Updated the authoritative cloud CUDA accelerator build to
+  `torch==2.15.0+cu134`, `torchvision==0.29.2+cu134`, and
+  `torchaudio==2.11.1+cu134` hosted on the
   `https://download.pytorch.org/whl/cu134` index. Regenerated all 138 training,
   inference, and usage notebooks across 23 models.
-- **Quiet Tqdm & Cloud Sync Type Cleanliness (`training/cloud/kaggle_model_sync.py`)**:
+- **Quiet Tqdm & Cloud Sync Type Cleanliness
+  (`training/cloud/kaggle_model_sync.py`)**:
   Refactored `_QuietTqdm.refresh` with exact parameter typing matching the
   `tqdm.refresh` specification and switched module monkeypatching of `kagglehub`
   to direct dictionary assignment on `__dict__`, eliminating all Pyrefly and

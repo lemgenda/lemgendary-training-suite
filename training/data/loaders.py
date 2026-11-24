@@ -2,6 +2,7 @@
 
 import dataclasses
 import logging
+import sys
 from collections.abc import Sequence, Sized
 from dataclasses import dataclass
 from typing import Any
@@ -144,6 +145,13 @@ def build_train_loader(
 
     if workers > 0:
         kwargs["worker_init_fn"] = dataloader_worker_init_fn
+        # Deterministic multiprocessing context for Python 3.14+ forkserver
+        # on POSIX and spawn on Windows
+        mp_context_name = "spawn" if sys.platform in ("win32", "darwin") else "forkserver"
+        try:
+            kwargs["multiprocessing_context"] = torch.multiprocessing.get_context(mp_context_name)
+        except (ValueError, RuntimeError) as exc:
+            logger.debug("Failed getting multiprocessing context %s: %s", mp_context_name, exc)
 
     if opts.collate_fn is not None:
         kwargs["collate_fn"] = opts.collate_fn
@@ -216,6 +224,13 @@ def build_val_loader(
 
     if workers > 0:
         kwargs["worker_init_fn"] = dataloader_worker_init_fn
+        # Deterministic multiprocessing context for Python 3.14+ forkserver
+        # on POSIX and spawn on Windows
+        mp_context_name = "spawn" if sys.platform in ("win32", "darwin") else "forkserver"
+        try:
+            kwargs["multiprocessing_context"] = torch.multiprocessing.get_context(mp_context_name)
+        except (ValueError, RuntimeError) as exc:
+            logger.debug("Failed getting multiprocessing context %s: %s", mp_context_name, exc)
         kwargs["prefetch_factor"] = _val_prefetch_factor(dataset, opts)
     if opts.collate_fn is not None:
         kwargs["collate_fn"] = opts.collate_fn
