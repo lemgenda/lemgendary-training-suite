@@ -28,6 +28,8 @@
 
 ### v16.9.245 - LLM Export Routing, Kaggle Root & Optimizer Merging
 
+- Upgraded package(s) for the lemgendary-training-suite.
+
 - Upgraded 15 package(s) for the lemgendary-training-suite.
 - **LLM Export Routing (`training/export/pipeline.py`)**: `_export_targets()`
   now returns
