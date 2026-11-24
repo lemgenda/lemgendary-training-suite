@@ -426,7 +426,7 @@
 - **Gradient Checkpointing Toggles**: Added non-reentrant gradient checkpointing
   support for full fine-tuning runs in `GenericCausalLLM`.
 
-### v16.9.230 - Training Pathology Audit: Polarity Shield, Target Audit & Guard Hardening
+### v16.9.230 - Training Pathology Audit: Polarity Shield & Target Audit
 
 - **Post-Training Target Audit (Pathology 16)**: Added
   `training/target_audit.py` which audits achieved metrics against canonical
