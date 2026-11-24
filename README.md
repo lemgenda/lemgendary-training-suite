@@ -26,6 +26,46 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.245 - LLM Export Routing, Kaggle Root & Optimizer Merging
+
+- **LLM Export Routing (`training/export/pipeline.py`)**: `_export_targets()`
+  now returns
+  `["llm"]` for LLM/`ai_helper` models. Added `_export_llm_checkpoint()` helper
+  using
+  `LLMModelExporter`. `export_all()` routes LLM models through the LLM path
+  instead of feeding
+  vision tensors.
+- **Checkpoint Export Model Isolation
+  (`training/checkpoint/lifecycle_manager.py`)**:
+  `export_tri_format()` now passes `model=None` when a checkpoint file exists on
+  disk, letting
+  the exporter reconstruct a fresh inference model from checkpoint rather than
+  mutating the active
+  training graph.
+- **FP32 ONNX Export (`training/export/llm_exporter.py`)**: Added `.float()`
+  after
+  `merge_and_unload()` to ensure FP32 for ONNX export. Added `cast(nn.Module,
+  ...)` around
+  `merge_fn()` call to satisfy Pyright `Module | Tensor` narrowing.
+- **Kaggle Dataset Root (`training/context_data.py`)**: `datasets_root()`
+  handles Kaggle
+  environment (checks `/kaggle/working`). `instruction_all_jsonl_paths()` does
+  case-insensitive
+  and alias-based fallback for dataset directory names. `RunSpec.args` widened
+  to
+  `argparse.Namespace | SimpleNamespace` to allow test usage of
+  `SimpleNamespace`.
+- **Optimizer & Scheduler Merging (`training/core_loop.py`)**: Optimizer and
+  scheduler now
+  merge model-level `model_info.optimizer` and `model_info.lr_schedule` into
+  config before
+  `build_optimizer()` / `build_scheduler()` calls.
+- **Verification Engine Type Safety (`training/verification/engine.py`)**:
+  `_check_loadability()`
+  uses named variable `resolved_model` instead of rebinding `model` parameter,
+  fixing
+  Pyright optional-narrowing warnings.
+
 ### v16.9.244 - Fast Model Stats Aggregation & Resumption Optimization
 
 - **Shard-Level Offset Skipping & Resumption Fast-Forwarding**: In

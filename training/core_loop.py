@@ -402,6 +402,27 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
     return spec, RunSetup(lifecycle_manager, device_info, policy, paths)
 
 
+def _build_merged_opt_config(spec: RunSpec) -> dict:
+    """Merge model-level optimizer and scheduler overrides into the base config."""
+    raw_opt = spec.model_info.get("optimizer")
+    model_opt = raw_opt if isinstance(raw_opt, dict) else {}
+    model_lr = spec.model_info.get("learning_rate")
+    merged_opt = {**spec.config.get("optimizer", {}), **model_opt}
+    if model_lr is not None and "lr" not in model_opt:
+        merged_opt["lr"] = model_lr
+
+    model_sched = spec.model_info.get("lr_schedule") or spec.model_info.get("scheduler") or {}
+    sched_dict = model_sched if isinstance(model_sched, dict) else {}
+    merged_sched = {**spec.config.get("scheduler", {}), **sched_dict}
+
+    return {
+        **spec.config,
+        "optimizer": merged_opt,
+        "scheduler": merged_sched,
+        "category": spec.model_info.get("category", spec.config.get("category")),
+    }
+
+
 def build_model_stack(spec: RunSpec, total_epochs: int) -> tuple[TrainState, Any]:
     """Build the model, its parallel wrapper, optimizer and scheduler.
 
@@ -421,12 +442,9 @@ def build_model_stack(spec: RunSpec, total_epochs: int) -> tuple[TrainState, Any
     )
     model = parallel_strategy.setup()
 
-    opt_config = {
-        **spec.config,
-        "category": spec.model_info.get("category", spec.config.get("category")),
-    }
+    opt_config = _build_merged_opt_config(spec)
     optimizer = build_optimizer(raw_model, opt_config, lr=spec.args.lr)
-    scheduler = build_scheduler(optimizer=optimizer, config=spec.config, total_epochs=total_epochs)
+    scheduler = build_scheduler(optimizer=optimizer, config=opt_config, total_epochs=total_epochs)
     train = TrainState(
         raw_model=raw_model,
         model=model,

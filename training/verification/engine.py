@@ -107,17 +107,16 @@ class ModelVerificationEngine:
         ckpt_path: Path | None = None
         details: dict[str, Any] = {}
         try:
-            if model is None:
-                model = get_model(model_key)
-            model.eval()
+            resolved_model: nn.Module = model if model is not None else get_model(model_key)
+            resolved_model.eval()
             ckpt_path = self._resolve_ckpt_path(model_key, checkpoint_path)
             if ckpt_path is not None:
-                self._load_ckpt_weights(model, ckpt_path, contract, details)
-            details["model_class"] = model.__class__.__name__
+                self._load_ckpt_weights(resolved_model, ckpt_path, contract, details)
+            details["model_class"] = resolved_model.__class__.__name__
             details["checkpoint_resolved"] = str(ckpt_path) if ckpt_path else None
             return (
                 StageVerificationResult(stage=stage, passed=True, details=details),
-                model,
+                resolved_model,
                 ckpt_path,
             )
         except (OSError, RuntimeError, ValueError, KeyError, TypeError) as exc:

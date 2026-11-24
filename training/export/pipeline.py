@@ -22,6 +22,7 @@ from training.export.common import (
     wrap_quality_model,
 )
 from training.export.forex_exporter import ForexModelExporter
+from training.export.llm_exporter import LLMModelExporter
 from training.export.onnx_variants import ONNX_VARIANTS, OnnxVariantWriter
 from training.export.pytorch_exporter import EXPORT_SAMPLE_BATCH
 from training.export.staging import VariationStagingService
@@ -125,10 +126,31 @@ def _export_model_targets(
 
 
 def _export_targets(model_key: str, model_info: dict[str, Any], plan: ExportPlan) -> list[str]:
-    """``["forex"]`` for Forex models, else the plan's targets or the three defaults."""
+    """Return model-specific target list, else the plan's targets or default trio."""
     if model_info.get("dataset_type") == "forex" or "forex" in model_key.lower():
         return ["forex"]
+    cat = (model_info.get("category") or "").lower()
+    if cat == "llm" or "llm" in model_key.lower() or "ai_helper" in model_key.lower():
+        return ["llm"]
     return plan.targets or ["onnx_fp32", "onnx_fp16", "torch_pt"]
+
+
+def _export_llm_checkpoint(
+    model_key: str,
+    model_info: dict[str, Any],
+    ckpt_file: Path | None,
+    out_dir: Path,
+    cfg: dict[str, Any],
+) -> dict[str, Path]:
+    """Export an LLM checkpoint to isolated variations using LLMModelExporter."""
+    model = _load_export_model(model_key, cfg, ckpt_file, model_info)
+    max_seq_len = int(model_info.get("max_seq_length", 2048))
+    return LLMModelExporter().export(
+        model=model,
+        model_key=model_key,
+        output_dir=out_dir,
+        max_seq_length=max_seq_len,
+    )
 
 
 def _export_forex_checkpoint(
@@ -187,6 +209,8 @@ def export_all(
     staging_dir.mkdir(parents=True, exist_ok=True)
     if "forex" in export_targets:
         results = _export_forex_checkpoint(model_key, model_info, ckpt_file, staging_dir)
+    elif "llm" in export_targets:
+        results = _export_llm_checkpoint(model_key, model_info, ckpt_file, staging_dir, cfg)
     else:
         model = _load_export_model(model_key, cfg, ckpt_file, model_info)
         results = _export_model_targets(

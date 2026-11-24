@@ -10,6 +10,7 @@ import argparse
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import torch
@@ -57,7 +58,7 @@ DATASET_BUILD_ERRORS: tuple[type[BaseException], ...] = (
 class RunSpec:
     """Resolved inputs of one training run."""
 
-    args: argparse.Namespace
+    args: argparse.Namespace | SimpleNamespace
     config: dict
     model_info: dict
     model_key: str
@@ -175,6 +176,11 @@ def _forex_datasets(spec: RunSpec, sample_fraction: float):
 
 def datasets_root(spec: RunSpec) -> Path:
     """``paths.datasets_root`` of ``config.yaml``; relative values start at the project root."""
+    env = getattr(spec.args, "env", "local")
+    if env == "kaggle":
+        kaggle_root = Path("/kaggle/working/LemGendaryDatasets")
+        if kaggle_root.exists() or Path("/kaggle/working").exists():
+            return kaggle_root
     root = Path(str(spec.config.get("paths", {}).get("datasets_root") or DEFAULT_DATASETS_ROOT))
     return root if root.is_absolute() else spec.project_root / root
 
@@ -189,7 +195,21 @@ def instruction_all_jsonl_paths(spec: RunSpec) -> tuple[Path, Path, Path | None]
     """Locate the train, validation, and optional test JSONL files of an instruction dataset."""
     declared_datasets = spec.model_info.get("datasets", [])
     dataset_name = declared_datasets[0] if declared_datasets else DEFAULT_INSTRUCTION_DATASET
-    data_dir = datasets_root(spec) / dataset_name / "data"
+    base_root = datasets_root(spec)
+    data_dir = base_root / dataset_name / "data"
+
+    if not data_dir.exists():
+        # Case-insensitive resolution and common alias fallback (e.g. Linux ext4)
+        candidates = [
+            dataset_name.lower(),
+            dataset_name.replace("LemGendized", ""),
+            dataset_name.replace("LemGendized", "").lower(),
+        ]
+        for cand in candidates:
+            cand_dir = base_root / cand / "data"
+            if cand_dir.exists():
+                data_dir = cand_dir
+                break
 
     train_jsonl = data_dir / f"{spec.model_key}_train.jsonl"
     val_jsonl = data_dir / f"{spec.model_key}_val.jsonl"

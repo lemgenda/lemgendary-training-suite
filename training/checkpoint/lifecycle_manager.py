@@ -599,11 +599,17 @@ class CheckpointLifecycleManager:
         )
         try:
             source = source or ExportSource()
+            target_model = source.target()
+            # If a checkpoint exists on disk, pass model=None to export_universal_model
+            # so it reconstructs a separate inference model from checkpoint rather than
+            # mutating or offloading the active in-memory training model and optimizer state.
+            has_ckpt = self.paths.best_path.exists()
+            model_to_pass = None if has_ckpt else target_model
             exported, _ = export_universal_model(
                 model_key=self.model_name,
-                model=source.target(),
+                model=model_to_pass,
                 output_dir=self.paths.model_hub_dir,
-                checkpoint_path=self.paths.best_path if self.paths.best_path.exists() else None,
+                checkpoint_path=self.paths.best_path if has_ckpt else None,
                 dummy_input=source.dummy_input,
                 stage_dist=True,
             )

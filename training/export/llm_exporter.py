@@ -147,7 +147,8 @@ def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
             logger.info(
                 "Merging PeftModel adapters into unquantized base module for ONNX export..."
             )
-            merged = merge_fn()
+            merged: nn.Module = merge_fn()
+            merged = merged.float()
             merged.eval()
             return merged
         except (AttributeError, RuntimeError, ValueError) as exc:
