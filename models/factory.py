@@ -102,13 +102,16 @@ _LLM_CURRICULUM_KEYS = (
     "lora_alpha",
     "lora_dropout",
     "load_in_4bit",
+    "use_rslora",
+    "target_modules",
     "chunked_cross_entropy",
     "ce_chunk_size",
 )
 
 
 def _merge_llm_entry_kwargs(entry: dict, kwargs: dict) -> dict:
-    """Merge top-level LLM foundation model and curriculum LoRA keys into ``kwargs``."""
+    """Merge top-level LLM foundation model, curriculum, and active env profile keys."""
+    explicit_keys = set(kwargs or {})
     merged = dict(kwargs or {})
     if entry.get("category") != "llm" and entry.get("class_name") not in (
         "GenericCausalLLM",
@@ -125,8 +128,20 @@ def _merge_llm_entry_kwargs(entry: dict, kwargs: dict) -> dict:
     curriculum = entry.get("curriculum")
     if isinstance(curriculum, dict):
         for key in _LLM_CURRICULUM_KEYS:
-            if key in curriculum and key not in merged:
+            if key in curriculum and key not in explicit_keys:
                 merged[key] = curriculum[key]
+    default_env = (
+        "kaggle"
+        if (os.environ.get("KAGGLE_KERNEL_RUN_TYPE") or os.environ.get("KAGGLE_TPU_NAME"))
+        else "local"
+    )
+    env = str(entry.get("_active_env") or os.environ.get("LEMTRAIN_ENV") or default_env).lower()
+    profile_key = "cloud" if env in ("kaggle", "colab", "cloud") else "local"
+    profile_cfg = entry.get(profile_key)
+    if isinstance(profile_cfg, dict):
+        for key in _LLM_CURRICULUM_KEYS:
+            if key in profile_cfg and key not in explicit_keys:
+                merged[key] = profile_cfg[key]
     return merged
 
 

@@ -155,7 +155,7 @@ def _install_lines(target: str) -> list[str]:
         *_TORCH_BUILD_LINES,
         "    res = subprocess.run(\n",
         "        [sys.executable, '-m', 'pip', 'install', '-q',\n",
-        f"{upgrade_line}"
+        f"{upgrade_line}",
         "         '--extra-index-url', torch_index,\n",
         "         '--upgrade-strategy', 'only-if-needed',\n",
         "         *constraint_args, '-r', install_req],\n",
@@ -178,15 +178,18 @@ def _missing_manifest_lines(target: str) -> list[str]:
         "else:\n",
         "    print('[ERROR] Could not open requirements file: No such file or directory')\n",
         "    print(\"[REMEDY] Ensure 'requirements.txt' exists in the root of the repository.\")\n",
-        "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because "
+        "    print('[ACTION REQUIRED] Suite clone failed in Step 3 because ",
         f"SUITE_PAT is missing from {place}.')\n",
         "    print('[ACTION REQUIRED] Fix: '\n",
         f"          {fix!r})\n",
         "    print('[INFO] Installing core container streaming dependencies as fallback...')\n",
         "    fallback_deps = [\n",
-        "        'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0', 'pyarrow>=25.0.1', 'zstandard>=0.23.0'\n",
+        "        'webdataset==1.0.2', 'litdata>=0.2.0,<1.0.0',\n",
+        "        'pyarrow>=25.0.1', 'zstandard>=0.23.0'\n",
         "    ]\n",
-        "    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *fallback_deps], check=False)\n",
+        "    subprocess.run(\n",
+        "        [sys.executable, '-m', 'pip', 'install', '-q', *fallback_deps], check=False\n",
+        "    )\n",
     ]
 
 

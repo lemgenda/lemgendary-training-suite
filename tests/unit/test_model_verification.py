@@ -1,6 +1,7 @@
 """Unit tests for Model Family Verification Engine and Contracts."""
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,7 @@ class NonDeterministicModel(nn.Module):
         self.conv = nn.Conv2d(3, 3, 3, padding=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass with unseeded random noise."""
         out = self.conv(x)
         # Random noise injected without seeding
         return out + torch.randn_like(out) * 0.5
@@ -35,12 +37,11 @@ class TestModelVerification(unittest.TestCase):
     """Tests for model verification contracts and engine stages."""
 
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.temp_path = Path(self.temp_dir.name)
+        self.temp_path = Path(tempfile.mkdtemp())
         self.engine = ModelVerificationEngine(project_root=self.temp_path)
 
     def tearDown(self) -> None:
-        self.temp_dir.cleanup()
+        shutil.rmtree(self.temp_path, ignore_errors=True)
 
     def test_resolve_model_family(self) -> None:
         """Verify model key to TaskFamily resolution."""
@@ -91,7 +92,7 @@ class TestModelVerification(unittest.TestCase):
         self.assertIn("Missing mandatory checkpoint payload key", res.error or "")
 
     def test_determinism_verification(self) -> None:
-        """Test forward determinism verification passing on deterministic model and failing on noisy model."""
+        """Test forward determinism passing on clean model and failing on noisy model."""
         contract = get_verification_contract("nafnet")
         dummy = torch.randn(1, 3, 32, 32)
 

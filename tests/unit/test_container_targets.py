@@ -33,6 +33,7 @@ from data.dataset import MultiTaskDataset
 from data.sample_labels import FACE_TARGET_LEN, LANDMARK_ABSENT, MAX_FFANET_BOXES, NIMA_BINS
 from tests.fixtures.webdataset import json_bytes, single_shard_config, webp_bytes
 from training import context_data, core_loop
+from training.ignored_targets import IGNORE_TARGET
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = yaml.safe_load((PROJECT_ROOT / "unified_models_v2.yaml").read_text(encoding="utf-8"))
@@ -299,8 +300,6 @@ def test_segmentation_without_mask_returns_ignored_target(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A segmentation sample without a mask member yields IGNORE_TARGET instead of crashing."""
-    from training.ignored_targets import IGNORE_TARGET
-
     dataset = _dataset_from(tmp_path, "parsenet", _image_members(paired=False))
     with caplog.at_level("WARNING", logger="lemtrain.dataset"):
         model_input, target, task_id = dataset.getitem_container(

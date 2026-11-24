@@ -180,7 +180,7 @@ class TelemetryCsvValidator:
             actual_fields = {col.lower() for col in reader.fieldnames}
             missing = [col for col in expected if col.lower() not in actual_fields]
             if missing:
-                # If only timestamp is missing in legacy format history, allow for backward-compatibility
+                # Allow missing timestamp in legacy format history for backward compatibility.
                 if missing == ["timestamp"] and not strict_columns:
                     pass
                 else:

@@ -745,12 +745,10 @@ class CombinedLoss(nn.Module):
                 pred_norm[:, 1] = pred_norm[:, 1] / 3.14159265  # theta / pi -> [0,1]
                 target_norm[:, 1] = target_norm[:, 1] / 3.14159265
             huber_delta = float(self.stab.get("huber_delta", 1.0))
-            return F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
-
-        if self.task_type == "classification":
-            return _classification_loss(self.criteria.ce, pred, target)
-
-        if self.task_type == "segmentation":
+            loss_val = F.smooth_l1_loss(pred_norm, target_norm, beta=huber_delta)
+        elif self.task_type == "classification":
+            loss_val = _classification_loss(self.criteria.ce, pred, target)
+        elif self.task_type == "segmentation":
             if target.dim() == 4:
                 target = target.squeeze(1)
             elif target.dim() == 2 and target.size(1) == 1:
@@ -763,17 +761,18 @@ class CombinedLoss(nn.Module):
                     "[ZERO LOSS GUARD] Entire segmentation batch contains unlabelled "
                     "targets (IGNORE_TARGET). Returning zero loss to avoid NaN divergence."
                 )
-                return pred.sum() * 0.0
-            return self.criteria.ce(pred, target_long)
-
-        if (
+                loss_val = pred.sum() * 0.0
+            else:
+                loss_val = self.criteria.ce(pred, target_long)
+        elif (
             self.task_type == "face_detection"
             and isinstance(pred, (tuple, list))
             and len(pred) == 3
         ):
-            return _face_detection_loss(pred, target)
-
-        if self.perc is not None and isinstance(pred, torch.Tensor):
+            loss_val = _face_detection_loss(pred, target)
+        elif self.perc is not None and isinstance(pred, torch.Tensor):
             # Image-to-image face restoration: pixel MSE plus the LPIPS term.
-            return self.criteria.mse(pred, target) + self._perceptual_loss(pred, target, None)
-        return self.criteria.mse(pred, target)
+            loss_val = self.criteria.mse(pred, target) + self._perceptual_loss(pred, target, None)
+        else:
+            loss_val = self.criteria.mse(pred, target)
+        return loss_val

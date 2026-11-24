@@ -65,7 +65,9 @@ def _sync_model_metadata(
                     create_res.get("error") if isinstance(create_res, dict) else None
                 )
                 if create_err_msg:
-                    raise RuntimeError(f"Kaggle model_create_new returned error: {create_err_msg}")
+                    raise RuntimeError(
+                        f"Kaggle model_create_new returned error: {create_err_msg}"
+                    ) from update_err
                 results["model"] = "created"
                 logger.info(
                     "Model created on Kaggle: %s", getattr(create_res, "url", full_model_ref)
@@ -226,7 +228,7 @@ class KaggleApiSyncService:
                     if inst_err:
                         raise RuntimeError(
                             f"Kaggle model_instance_update returned error: {inst_err}"
-                        )
+                        ) from get_inst_err
                     results["variations"][var_key] = "updated"
                 except (*KAGGLE_API_ERRORS, RuntimeError) as upd_err:
                     # Variation instances are formally created when binaries are

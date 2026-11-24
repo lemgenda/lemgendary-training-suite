@@ -190,6 +190,13 @@ class TestLemTrainCLI(unittest.TestCase):
 
     def test_cli_audit_judicial_requires_paths_and_builds_request(self) -> None:
         """Verify `audit judicial` keeps its required options and builds the request."""
+
+
+class TestCliSubcommands(unittest.TestCase):
+    """Subcommand tests for audit, sync, checkpoints, notebooks, and server."""
+
+    def test_cli_audit_judicial_requires_paths_and_builds_request(self) -> None:
+        """Verify `audit judicial` keeps its required options and builds the request."""
         missing = runner.invoke(app, ["audit", "judicial", "-m", "a.pth"])
         self.assertNotEqual(missing.exit_code, 0)
 
@@ -320,7 +327,9 @@ class TestLemTrainCLI(unittest.TestCase):
 
         with mock.patch("training.cli.lemtrain.CheckpointService") as svc:
             svc.return_value.prune_checkpoints.return_value = ["epoch_1.pth", "epoch_2.pth"]
-            result_prune = runner.invoke(app, ["checkpoints", "prune", "forex_predictor", "-k", "2"])
+            result_prune = runner.invoke(
+                app, ["checkpoints", "prune", "forex_predictor", "-k", "2"]
+            )
             self.assertEqual(result_prune.exit_code, 0)
             self.assertIn("Pruned 2 checkpoints", result_prune.output)
 
@@ -337,7 +346,10 @@ class TestLemTrainCLI(unittest.TestCase):
         self.assertIn("LemGendary Sidecar Daemon Telemetry", result_status.output)
 
         with mock.patch("training.cli.server_commands.get_app") as app_mock:
-            app_mock.return_value.openapi.return_value = {"openapi": "3.1.0", "info": {"title": "Test"}}
+            app_mock.return_value.openapi.return_value = {
+                "openapi": "3.1.0",
+                "info": {"title": "Test"},
+            }
             result_openapi = runner.invoke(app, ["server", "openapi"])
             self.assertEqual(result_openapi.exit_code, 0)
             self.assertIn('"openapi": "3.1.0"', result_openapi.output)

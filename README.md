@@ -33,6 +33,17 @@
   `training/data/webdataset_sampler.py`, added `skip_shards_offset()` and
   `set_start_shard()` to fast-forward past completed `.tar` archives instantly
   without iterating member indices.
+- **LLM Copilot Profile Wiring & Turing Compute Dtype**: Wired `local`
+  (`max_seq_length: 1536`, `lora_r: 16`, `lora_alpha: 32`, `batch_size: 1`,
+  `accumulation_steps: 16`, `load_in_4bit: true`, `ce_chunk_size: 256`) and
+  `cloud` (`max_seq_length: 2048`, `lora_r: 32`, `lora_alpha: 64`,
+  `batch_size: 4`, `accumulation_steps: 2`, `load_in_4bit: false`,
+  `ce_chunk_size: 1024`) profiles plus `use_rslora`, Turing FP32
+  `BitsAndBytesConfig` compute dtype, dynamic LoRA rank reconstruction in
+  `llm_exporter.py`, and `best.pth` lookup in `resolve_checkpoint_file`.
+- **Repo-Wide Lint & YAML Compliance**: Decomposed remaining Pylint
+  complexity hotspots across `training/` and `tests/unit/`, normalized
+  `unified_models_v2.yaml` for `yamllint`, and removed stale `typings/` stubs.
 - **Worker Persistence & Non-Blocking Transfers**: In
   `training/context_data.py`, enforced `persistent_workers=True` and
   `pin_memory=torch.cuda.is_available()` across instruction-tuning and
@@ -48,6 +59,11 @@
 - **Async Non-Blocking Route Execution**: Wrapped `get_models_with_stats` in
   `training/server/routes/gui.py` with `loop.run_in_executor` to prevent
   model stats computation from stalling the FastAPI event loop during training.
+- **Copilot Sequence Window & QLoRA Alignment**: Updated `ai_helper_lemgend` in
+  `unified_models_v2.yaml` (`input_size: 2048`, `cloud.max_seq_length: 2048`,
+  `local.max_seq_length: 1536`, `local.lora_r: 16`, `local.lora_alpha: 32`),
+  added `_resolve_instruction_max_length()` in `training/context_data.py`, and
+  aligned `DEFAULT_MAX_SEQ_LENGTH = 2048` in `training/export/llm_exporter.py`.
 
 ### v16.9.243 - ONNX FP16 Canary Rejection & Multi-Task Numerical Stability
 
@@ -4088,17 +4104,17 @@ Sequences._
 ### v16.9.61 - Causal LLM Dictionary Batch Unpacking & Native Step Execution
 
 - **Generic Causal LLM Native Training Steps (models/generic_causal_llm.py)**:
-  - Implemented rain_step(batch) and eval_step(batch) methods in
+  - Implemented train_step(batch) and eval_step(batch) methods in
     GenericCausalLLM / AIHelperLemGend to natively unpack collated dictionary
-    batches containing input_ids, ttention_mask, and labels.
+    batches containing input_ids, attention_mask, and labels.
   - Resolved TypeError: embedding(): argument 'indices' (position 2) must be
     Tensor, not dict in the training loop when fine-tuning transformer
     instruction datasets.
   - Added dictionary unpacking fallback directly inside `forward()` for
     backward compatibility.
 - **Hardware-Aware Batch Size & Gradient Accumulation Tuning**:
-  - Configured optimal micro-batch size (atch_size: 2) with gradient
-    accumulation (ccumulation_steps: 16-24) for i_helper_lemgend, allowing
+  - Configured optimal micro-batch size (batch_size: 2) with gradient
+    accumulation (accumulation_steps: 16-24) for ai_helper_lemgend, allowing
     stable QLoRA training on 4GB VRAM GPUs (GTX 1650).
 
 ### v16.9.60 - Universal Causal LLM Fine-Tuning & In-Process Test Orchestrator

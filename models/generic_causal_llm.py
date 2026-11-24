@@ -25,6 +25,19 @@ logger = logging.getLogger("lemtrain.models.generic_llm")
 
 
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+_TURING_NO_TC_TAGS = ("gtx 1660", "gtx 1650", "gtx 1630")
+
+
+def _resolve_llm_dtype(is_tpu: bool) -> torch.dtype:
+    """Resolve compute dtype for LLM weights (TPU BF16, Turing no-TC FP32, Ampere+ BF16)."""
+    if is_tpu:
+        return torch.bfloat16
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0).lower()
+        if any(tag in gpu_name for tag in _TURING_NO_TC_TAGS):
+            return torch.float32
+        return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    return torch.float32
 
 
 def _load_tokenizer(transformers: Any, name: str) -> Any:
@@ -42,7 +55,9 @@ def _load_tokenizer(transformers: Any, name: str) -> Any:
     return raw_tokenizer
 
 
-def _quant_config(transformers: Any, load_in_4bit: bool) -> Any:
+def _quant_config(
+    transformers: Any, load_in_4bit: bool, compute_dtype: torch.dtype = torch.bfloat16
+) -> Any:
     """NF4 4-bit ``BitsAndBytesConfig`` when requested and available, else ``None``."""
     if not load_in_4bit:
         return None
@@ -50,7 +65,7 @@ def _quant_config(transformers: Any, load_in_4bit: bool) -> Any:
         return transformers.BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=compute_dtype,
             bnb_4bit_use_double_quant=True,
         )
     except ImportError:
@@ -76,6 +91,7 @@ class LoraSettings:
     lora_alpha: int = 32
     lora_dropout: float = 0.05
     load_in_4bit: bool = True
+    use_rslora: bool = False
 
 
 class GenericCausalLLM(nn.Module):
@@ -96,6 +112,7 @@ class GenericCausalLLM(nn.Module):
             "use_lora": settings.use_lora,
             "enabled": bool(kwargs.get("chunked_cross_entropy", True)),
             "chunk_size": int(kwargs.get("ce_chunk_size", 256)),
+            "lora_settings": settings,
         }
         self.model: Any = None
         self.tokenizer: Any = None
@@ -115,14 +132,9 @@ class GenericCausalLLM(nn.Module):
             transformers = load_transformers()
 
             self.tokenizer = _load_tokenizer(transformers, self.base_model_name)
-            if is_tpu:
-                model_dtype = torch.bfloat16
-            elif torch.cuda.is_available():
-                model_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            else:
-                model_dtype = torch.float32
+            model_dtype = _resolve_llm_dtype(is_tpu)
             model_kwargs: dict[str, Any] = {
-                "quantization_config": _quant_config(transformers, effective_4bit),
+                "quantization_config": _quant_config(transformers, effective_4bit, model_dtype),
                 "torch_dtype": model_dtype,
                 "trust_remote_code": True,
                 "low_cpu_mem_usage": True,
@@ -140,6 +152,7 @@ class GenericCausalLLM(nn.Module):
                     "r": settings.lora_r,
                     "lora_alpha": settings.lora_alpha,
                     "lora_dropout": settings.lora_dropout,
+                    "use_rslora": settings.use_rslora,
                 }
                 self._inject_lora(
                     lora_cfg, settings.load_in_4bit, kwargs.get("target_modules", LORA_TARGETS)
@@ -183,9 +196,14 @@ class GenericCausalLLM(nn.Module):
         return tuple(prefixes)
 
     @property
+    def lora_settings(self) -> LoraSettings:
+        """Resolved LoRA and quantization settings for this model."""
+        return self._chunk_cfg["lora_settings"]
+
+    @property
     def use_lora(self) -> bool:
         """Whether LoRA adapters are injected into the backbone."""
-        return bool(self._chunk_cfg["use_lora"])
+        return self._chunk_cfg["use_lora"]
 
     def _inject_lora(self, lora: dict, load_in_4bit: bool, target_modules: list) -> None:
         """Wrap ``self.model`` in a LoRA adapter (``lora``: r, lora_alpha, lora_dropout)."""
@@ -301,10 +319,11 @@ class GenericCausalLLM(nn.Module):
 
     def eval_step(self, batch: Any) -> dict[str, Any]:
         """Unified validation step handling dictionary batches seamlessly."""
+        eval_labels = batch.get("labels") if isinstance(batch, dict) else None
         if (
             self._chunk_cfg["enabled"]
             and isinstance(batch, dict)
-            and batch.get("labels") is not None
+            and eval_labels is not None
             and not (hasattr(self, "embed") and hasattr(self, "lm_head"))
         ):
             base_decoder: Any = getattr(self.model, "model", None) or getattr(
@@ -321,7 +340,7 @@ class GenericCausalLLM(nn.Module):
                 loss, pred_ids = chunked_eval_loss_and_preds(
                     hidden_out.last_hidden_state,
                     lm_head,
-                    batch.get("labels"),
+                    eval_labels,
                     chunk_size=self._chunk_cfg["chunk_size"],
                 )
                 return {"loss": loss, "preds": pred_ids}

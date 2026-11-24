@@ -23,6 +23,7 @@ from training.checkpoint import (
     stretch_scheduler_runway,
     validate_vault_consistency,
 )
+from training.training.step_progress import resume_iteration
 from training.utils.rng_state import restore_rng_state, rng_payload
 
 
@@ -449,11 +450,9 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertFalse(corrupt_report.is_valid)
         self.assertIn("corrupted.pth", corrupt_report.corrupted_checkpoints)
 
-    def test_e2e_vault_save_download_fresh_container_resume(self) -> None:
-        """Simulate end-to-end: training save -> upload staging -> download to fresh -> resume."""
+    def _stage_remote_vault(self) -> tuple[Path, list[torch.nn.Parameter]]:
         source_dir = self.root / "source_hub" / "model_x" / "checkpoints"
         source_dir.mkdir(parents=True, exist_ok=True)
-
         torch.manual_seed(42)
         model = torch.nn.Linear(2, 2)
         optim = torch.optim.Adam(model.parameters(), lr=0.01)
@@ -464,17 +463,16 @@ class TestCheckpointSubsystem(unittest.TestCase):
             "optimizer_state": optim.state_dict(),
             **rng_payload(),
         }
-        vault_pth = source_dir / "vault_psnr.pth"
-        latest_pth = source_dir / "latest.pth"
-        safe_atomic_save(save_payload, vault_pth)
-        safe_atomic_save(save_payload, latest_pth)
-
-        # Simulate upload to remote storage container
+        safe_atomic_save(save_payload, source_dir / "vault_psnr.pth")
+        safe_atomic_save(save_payload, source_dir / "latest.pth")
         remote_store = self.root / "remote_cloud_storage"
         remote_store.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source_dir, remote_store / "checkpoints")
+        return remote_store, list(model.parameters())
 
-        # Simulate fresh container initialization
+    def test_e2e_vault_save_download_fresh_container_resume(self) -> None:
+        """Simulate end-to-end: training save -> upload staging -> download to fresh -> resume."""
+        remote_store, orig_params = self._stage_remote_vault()
         fresh_container_root = self.root / "fresh_container"
         dest_checkpoints = fresh_container_root / "LemGendaryModels" / "model_x" / "checkpoints"
         recovery_engine = CheckpointRecoveryEngine(
@@ -482,7 +480,6 @@ class TestCheckpointSubsystem(unittest.TestCase):
             project_root=fresh_container_root / "suite",
             env="local",
         )
-        # Pull / sync from remote container
         recovery_engine.sync_to_local_hub(
             source_root=remote_store / "checkpoints",
             target_dir=dest_checkpoints,
@@ -491,11 +488,9 @@ class TestCheckpointSubsystem(unittest.TestCase):
         self.assertTrue((dest_checkpoints / "vault_psnr.pth").exists())
         self.assertTrue((dest_checkpoints / "latest.pth").exists())
 
-        # Validate vault consistency on the freshly initialized container
         report = validate_vault_consistency("model_x", dest_checkpoints, {"psnr": 30.0})
         self.assertTrue(report.is_valid)
 
-        # Resume model from recovered vault checkpoint
         resumed_model = torch.nn.Linear(2, 2)
         resumed_optim = torch.optim.Adam(resumed_model.parameters(), lr=0.01)
         resumed_data = safe_load_checkpoint(dest_checkpoints / "vault_psnr.pth")
@@ -506,13 +501,11 @@ class TestCheckpointSubsystem(unittest.TestCase):
         restore_rng_state(resumed_data)
 
         self.assertEqual(resume_state.epoch, 5)
-        for p1, p2 in zip(model.parameters(), resumed_model.parameters()):
+        for p1, p2 in zip(orig_params, resumed_model.parameters()):
             self.assertTrue(torch.equal(p1, p2))
 
     def test_resume_iteration_scales_across_batch_sizes(self) -> None:
         """Verify resume_iteration scales proportionally when loader length changes."""
-        from training.training.step_progress import resume_iteration
-
         payload = {
             "epoch": 42,
             "phase": "train",
@@ -531,7 +524,7 @@ class TestCheckpointSubsystem(unittest.TestCase):
         same_step = resume_iteration(state, "train", False, current_loader_len=3887)
         self.assertEqual(same_step, 2243)
 
-        # Scaled loader size (e.g. batch size shrunk from 256 to 32 -> loader expanded from 3887 to 31097)
+        # Scaled loader size (batch size shrunk 256 -> 32; loader expanded 3887 -> 31097)
         scaled_step = resume_iteration(state, "train", False, current_loader_len=31097)
         # Expected: int((2243 / 3887) * 31097) = 17946
         expected = int((2243 / 3887.0) * 31097)

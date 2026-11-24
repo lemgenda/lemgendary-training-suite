@@ -1,3 +1,4 @@
+---
 _registry_metadata:
   version: 2.3.0
   specialization: 2026_Resiliency
@@ -21,49 +22,48 @@ forex_predictor:
   preferred_parallel: single
   optimal_key: forex_predictor
   architecture_type: Multi-Scale CNN-Transformer (Causal TCN + Cross-Timeframe Attention)
-  description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader
-    5 OHLCV data. Predicts trade direction (Up/Down/Sideways) and magnitude (TP/SL
-    pips) for all major currency pairs. Architecture uses causal Conv1D stacks per
-    timeframe fused via cross-timeframe attention. Fully stateless and ONNX-compatible
+  description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader 5 OHLCV data. Predicts
+    trade direction (Up/Down/Sideways) and magnitude (TP/SL pips) for all major currency pairs. Architecture
+    uses causal Conv1D stacks per timeframe fused via cross-timeframe attention. Fully stateless and ONNX-compatible
     for live MT5 EA deployment.
 
     '
   datasets:
-  - LemGendizedForexUniverse
+    - LemGendizedForexUniverse
   curriculum:
     active_folds:
-    - 1
-    - 2
-    - 3
-    - 4
-    - 5
-    - 6
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
   google_drive_dataset_ids: []
   kwargs:
     active_timeframes:
-    - 1
-    - 5
-    - 15
-    - 60
-    - 240
-    - 1440
+      - 1
+      - 5
+      - 15
+      - 60
+      - 240
+      - 1440
     pairs:
-    - EURUSD
-    - GBPUSD
-    - USDJPY
-    - XAUUSD
-    - USDCAD
-    - USDCHF
-    - AUDUSD
-    - NZDUSD
-    - EURJPY
-    - GBPJPY
-    - EURGBP
-    - XAGUSD
-    - USOIL
-    - US500
-    - NAS100
-    - DE40
+      - EURUSD
+      - GBPUSD
+      - USDJPY
+      - XAUUSD
+      - USDCAD
+      - USDCHF
+      - AUDUSD
+      - NZDUSD
+      - EURJPY
+      - GBPJPY
+      - EURGBP
+      - XAGUSD
+      - USOIL
+      - US500
+      - NAS100
+      - DE40
     d_model: 192
     n_heads: 6
     n_layers: 4
@@ -85,8 +85,8 @@ forex_predictor:
     softmax_temp: 1.0
     min_temp: 0.75
     numerical_sentinel:
-    - -50.0
-    - 50.0
+      - -50.0
+      - 50.0
   optimization:
     enabled: true
     initial_fraction: 1.0
@@ -99,12 +99,12 @@ forex_predictor:
     regression_limit: 8
     high_fidelity_fraction: 0.6
     res_ladder:
-    - 1
-    - 5
-    - 15
-    - 60
-    - 240
-    - 1440
+      - 1
+      - 5
+      - 15
+      - 60
+      - 240
+      - 1440
     jolt_multiplier: 1.15
     target_effective_batch: 64
     min_delta: 0.002
@@ -115,38 +115,35 @@ forex_predictor:
   kaggle_metadata:
     slug: forex-predictor
     title: LemGendary Forex Predictor (CNN-Transformer)
-    subtitle: Multi-Scale CNN-Transformer predicting multi-timeframe directional order
-      flow and pip targets
+    subtitle: Multi-Scale CNN-Transformer predicting multi-timeframe directional order flow and pip targets
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - finance
-    - forex
-    - time-series
-    - trading
-    - tcn
-    - attention
+      - finance
+      - forex
+      - time-series
+      - trading
+      - tcn
+      - attention
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
-    title: An Empirical Evaluation of Generic Convolutional and Recurrent Networks
-      for Sequence Modeling
+    title: An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling
     authors: Shaojie Bai, J. Zico Kolter, Vladlen Koltun
     year: 2018
     venue: arXiv preprint
     link: https://arxiv.org/abs/1803.01271
-    bibtex: "@article{bai2018empirical,\n  title={An empirical evaluation of generic\
-      \ convolutional and recurrent networks for sequence modeling},\n  author={Bai,\
-      \ Shaojie and Kolter, J Zico and Koltun, Vladlen},\n  journal={arXiv preprint\
-      \ arXiv:1803.01271},\n  year={2018}\n}"
+    bibtex: "@article{bai2018empirical,\n  title={An empirical evaluation of generic convolutional and\
+      \ recurrent networks for sequence modeling},\n  author={Bai, Shaojie and Kolter, J Zico and Koltun,\
+      \ Vladlen},\n  journal={arXiv preprint arXiv:1803.01271},\n  year={2018}\n}"
   optimizer:
     type: adamw
     lr: 0.0001
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: plateau
@@ -159,19 +156,19 @@ forex_predictor:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - dir_acc
-    - win_rate
-    - profit_factor
-    - sharpe_ratio
-    - sortino_ratio
-    - max_drawdown
-    - tp_mae
-    - sl_mae
+      - dir_acc
+      - win_rate
+      - profit_factor
+      - sharpe_ratio
+      - sortino_ratio
+      - max_drawdown
+      - tp_mae
+      - sl_mae
     primary_metric: dir_acc
   seed: 42
 nima_aesthetic_mobile:
@@ -186,9 +183,9 @@ nima_aesthetic_mobile:
     hidden_dim: 256
     backbone: mobilenet_v3_small
   input_size:
-  - 3
-  - 224
-  - 224
+    - 3
+    - 224
+    - 224
   batch_size: auto
   learning_rate: 5.0e-05
   loss_fn: emd
@@ -196,11 +193,11 @@ nima_aesthetic_mobile:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_mobile
   architecture_type: MobileNetV3-Small (Global Composition)
-  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
-    optimized for artistic composition and color harmony with ultra-lightweight MobileNetV3-Small
-    backbone for real-time mobile and edge inference.
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized
+    for artistic composition and color harmony with ultra-lightweight MobileNetV3-Small backbone for real-time
+    mobile and edge inference.
   datasets:
-  - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.65
     srcc: 0.65
@@ -218,8 +215,8 @@ nima_aesthetic_mobile:
     max_rank_weight: 1.5
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   optimization:
     drift_gate: 0.9
     regression_limit: 8
@@ -231,10 +228,10 @@ nima_aesthetic_mobile:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 224
+      - 224
     clamp_range:
-    - 15.0
-    - 45.0
+      - 15.0
+      - 45.0
     jolt_multiplier: 1.5
     target_effective_batch: 32
     min_delta: 0.001
@@ -245,34 +242,33 @@ nima_aesthetic_mobile:
   kaggle_metadata:
     slug: nima-aesthetic-mobile
     title: LemGendary NIMA Aesthetic Scorer (Mobile)
-    subtitle: Lightweight MobileNet aesthetic scoring model predicting continuous
-      visual quality distributions
+    subtitle: Lightweight MobileNet aesthetic scoring model predicting continuous visual quality distributions
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - aesthetic-scoring
-    - mobile
+      - computer-vision
+      - image-quality-assessment
+      - aesthetic-scoring
+      - mobile
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'NIMA: Neural Image Assessment'
     authors: Hossein Talebi, Peyman Milanfar
     year: 2018
     venue: IEEE Transactions on Image Processing (TIP)
     link: https://arxiv.org/abs/1709.05424
-    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n\
-      \  author={Talebi, Hossein and Milanfar, Peyman},\n  journal={IEEE TIP},\n \
-      \ volume={27},\n  number={8},\n  pages={3998--4011},\n  year={2018}\n}"
+    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n  author={Talebi, Hossein\
+      \ and Milanfar, Peyman},\n  journal={IEEE TIP},\n  volume={27},\n  number={8},\n  pages={3998--4011},\n\
+      \  year={2018}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -285,13 +281,13 @@ nima_aesthetic_mobile:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - plcc
-    - srcc
+      - plcc
+      - srcc
     primary_metric: plcc
   seed: 42
 nima_aesthetic_efficientnet:
@@ -303,9 +299,9 @@ nima_aesthetic_efficientnet:
   filename: NIMAAestheticEfficientNet
   checkpoint: NIMAAestheticEfficientNetWeights_FP32.pth
   input_size:
-  - 3
-  - 224
-  - 224
+    - 3
+    - 224
+    - 224
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -316,10 +312,10 @@ nima_aesthetic_efficientnet:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_efficientnet
   architecture_type: EfficientNetV2-S (Global Composition)
-  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset,
-    optimized for artistic composition and color harmony using EfficientNetV2-S backbone.
+  description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized
+    for artistic composition and color harmony using EfficientNetV2-S backbone.
   datasets:
-  - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.7
     srcc: 0.7
@@ -337,8 +333,8 @@ nima_aesthetic_efficientnet:
     max_rank_weight: 2.0
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -348,12 +344,12 @@ nima_aesthetic_efficientnet:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 224
-    - 256
-    - 384
+      - 224
+      - 256
+      - 384
     clamp_range:
-    - 15.0
-    - 45.0
+      - 15.0
+      - 45.0
     jolt_multiplier: 1.5
     target_effective_batch: 32
     min_delta: 0.001
@@ -364,34 +360,33 @@ nima_aesthetic_efficientnet:
   kaggle_metadata:
     slug: nima-aesthetic-efficientnet
     title: LemGendary NIMA Scorer (EfficientNetV2-S)
-    subtitle: EfficientNet-based aesthetic quality assessment model with earth mover
-      distance loss
+    subtitle: EfficientNet-based aesthetic quality assessment model with earth mover distance loss
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - aesthetic-scoring
-    - efficientnet
+      - computer-vision
+      - image-quality-assessment
+      - aesthetic-scoring
+      - efficientnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'NIMA: Neural Image Assessment'
     authors: Hossein Talebi, Peyman Milanfar
     year: 2018
     venue: IEEE Transactions on Image Processing (TIP)
     link: https://arxiv.org/abs/1709.05424
-    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n\
-      \  author={Talebi, Hossein and Milanfar, Peyman},\n  journal={IEEE TIP},\n \
-      \ volume={27},\n  number={8},\n  pages={3998--4011},\n  year={2018}\n}"
+    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n  author={Talebi, Hossein\
+      \ and Milanfar, Peyman},\n  journal={IEEE TIP},\n  volume={27},\n  number={8},\n  pages={3998--4011},\n\
+      \  year={2018}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -404,13 +399,13 @@ nima_aesthetic_efficientnet:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - plcc
-    - srcc
+      - plcc
+      - srcc
     primary_metric: plcc
   seed: 42
 nima_aesthetic_pro:
@@ -422,9 +417,9 @@ nima_aesthetic_pro:
   filename: NIMAAestheticPro
   checkpoint: NIMAAestheticProWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 2.0e-05
   kwargs:
@@ -434,10 +429,10 @@ nima_aesthetic_pro:
   preferred_parallel: ddp
   optimal_key: nima_aesthetic_pro
   architecture_type: Swin-v2-T (Global Multi-Scale Attention)
-  description: High-end aesthetic quality scorer using Swin Transformer V2, optimized
-    for high-res global composition.
+  description: High-end aesthetic quality scorer using Swin Transformer V2, optimized for high-res global
+    composition.
   datasets:
-  - LemGendizedNimaAesthetic
+    - LemGendizedNimaAesthetic
   sota_targets:
     plcc: 0.75
     srcc: 0.75
@@ -454,8 +449,8 @@ nima_aesthetic_pro:
     max_rank_weight: 1.0
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -465,12 +460,12 @@ nima_aesthetic_pro:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     clamp_range:
-    - 15.0
-    - 45.0
+      - 15.0
+      - 45.0
     jolt_multiplier: 1.5
     target_effective_batch: 16
     min_delta: 0.001
@@ -481,37 +476,36 @@ nima_aesthetic_pro:
   kaggle_metadata:
     slug: nima-aesthetic-pro
     title: LemGendary NIMA Aesthetic Scorer (Pro ViT)
-    subtitle: High-precision ViT/DenseNet perceptual aesthetic scoring architecture
-      for studio quality evaluation
+    subtitle: High-precision ViT/DenseNet perceptual aesthetic scoring architecture for studio quality
+      evaluation
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - aesthetic-scoring
-    - vit
+      - computer-vision
+      - image-quality-assessment
+      - aesthetic-scoring
+      - vit
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'Swin Transformer V2: Using Larger Models and Images'
-    authors: Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei, Jia
-      Ning, Yue Cao, Zheng Zhang, Li Dong, Furu Wei, Baining Guo
+    authors: Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie, Yixuan Wei, Jia Ning, Yue Cao, Zheng
+      Zhang, Li Dong, Furu Wei, Baining Guo
     year: 2022
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/2111.09883
-    bibtex: "@inproceedings{liu2022swin,\n  title={Swin transformer v2: Using larger\
-      \ models and images},\n  author={Liu, Ze and Hu, Han and Lin, Yutong and Yao,\
-      \ Zhuliang and Xie, Zhenda and Wei, Yixuan and Ning, Jia and Cao, Yue and Zhang,\
-      \ Zheng and Dong, Li and others},\n  booktitle={CVPR},\n  pages={12009--12019},\n\
-      \  year={2022}\n}"
+    bibtex: "@inproceedings{liu2022swin,\n  title={Swin transformer v2: Using larger models and images},\n\
+      \  author={Liu, Ze and Hu, Han and Lin, Yutong and Yao, Zhuliang and Xie, Zhenda and Wei, Yixuan\
+      \ and Ning, Jia and Cao, Yue and Zhang, Zheng and Dong, Li and others},\n  booktitle={CVPR},\n \
+      \ pages={12009--12019},\n  year={2022}\n}"
   optimizer:
     type: adamw
     lr: 2.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -524,13 +518,13 @@ nima_aesthetic_pro:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - plcc
-    - srcc
+      - plcc
+      - srcc
     primary_metric: plcc
   seed: 42
 nima_technical:
@@ -542,9 +536,9 @@ nima_technical:
   filename: NIMATechnical
   checkpoint: NIMATechnicalWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -555,10 +549,10 @@ nima_technical:
   preferred_parallel: ddp
   optimal_key: nima_technical
   architecture_type: EfficientNetV2-S (Spatial Integrity)
-  description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset,
-    optimized for detecting micro-defects, noise, and artifacts.
+  description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset, optimized
+    for detecting micro-defects, noise, and artifacts.
   datasets:
-  - LemGendizedNimaTechnical
+    - LemGendizedNimaTechnical
   stabilizers:
     emd_form: nima
     min_temp: 0.96
@@ -573,8 +567,8 @@ nima_technical:
     max_rank_weight: 2.0
     min_rank_margin: 0.05
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   sota_targets:
     plcc: 0.91
     srcc: 0.91
@@ -590,12 +584,12 @@ nima_technical:
     drift_gate: 0.98
     regression_limit: 3
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     clamp_range:
-    - 15.0
-    - 50.0
+      - 15.0
+      - 50.0
     jolt_multiplier: 1.5
     target_effective_batch: 24
     min_delta: 0.0005
@@ -606,34 +600,33 @@ nima_technical:
   kaggle_metadata:
     slug: nima-technical
     title: LemGendary NIMA Technical Scorer
-    subtitle: Technical distortion and artifact rating network predicting photographic
-      fidelity distributions
+    subtitle: Technical distortion and artifact rating network predicting photographic fidelity distributions
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-quality-assessment
-    - technical-quality
-    - nima
+      - computer-vision
+      - image-quality-assessment
+      - technical-quality
+      - nima
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'NIMA: Neural Image Assessment'
     authors: Hossein Talebi, Peyman Milanfar
     year: 2018
     venue: IEEE Transactions on Image Processing (TIP)
     link: https://arxiv.org/abs/1709.05424
-    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n\
-      \  author={Talebi, Hossein and Milanfar, Peyman},\n  journal={IEEE TIP},\n \
-      \ volume={27},\n  number={8},\n  pages={3998--4011},\n  year={2018}\n}"
+    bibtex: "@article{talebi2018nima,\n  title={NIMA: Neural image assessment},\n  author={Talebi, Hossein\
+      \ and Milanfar, Peyman},\n  journal={IEEE TIP},\n  volume={27},\n  number={8},\n  pages={3998--4011},\n\
+      \  year={2018}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -646,14 +639,14 @@ nima_technical:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - plcc
-    - srcc
-    - rank_margin
+      - plcc
+      - srcc
+      - rank_margin
     primary_metric: plcc
   seed: 42
 nima_authenticity:
@@ -665,9 +658,9 @@ nima_authenticity:
   filename: AuthenticityScorer
   checkpoint: AuthenticityScorerWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   kwargs:
@@ -679,15 +672,15 @@ nima_authenticity:
   architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
   datasets:
-  - LemGendizedNimaAuthenticity
+    - LemGendizedNimaAuthenticity
   stabilizers:
     emd_form: nima
     softmax_temp: 1.0
     emd_epsilon: 1.0e-05
     logit_clamp: 15.0
     numerical_sentinel:
-    - -15.0
-    - 15.0
+      - -15.0
+      - 15.0
   sota_targets:
     accuracy: 0.96
   optimization:
@@ -698,10 +691,10 @@ nima_authenticity:
     plateau_patience: 6
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
-    - 768
+      - 256
+      - 384
+      - 512
+      - 768
     target_effective_batch: 24
     plateau_priority: data
   val_resolution: 768
@@ -710,35 +703,33 @@ nima_authenticity:
   kaggle_metadata:
     slug: nima-authenticity
     title: LemGendary Authenticity Scorer (AI vs Human)
-    subtitle: Forensic authenticity discriminator detecting synthetic GAN and diffusion-generated
-      imagery
+    subtitle: Forensic authenticity discriminator detecting synthetic GAN and diffusion-generated imagery
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - deepfake-detection
-    - ai-generated-detection
-    - authenticity
+      - computer-vision
+      - deepfake-detection
+      - ai-generated-detection
+      - authenticity
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: CNN-Generated Images Are Surprisingly Easy to Spot... for Now
     authors: Sheng-Yu Wang, Oliver Wang, Richard Zhang, Andrew Owens, Alexei A. Efros
     year: 2020
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/1912.11035
-    bibtex: "@inproceedings{wang2020cnn,\n  title={CNN-generated images are surprisingly\
-      \ easy to spot... for now},\n  author={Wang, Sheng-Yu and Wang, Oliver and Zhang,\
-      \ Richard and Owens, Andrew and Efros, Alexei A},\n  booktitle={CVPR},\n  pages={8695--8704},\n\
-      \  year={2020}\n}"
+    bibtex: "@inproceedings{wang2020cnn,\n  title={CNN-generated images are surprisingly easy to spot...\
+      \ for now},\n  author={Wang, Sheng-Yu and Wang, Oliver and Zhang, Richard and Owens, Andrew and\
+      \ Efros, Alexei A},\n  booktitle={CVPR},\n  pages={8695--8704},\n  year={2020}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -751,12 +742,12 @@ nima_authenticity:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - accuracy
+      - accuracy
     primary_metric: accuracy
   seed: 42
 upn_v2:
@@ -769,9 +760,9 @@ upn_v2:
   checkpoint: UPN(v2)ModularWeights_FP32.pth
   batch_size: 1024
   input_size:
-  - 3
-  - 128
-  - 128
+    - 3
+    - 128
+    - 128
   learning_rate: 0.0001
   loss_fn: smooth_l1
   dataset_type: parameter_prediction
@@ -782,16 +773,15 @@ upn_v2:
     prefetch_factor: 4
   needs_synthesis: true
   output_names:
-  - deg
-  - theta
-  - conf
+    - deg
+    - theta
+    - conf
   optimal_key: upn_v2
-  description: Universal parameter predictor for image restoration powered by MobileNetV3-Small
-    backbone
+  description: Universal parameter predictor for image restoration powered by MobileNetV3-Small backbone
   stabilizers:
     numerical_sentinel:
-    - -0.1
-    - 1.5
+      - -0.1
+      - 1.5
     logit_clamp: 2.0
     softmax_temp: 0.1
   sota_targets:
@@ -806,12 +796,12 @@ upn_v2:
     cooling_factor: 0.85
     target_effective_batch: 1024
     res_ladder:
-    - 128
-    - 192
-    - 256
+      - 128
+      - 192
+      - 256
     plateau_priority: data
   datasets:
-  - LemGendizedUpnV2
+    - LemGendizedUpnV2
   val_resolution: 256
   kaggle_accelerator: gpu-t4x2
   architecture_type: MobileNetV3-Small Parameter Regressor
@@ -821,36 +811,33 @@ upn_v2:
   kaggle_metadata:
     slug: upn-v2
     title: LemGendary UPN v2 Parameter Predictor
-    subtitle: Universal Parameter Network predicting neural filter hyper-adjustments
-      for RAW photo enhancement
+    subtitle: Universal Parameter Network predicting neural filter hyper-adjustments for RAW photo enhancement
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-enhancement
-    - parameter-prediction
-    - neural-network
+      - computer-vision
+      - image-enhancement
+      - parameter-prediction
+      - neural-network
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
-    title: 'Deep Photo Enhancer: Unpaired Learning for Image Enhancement from Photographs
-      with GANs'
+    title: 'Deep Photo Enhancer: Unpaired Learning for Image Enhancement from Photographs with GANs'
     authors: Yu-Sheng Chen, Yu-Ching Wang, Man-Hsin Kao, Yung-Yu Chuang
     year: 2018
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/1712.01021
-    bibtex: "@inproceedings{chen2018deep,\n  title={Deep photo enhancer: Unpaired\
-      \ learning for image enhancement from photographs with gans},\n  author={Chen,\
-      \ Yu-Sheng and Wang, Yu-Ching and Kao, Man-Hsin and Chuang, Yung-Yu},\n  booktitle={CVPR},\n\
-      \  pages={6306--6314},\n  year={2018}\n}"
+    bibtex: "@inproceedings{chen2018deep,\n  title={Deep photo enhancer: Unpaired learning for image enhancement\
+      \ from photographs with gans},\n  author={Chen, Yu-Sheng and Wang, Yu-Ching and Kao, Man-Hsin and\
+      \ Chuang, Yung-Yu},\n  booktitle={CVPR},\n  pages={6306--6314},\n  year={2018}\n}"
   optimizer:
     type: adamw
     lr: 0.0001
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -863,12 +850,12 @@ upn_v2:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - mae
+      - mae
     primary_metric: mae
   seed: 42
 film_restorer:
@@ -880,9 +867,9 @@ film_restorer:
   filename: UniversalFilmRestorer
   checkpoint: UniversalFilmRestorerWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 0.0001
   loss_fn: l1_lpips
   dataset_type: restoration
@@ -904,12 +891,12 @@ film_restorer:
     plateau_patience: 8
     cooling_factor: 0.8
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   datasets:
-  - LemGendizedFilmRestorer
+    - LemGendizedFilmRestorer
   val_resolution: 512
   kaggle_accelerator: gpu-t4x2
   architecture_type: UniversalFilmRestorer (Residual Dense Autoencoder)
@@ -919,36 +906,35 @@ film_restorer:
   kaggle_metadata:
     slug: film-restorer
     title: LemGendary Universal Film Restorer
-    subtitle: Dual-branch spatio-temporal scratch and grain restoration network for
-      vintage celluloid archives
+    subtitle: Dual-branch spatio-temporal scratch and grain restoration network for vintage celluloid
+      archives
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - film-restoration
-    - scratch-removal
+      - computer-vision
+      - image-restoration
+      - film-restoration
+      - scratch-removal
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Residual Dense Network for Image Restoration
     authors: Yulun Zhang, Yapeng Tian, Yu Kong, Bineng Zhong, Yun Fu
     year: 2020
     venue: IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)
     link: https://arxiv.org/abs/1802.08797
-    bibtex: "@article{zhang2020residual,\n  title={Residual dense network for image\
-      \ restoration},\n  author={Zhang, Yulun and Tian, Yapeng and Kong, Yu and Zhong,\
-      \ Bineng and Fu, Yun},\n  journal={IEEE TPAMI},\n  volume={43},\n  number={7},\n\
-      \  pages={2482--2495},\n  year={2020}\n}"
+    bibtex: "@article{zhang2020residual,\n  title={Residual dense network for image restoration},\n  author={Zhang,\
+      \ Yulun and Tian, Yapeng and Kong, Yu and Zhong, Bineng and Fu, Yun},\n  journal={IEEE TPAMI},\n\
+      \  volume={43},\n  number={7},\n  pages={2482--2495},\n  year={2020}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 0.0001
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -961,15 +947,15 @@ film_restorer:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 codeformer:
@@ -981,9 +967,9 @@ codeformer:
   filename: CodeFormer-FaceRestoration
   checkpoint: CodeFormer-FaceRestorationWeights_FP32.pth
   input_size:
-  - 3
-  - 512
-  - 512
+    - 3
+    - 512
+    - 512
   learning_rate: 0.0001
   loss_fn: mse
   dataset_type: face
@@ -1001,11 +987,11 @@ codeformer:
     plateau_priority: data
     jolt_multiplier: 5.0
     res_ladder:
-    - 512
+      - 512
   stabilizers:
     logit_clamp: 15.0
   datasets:
-  - LemGendizedCodeFormer
+    - LemGendizedCodeFormer
   sota_targets:
     fid: 5.2
     psnr: 30.5
@@ -1020,36 +1006,34 @@ codeformer:
   kaggle_metadata:
     slug: codeformer
     title: LemGendary CodeFormer Face Restoration
-    subtitle: Transformer-based blind face restoration network utilizing discrete
-      codebook lookup priors
+    subtitle: Transformer-based blind face restoration network utilizing discrete codebook lookup priors
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - face-restoration
-    - transformer
+      - computer-vision
+      - image-restoration
+      - face-restoration
+      - transformer
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Towards Robust Blind Face Restoration with Codebook Lookup Transformer
     authors: Shangchen Zhou, Kelvin C.K. Chan, Chongyi Li, Chen Change Loy
     year: 2022
     venue: Advances in Neural Information Processing Systems (NeurIPS)
     link: https://arxiv.org/abs/2206.11253
-    bibtex: "@inproceedings{zhou2022codeformer,\n  title={Towards Robust Blind Face\
-      \ Restoration with Codebook Lookup Transformer},\n  author={Zhou, Shangchen\
-      \ and Chan, Kelvin CK and Li, Chongyi and Loy, Chen Change},\n  booktitle={NeurIPS},\n\
-      \  year={2022}\n}"
+    bibtex: "@inproceedings{zhou2022codeformer,\n  title={Towards Robust Blind Face Restoration with Codebook\
+      \ Lookup Transformer},\n  author={Zhou, Shangchen and Chan, Kelvin CK and Li, Chongyi and Loy, Chen\
+      \ Change},\n  booktitle={NeurIPS},\n  year={2022}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 0.0001
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1062,15 +1046,15 @@ codeformer:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - fid
-    - psnr
-    - ssim
-    - lpips
+      - fid
+      - psnr
+      - ssim
+      - lpips
     primary_metric: fid
   seed: 42
 parsenet:
@@ -1083,9 +1067,9 @@ parsenet:
   filename: ParseNet-Parsing
   checkpoint: ParseNet-ParsingWeights_FP32.pth
   input_size:
-  - 3
-  - 512
-  - 512
+    - 3
+    - 512
+    - 512
   learning_rate: 5.0e-05
   loss_fn: cross_entropy
   dataset_type: segmentation
@@ -1094,7 +1078,7 @@ parsenet:
   optimal_key: parsenet
   description: Face parsing model for segmentation
   datasets:
-  - LemGendizedParseNet
+    - LemGendizedParseNet
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -1103,7 +1087,7 @@ parsenet:
     plateau_patience: 8
     plateau_priority: data
     res_ladder:
-    - 512
+      - 512
   val_resolution: 512
   sota_targets:
     miou: 0.86
@@ -1115,36 +1099,35 @@ parsenet:
   kaggle_metadata:
     slug: parsenet
     title: LemGendary ParseNet Face Parsing
-    subtitle: Facial semantic component parsing and segmentation network producing
-      19-class anatomical masks
+    subtitle: Facial semantic component parsing and segmentation network producing 19-class anatomical
+      masks
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - face-parsing
-    - semantic-segmentation
-    - maskgan
+      - computer-vision
+      - face-parsing
+      - semantic-segmentation
+      - maskgan
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'MaskGAN: Towards Diverse and Interactive Facial Image Manipulation'
     authors: Cheng-Han Lee, Ziwei Liu, Lingyun Wu, Ping Luo
     year: 2020
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/1907.11922
-    bibtex: "@inproceedings{lee2020maskgan,\n  title={MaskGAN: Towards Diverse and\
-      \ Interactive Facial Image Manipulation},\n  author={Lee, Cheng-Han and Liu,\
-      \ Ziwei and Wu, Lingyun and Luo, Ping},\n  booktitle={CVPR},\n  year={2020}\n\
-      }"
+    bibtex: "@inproceedings{lee2020maskgan,\n  title={MaskGAN: Towards Diverse and Interactive Facial\
+      \ Image Manipulation},\n  author={Lee, Cheng-Han and Liu, Ziwei and Wu, Lingyun and Luo, Ping},\n\
+      \  booktitle={CVPR},\n  year={2020}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1157,12 +1140,12 @@ parsenet:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - miou
+      - miou
     primary_metric: miou
   seed: 42
 ffanet_indoor:
@@ -1174,9 +1157,9 @@ ffanet_indoor:
   filename: FFANet-Dehazing(Indoor)
   checkpoint: FFANet-Dehazing(Indoor)Weights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: 16
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -1185,11 +1168,11 @@ ffanet_indoor:
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
-  - LemGendizedFfaNetIndoor
+    - LemGendizedFfaNetIndoor
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 36.5
     ssim: 0.99
@@ -1203,9 +1186,9 @@ ffanet_indoor:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: gpu-t4x2
@@ -1216,35 +1199,33 @@ ffanet_indoor:
   kaggle_metadata:
     slug: ffanet-indoor
     title: LemGendary FFANet Dehazing (Indoor)
-    subtitle: Feature Fusion Attention Network specialized in single-image indoor
-      atmospheric dehazing
+    subtitle: Feature Fusion Attention Network specialized in single-image indoor atmospheric dehazing
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-dehazing
-    - feature-fusion-attention
-    - restoration
+      - computer-vision
+      - image-dehazing
+      - feature-fusion-attention
+      - restoration
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'FFA-Net: Feature Fusion Attention Network for Single Image Dehazing'
     authors: Xu Qin, Zhilin Wang, Yuanchao Bai, Xiaodong Xie, Huizhu Jia
     year: 2020
     venue: AAAI Conference on Artificial Intelligence (AAAI)
     link: https://arxiv.org/abs/1911.07559
-    bibtex: "@inproceedings{qin2020ffa,\n  title={FFA-Net: Feature fusion attention\
-      \ network for single image dehazing},\n  author={Qin, Xu and Wang, Zhilin and\
-      \ Bai, Yuanchao and Xie, Xiaodong and Jia, Huizhu},\n  booktitle={AAAI},\n \
-      \ volume={34},\n  pages={11908--11915},\n  year={2020}\n}"
+    bibtex: "@inproceedings{qin2020ffa,\n  title={FFA-Net: Feature fusion attention network for single\
+      \ image dehazing},\n  author={Qin, Xu and Wang, Zhilin and Bai, Yuanchao and Xie, Xiaodong and Jia,\
+      \ Huizhu},\n  booktitle={AAAI},\n  volume={34},\n  pages={11908--11915},\n  year={2020}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1257,15 +1238,15 @@ ffanet_indoor:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 ffanet_outdoor:
@@ -1277,9 +1258,9 @@ ffanet_outdoor:
   filename: FFANet-Dehazing(Outdoor)
   checkpoint: FFANet-Dehazing(Outdoor)Weights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: 16
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -1288,11 +1269,11 @@ ffanet_outdoor:
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
-  - LemGendizedFfaNetOutdoor
+    - LemGendizedFfaNetOutdoor
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 33.7
     ssim: 0.986
@@ -1306,9 +1287,9 @@ ffanet_outdoor:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: gpu-t4x2
@@ -1319,35 +1300,33 @@ ffanet_outdoor:
   kaggle_metadata:
     slug: ffanet-outdoor
     title: LemGendary FFANet Dehazing (Outdoor)
-    subtitle: Feature Fusion Attention Network specialized in dense outdoor haze and
-      smog attenuation
+    subtitle: Feature Fusion Attention Network specialized in dense outdoor haze and smog attenuation
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-dehazing
-    - feature-fusion-attention
-    - restoration
+      - computer-vision
+      - image-dehazing
+      - feature-fusion-attention
+      - restoration
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'FFA-Net: Feature Fusion Attention Network for Single Image Dehazing'
     authors: Xu Qin, Zhilin Wang, Yuanchao Bai, Xiaodong Xie, Huizhu Jia
     year: 2020
     venue: AAAI Conference on Artificial Intelligence (AAAI)
     link: https://arxiv.org/abs/1911.07559
-    bibtex: "@inproceedings{qin2020ffa,\n  title={FFA-Net: Feature fusion attention\
-      \ network for single image dehazing},\n  author={Qin, Xu and Wang, Zhilin and\
-      \ Bai, Yuanchao and Xie, Xiaodong and Jia, Huizhu},\n  booktitle={AAAI},\n \
-      \ volume={34},\n  pages={11908--11915},\n  year={2020}\n}"
+    bibtex: "@inproceedings{qin2020ffa,\n  title={FFA-Net: Feature fusion attention network for single\
+      \ image dehazing},\n  author={Qin, Xu and Wang, Zhilin and Bai, Yuanchao and Xie, Xiaodong and Jia,\
+      \ Huizhu},\n  booktitle={AAAI},\n  volume={34},\n  pages={11908--11915},\n  year={2020}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1360,15 +1339,15 @@ ffanet_outdoor:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 mirnet_lowlight:
@@ -1380,9 +1359,9 @@ mirnet_lowlight:
   filename: MIRNet(v2)-LowLight
   checkpoint: MIRNet(v2)-LowLightWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 5.0e-05
   loss_fn: l1_lpips
   dataset_type: restoration
@@ -1390,11 +1369,11 @@ mirnet_lowlight:
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
-  - LemGendizedMirNetLowLight
+    - LemGendizedMirNetLowLight
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 24.3
     ssim: 0.84
@@ -1408,9 +1387,9 @@ mirnet_lowlight:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: gpu-t4x2
@@ -1421,29 +1400,27 @@ mirnet_lowlight:
   kaggle_metadata:
     slug: mirnet-lowlight
     title: LemGendary MIRNet v2 Low-Light Enhancement
-    subtitle: Multi-scale recursive restoration network enhancing extreme underexposure
-      and photon noise
+    subtitle: Multi-scale recursive restoration network enhancing extreme underexposure and photon noise
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - low-light-enhancement
-    - mirnet
+      - computer-vision
+      - image-restoration
+      - low-light-enhancement
+      - mirnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Learning Enriched Features for Fast Image Restoration and Enhancement
-    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz
-      Khan, Ming-Hsuan Yang, Ling Shao
+    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, Ming-Hsuan
+      Yang, Ling Shao
     year: 2022
     venue: IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)
     link: https://arxiv.org/abs/2003.06792
-    bibtex: "@article{zamir2022learning,\n  title={Learning enriched features for\
-      \ fast image restoration and enhancement},\n  author={Zamir, Syed Waqas and\
-      \ Arora, Aditya and Khan, Salman and Hayat, Munawar and Khan, Fahad Shahbaz\
-      \ and Yang, Ming-Hsuan and Shao, Ling},\n  journal={IEEE TPAMI},\n  year={2022}\n\
+    bibtex: "@article{zamir2022learning,\n  title={Learning enriched features for fast image restoration\
+      \ and enhancement},\n  author={Zamir, Syed Waqas and Arora, Aditya and Khan, Salman and Hayat, Munawar\
+      \ and Khan, Fahad Shahbaz and Yang, Ming-Hsuan and Shao, Ling},\n  journal={IEEE TPAMI},\n  year={2022}\n\
       }"
   batch_size: auto
   optimizer:
@@ -1451,8 +1428,8 @@ mirnet_lowlight:
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1465,15 +1442,15 @@ mirnet_lowlight:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 mirnet_exposure:
@@ -1485,9 +1462,9 @@ mirnet_exposure:
   filename: MIRNet(v2)-Exposure
   checkpoint: MIRNet(v2)-ExposureWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 5.0e-05
   loss_fn: l1_lpips
   dataset_type: restoration
@@ -1495,11 +1472,11 @@ mirnet_exposure:
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
-  - LemGendizedMirNetExposure
+    - LemGendizedMirNetExposure
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 24.3
     ssim: 0.84
@@ -1513,9 +1490,9 @@ mirnet_exposure:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: gpu-t4x2
@@ -1526,29 +1503,27 @@ mirnet_exposure:
   kaggle_metadata:
     slug: mirnet-exposure
     title: LemGendary MIRNet v2 Exposure Correction
-    subtitle: Dual-attention dynamic range correction network resolving non-uniform
-      multi-exposure defects
+    subtitle: Dual-attention dynamic range correction network resolving non-uniform multi-exposure defects
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - exposure-correction
-    - mirnet
+      - computer-vision
+      - image-restoration
+      - exposure-correction
+      - mirnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Learning Enriched Features for Fast Image Restoration and Enhancement
-    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz
-      Khan, Ming-Hsuan Yang, Ling Shao
+    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, Ming-Hsuan
+      Yang, Ling Shao
     year: 2022
     venue: IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)
     link: https://arxiv.org/abs/2003.06792
-    bibtex: "@article{zamir2022learning,\n  title={Learning enriched features for\
-      \ fast image restoration and enhancement},\n  author={Zamir, Syed Waqas and\
-      \ Arora, Aditya and Khan, Salman and Hayat, Munawar and Khan, Fahad Shahbaz\
-      \ and Yang, Ming-Hsuan and Shao, Ling},\n  journal={IEEE TPAMI},\n  year={2022}\n\
+    bibtex: "@article{zamir2022learning,\n  title={Learning enriched features for fast image restoration\
+      \ and enhancement},\n  author={Zamir, Syed Waqas and Arora, Aditya and Khan, Salman and Hayat, Munawar\
+      \ and Khan, Fahad Shahbaz and Yang, Ming-Hsuan and Shao, Ling},\n  journal={IEEE TPAMI},\n  year={2022}\n\
       }"
   batch_size: auto
   optimizer:
@@ -1556,8 +1531,8 @@ mirnet_exposure:
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1570,15 +1545,15 @@ mirnet_exposure:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 mprnet_deraining:
@@ -1590,9 +1565,9 @@ mprnet_deraining:
   filename: MPRNet-Deraining
   checkpoint: MPRNet-DerainingWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 5.0e-05
   loss_fn: l1
   dataset_type: restoration
@@ -1600,11 +1575,11 @@ mprnet_deraining:
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
-  - LemGendizedMprNetDeraining
+    - LemGendizedMprNetDeraining
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 30.6
     ssim: 0.9
@@ -1618,9 +1593,9 @@ mprnet_deraining:
     plateau_patience: 8
     cooling_factor: 0.85
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
     plateau_priority: resolution
   val_resolution: 512
   kaggle_accelerator: gpu-t4x2
@@ -1631,37 +1606,35 @@ mprnet_deraining:
   kaggle_metadata:
     slug: mprnet-deraining
     title: LemGendary MPRNet Deraining
-    subtitle: Multi-stage progressive restoration network resolving heavy streak and
-      rain droplet degradations
+    subtitle: Multi-stage progressive restoration network resolving heavy streak and rain droplet degradations
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - deraining
-    - mprnet
+      - computer-vision
+      - image-restoration
+      - deraining
+      - mprnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Multi-Stage Progressive Image Restoration
-    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz
-      Khan, Ming-Hsuan Yang, Ling Shao
+    authors: Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, Ming-Hsuan
+      Yang, Ling Shao
     year: 2021
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/2102.02808
-    bibtex: "@inproceedings{zamir2021multi,\n  title={Multi-stage progressive image\
-      \ restoration},\n  author={Zamir, Syed Waqas and Arora, Aditya and Khan, Salman\
-      \ and Hayat, Munawar and Khan, Fahad Shahbaz and Yang, Ming-Hsuan and Shao,\
-      \ Ling},\n  booktitle={CVPR},\n  pages={14821--14831},\n  year={2021}\n}"
+    bibtex: "@inproceedings{zamir2021multi,\n  title={Multi-stage progressive image restoration},\n  author={Zamir,\
+      \ Syed Waqas and Arora, Aditya and Khan, Salman and Hayat, Munawar and Khan, Fahad Shahbaz and Yang,\
+      \ Ming-Hsuan and Shao, Ling},\n  booktitle={CVPR},\n  pages={14821--14831},\n  year={2021}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1674,15 +1647,15 @@ mprnet_deraining:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 nafnet_debluring:
@@ -1694,9 +1667,9 @@ nafnet_debluring:
   filename: NAFNet-Debluring
   checkpoint: NAFNet-DebluringWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -1712,15 +1685,15 @@ nafnet_debluring:
     cooling_factor: 0.8
     plateau_priority: resolution
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   datasets:
-  - LemGendizedNafNetDebluring
+    - LemGendizedNafNetDebluring
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 33.9
     ssim: 0.97
@@ -1735,34 +1708,34 @@ nafnet_debluring:
   kaggle_metadata:
     slug: nafnet-debluring
     title: LemGendary NAFNet Debluring
-    subtitle: Nonlinear Activation Free baseline network for state-of-the-art camera
-      shake and motion deblurring
+    subtitle: Nonlinear Activation Free baseline network for state-of-the-art camera shake and motion
+      deblurring
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - deblurring
-    - nafnet
+      - computer-vision
+      - image-restoration
+      - deblurring
+      - nafnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Simple Baselines for Image Restoration
     authors: Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, Jian Sun
     year: 2022
     venue: European Conference on Computer Vision (ECCV)
     link: https://arxiv.org/abs/2204.04676
-    bibtex: "@inproceedings{chen2022simple,\n  title={Simple baselines for image restoration},\n\
-      \  author={Chen, Liangyu and Chu, Xiaojie and Zhang, Xiangyu and Sun, Jian},\n\
-      \  booktitle={ECCV},\n  pages={17--33},\n  year={2022}\n}"
+    bibtex: "@inproceedings{chen2022simple,\n  title={Simple baselines for image restoration},\n  author={Chen,\
+      \ Liangyu and Chu, Xiaojie and Zhang, Xiangyu and Sun, Jian},\n  booktitle={ECCV},\n  pages={17--33},\n\
+      \  year={2022}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1775,15 +1748,15 @@ nafnet_debluring:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 nafnet_denoising:
@@ -1795,9 +1768,9 @@ nafnet_denoising:
   filename: NAFNet-Denoising
   checkpoint: NAFNet-DenoisingWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   batch_size: auto
   learning_rate: 5.0e-05
   loss_fn: l1
@@ -1814,15 +1787,15 @@ nafnet_denoising:
     plateau_priority: resolution
     jolt_multiplier: 5.0
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   datasets:
-  - LemGendizedNafNetDenoising
+    - LemGendizedNafNetDenoising
   stabilizers:
     numerical_sentinel:
-    - -0.2
-    - 1.2
+      - -0.2
+      - 1.2
   sota_targets:
     psnr: 40.2
     ssim: 0.965
@@ -1837,34 +1810,33 @@ nafnet_denoising:
   kaggle_metadata:
     slug: nafnet-denoising
     title: LemGendary NAFNet Denoising
-    subtitle: Nonlinear Activation Free baseline network for high-fidelity additive
-      Gaussian noise removal
+    subtitle: Nonlinear Activation Free baseline network for high-fidelity additive Gaussian noise removal
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - denoising
-    - nafnet
+      - computer-vision
+      - image-restoration
+      - denoising
+      - nafnet
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Simple Baselines for Image Restoration
     authors: Liangyu Chen, Xiaojie Chu, Xiangyu Zhang, Jian Sun
     year: 2022
     venue: European Conference on Computer Vision (ECCV)
     link: https://arxiv.org/abs/2204.04676
-    bibtex: "@inproceedings{chen2022simple,\n  title={Simple baselines for image restoration},\n\
-      \  author={Chen, Liangyu and Chu, Xiaojie and Zhang, Xiangyu and Sun, Jian},\n\
-      \  booktitle={ECCV},\n  pages={17--33},\n  year={2022}\n}"
+    bibtex: "@inproceedings{chen2022simple,\n  title={Simple baselines for image restoration},\n  author={Chen,\
+      \ Liangyu and Chu, Xiaojie and Zhang, Xiangyu and Sun, Jian},\n  booktitle={ECCV},\n  pages={17--33},\n\
+      \  year={2022}\n}"
   optimizer:
     type: adamw
     lr: 5.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1877,15 +1849,15 @@ nafnet_denoising:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 yolov8n:
@@ -1897,16 +1869,16 @@ yolov8n:
   filename: YOLOv8n-Unified
   checkpoint: yolov8n.pt
   input_size:
-  - 3
-  - 320
-  - 320
+    - 3
+    - 320
+    - 320
   batch_size: 32
   learning_rate: 0.01
   loss_fn: yolo
   dataset_type:
-  - detection
-  - classification
-  - pose
+    - detection
+    - classification
+    - pose
   preferred_parallel: single
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
@@ -1927,9 +1899,9 @@ yolov8n:
     plateau_priority: resolution
     extension_epochs: 20
     res_ladder:
-    - 320
-    - 480
-    - 640
+      - 320
+      - 480
+      - 640
     static_vram_mb: 260
     per_sample_vram_mb_640: 240
     sawtooth_vram_safety: 0.85
@@ -1938,7 +1910,7 @@ yolov8n:
     batch_min: 1
     batch_max: 512
   datasets:
-  - LemGendizedYoloV8n
+    - LemGendizedYoloV8n
   sota_targets:
     map50: 0.74
     map50_95: 0.55
@@ -1951,35 +1923,39 @@ yolov8n:
   kaggle_metadata:
     slug: yolov8n
     title: LemGendary YOLOv8n Multi-Task Model
-    subtitle: Real-time multi-task object detection, instance bounding, and confidence
-      classification model
+    subtitle: Real-time multi-task object detection, instance bounding, and confidence classification
+      model
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - object-detection
-    - yolov8
-    - ultralytics
+      - computer-vision
+      - object-detection
+      - yolov8
+      - ultralytics
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
-    title: 'Ultralytics YOLOv8: Real-Time Object Detection, Instance Segmentation,
-      and Pose Estimation'
+    title: 'Ultralytics YOLOv8: Real-Time Object Detection, Instance Segmentation, and Pose Estimation'
     authors: Glenn Jocher, Ayush Chaurasia, Jing Qiu
     year: 2023
     venue: Ultralytics Research
     link: https://github.com/ultralytics/ultralytics
-    bibtex: "@software{yolov8_ultralytics,\n  author = {Jocher, Glenn and Chaurasia,\
-      \ Ayush and Qiu, Jing},\n  title = {Ultralytics YOLOv8},\n  version = {8.0.0},\n\
-      \  year = {2023},\n  url = {https://github.com/ultralytics/ultralytics}\n}"
+    bibtex: |
+      @software{yolov8_ultralytics,
+        author = {Jocher, Glenn and Chaurasia, Ayush and Qiu, Jing},
+        title = {Ultralytics YOLOv8},
+        version = {8.0.0},
+        year = {2023},
+        url = {https://github.com/ultralytics/ultralytics}
+      }
   optimizer:
     type: adamw
     lr: 0.01
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -1992,13 +1968,13 @@ yolov8n:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - map50
-    - map50_95
+      - map50
+      - map50_95
     primary_metric: map50
   seed: 42
 professional_multitask_restoration:
@@ -2010,17 +1986,16 @@ professional_multitask_restoration:
   filename: ProfessionalMultiRestorer
   checkpoint: ProfessionalMultiRestorerWeights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 0.0001
   loss_fn: hybrid_restoration
   dataset_type: restoration
   preferred_parallel: ddp
   needs_synthesis: true
   optimal_key: professional_multitask_restoration
-  description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze,
-    and Low-Light
+  description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze, and Low-Light
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -2030,16 +2005,16 @@ professional_multitask_restoration:
     cooling_factor: 0.8
     plateau_priority: resolution
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   sota_targets:
     psnr: 32.0
     ssim: 0.93
     lpips: 0.07
     fid: 12.0
   datasets:
-  - LemGendizedMultitaskRestorationPro
+    - LemGendizedMultitaskRestorationPro
   val_resolution: 512
   kaggle_accelerator: gpu-t4x2
   architecture_type: MultiTaskRestorer (Shared Encoder Multi-Task MoE)
@@ -2049,36 +2024,35 @@ professional_multitask_restoration:
   kaggle_metadata:
     slug: professional-multitask-restoration
     title: LemGendary Professional Multi-Task Restorer
-    subtitle: Unified multi-head restorative architecture addressing composite real-world
-      degradation manifolds
+    subtitle: Unified multi-head restorative architecture addressing composite real-world degradation
+      manifolds
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-restoration
-    - multi-task
-    - all-in-one
+      - computer-vision
+      - image-restoration
+      - multi-task
+      - all-in-one
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: All-in-One Image Restoration for Unknown Corruptions
     authors: Boyun Li, Xiao Liu, Peng Hu, Zitao Zhou, Shuangqing Zhao, Xi Peng
     year: 2020
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/2004.11700
-    bibtex: "@inproceedings{li2020all,\n  title={All-in-one image restoration for\
-      \ unknown corruptions},\n  author={Li, Boyun and Liu, Xiao and Hu, Peng and\
-      \ Zhou, Zitao and Zhao, Shuangqing and Peng, Xi},\n  booktitle={CVPR},\n  pages={2190--2199},\n\
-      \  year={2020}\n}"
+    bibtex: "@inproceedings{li2020all,\n  title={All-in-one image restoration for unknown corruptions},\n\
+      \  author={Li, Boyun and Liu, Xiao and Hu, Peng and Zhou, Zitao and Zhao, Shuangqing and Peng, Xi},\n\
+      \  booktitle={CVPR},\n  pages={2190--2199},\n  year={2020}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 0.0001
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -2091,15 +2065,15 @@ professional_multitask_restoration:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 ultrazoom:
@@ -2111,9 +2085,9 @@ ultrazoom:
   filename: UltraZoom(Master)
   checkpoint: UltraZoom(Master)Weights_FP32.pth
   input_size:
-  - 3
-  - 256
-  - 256
+    - 3
+    - 256
+    - 256
   learning_rate: 0.0001
   loss_fn: mse
   dataset_type: restoration
@@ -2121,7 +2095,7 @@ ultrazoom:
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
-  - LemGendizedUltraZoom
+    - LemGendizedUltraZoom
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -2130,9 +2104,9 @@ ultrazoom:
     plateau_patience: 10
     plateau_priority: resolution
     res_ladder:
-    - 256
-    - 384
-    - 512
+      - 256
+      - 384
+      - 512
   sota_targets:
     psnr: 34.0
     ssim: 0.95
@@ -2147,39 +2121,37 @@ ultrazoom:
   kaggle_metadata:
     slug: ultrazoom
     title: LemGendary UltraZoom Master Model
-    subtitle: Real-time sub-pixel convolutional super-resolution network scaling spatial
-      visual density
+    subtitle: Real-time sub-pixel convolutional super-resolution network scaling spatial visual density
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - super-resolution
-    - sub-pixel-cnn
-    - ultrazoom
+      - computer-vision
+      - super-resolution
+      - sub-pixel-cnn
+      - ultrazoom
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
-    title: Real-Time Single Image and Video Super-Resolution Using an Efficient Sub-Pixel
-      Convolutional Neural Network
-    authors: "Wenzhe Shi, Jose Caballero, Ferenc Husz\xE1r, Johannes Totz, Andrew\
-      \ P. Aitken, Rob Bishop, Daniel Rueckert, Zehan Wang"
+    title: Real-Time Single Image and Video Super-Resolution Using an Efficient Sub-Pixel Convolutional
+      Neural Network
+    authors: Wenzhe Shi, Jose Caballero, Ferenc Huszár, Johannes Totz, Andrew P. Aitken, Rob Bishop, Daniel
+      Rueckert, Zehan Wang
     year: 2016
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/1609.05158
-    bibtex: "@inproceedings{shi2016real,\n  title={Real-time single image and video\
-      \ super-resolution using an efficient sub-pixel convolutional neural network},\n\
-      \  author={Shi, Wenzhe and Caballero, Jose and Husz{\\'a}r, Ferenc and Totz,\
-      \ Johannes and Aitken, Andrew P and Bishop, Rob and Rueckert, Daniel and Wang,\
-      \ Zehan},\n  booktitle={CVPR},\n  pages={1874--1883},\n  year={2016}\n}"
+    bibtex: "@inproceedings{shi2016real,\n  title={Real-time single image and video super-resolution using\
+      \ an efficient sub-pixel convolutional neural network},\n  author={Shi, Wenzhe and Caballero, Jose\
+      \ and Husz{\\'a}r, Ferenc and Totz, Johannes and Aitken, Andrew P and Bishop, Rob and Rueckert,\
+      \ Daniel and Wang, Zehan},\n  booktitle={CVPR},\n  pages={1874--1883},\n  year={2016}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 0.0001
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -2192,15 +2164,15 @@ ultrazoom:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - psnr
-    - ssim
-    - lpips
-    - fid
+      - psnr
+      - ssim
+      - lpips
+      - fid
     primary_metric: psnr
   seed: 42
 universal_nsfw_classification:
@@ -2212,27 +2184,26 @@ universal_nsfw_classification:
   filename: UniversalNSFWClassifier
   checkpoint: UniversalNSFWClassifierWeights_FP32.pth
   input_size:
-  - 3
-  - 224
-  - 224
+    - 3
+    - 224
+    - 224
   learning_rate: 3.0e-05
   loss_fn: cross_entropy
   dataset_type: classification
   preferred_parallel: ddp
   optimal_key: universal_nsfw_classification
   architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
-  description: Universal safety filter and NSFW classifier for realistic and anime
-    content.
+  description: Universal safety filter and NSFW classifier for realistic and anime content.
   class_names:
-  - drawings
-  - hentai
-  - neutral
-  - porn
-  - sexy
+    - drawings
+    - hentai
+    - neutral
+    - porn
+    - sexy
   preprocessing:
     normalization: unit
   datasets:
-  - LemGendizedClassificationMaster
+    - LemGendizedClassificationMaster
   sota_targets:
     accuracy: 0.98
   optimization:
@@ -2244,7 +2215,7 @@ universal_nsfw_classification:
     cooling_factor: 0.85
     plateau_priority: data
     res_ladder:
-    - 224
+      - 224
   val_resolution: 224
   kaggle_accelerator: gpu-t4x2
   kwargs:
@@ -2254,35 +2225,34 @@ universal_nsfw_classification:
   kaggle_metadata:
     slug: universal-nsfw-classification
     title: LemGendary Universal NSFW Classifier
-    subtitle: 5-class visual safety moderation classifier enforcing ecosystem content
-      governance
+    subtitle: 5-class visual safety moderation classifier enforcing ecosystem content governance
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - image-classification
-    - content-moderation
-    - safety
+      - computer-vision
+      - image-classification
+      - content-moderation
+      - safety
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'EfficientNetV2: Smaller Models and Faster Training'
     authors: Mingxing Tan, Quoc V. Le
     year: 2021
     venue: International Conference on Machine Learning (ICML)
     link: https://arxiv.org/abs/2104.00298
-    bibtex: "@inproceedings{tan2021efficientnetv2,\n  title={Efficientnetv2: Smaller\
-      \ models and faster training},\n  author={Tan, Mingxing and Le, Quoc},\n  booktitle={ICML},\n\
-      \  pages={10096--10106},\n  year={2021}\n}"
+    bibtex: "@inproceedings{tan2021efficientnetv2,\n  title={Efficientnetv2: Smaller models and faster\
+      \ training},\n  author={Tan, Mingxing and Le, Quoc},\n  booktitle={ICML},\n  pages={10096--10106},\n\
+      \  year={2021}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 3.0e-05
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -2295,12 +2265,12 @@ universal_nsfw_classification:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - accuracy
+      - accuracy
     primary_metric: accuracy
   seed: 42
 retinaface:
@@ -2312,22 +2282,22 @@ retinaface:
   filename: RetinaFace-Detection
   checkpoint: RetinaFaceWeights_FP32.pth
   input_size:
-  - 3
-  - 640
-  - 640
+    - 3
+    - 640
+    - 640
   learning_rate: 0.0005
   loss_fn: retinaface
   dataset_type: face_detection
   preferred_parallel: ddp
   output_names:
-  - output
-  - output2
-  - output3
+    - output
+    - output2
+    - output3
   optimal_key: retinaface
-  description: Robust single-stage face and landmark detection with unified MobileNetV3-Small
-    backbone for real-time edge deployment.
+  description: Robust single-stage face and landmark detection with unified MobileNetV3-Small backbone
+    for real-time edge deployment.
   datasets:
-  - LemGendizedRetinaFace
+    - LemGendizedRetinaFace
   optimization:
     high_fidelity_fraction: 0.7
     enabled: true
@@ -2336,7 +2306,7 @@ retinaface:
     plateau_patience: 10
     plateau_priority: data
     res_ladder:
-    - 640
+      - 640
   val_resolution: 640
   sota_targets:
     box_iou: 0.72
@@ -2344,51 +2314,49 @@ retinaface:
     ap50_95: 0.6
     landmark_nme: 0.05
   sota_targets_provisional: false
-  sota_targets_note: Calibrated targets based on standard RetinaFace benchmarks (0.95
-    AP50, 0.72 Mean IoU bounding box tightness, and 0.05 normalized mean error for
-    5-point facial landmark alignment). Single-pass FPN anchors (P2-P6) natively cover
-    face scales from 16px to full frame.
+  sota_targets_note: Calibrated targets based on standard RetinaFace benchmarks (0.95 AP50, 0.72 Mean
+    IoU bounding box tightness, and 0.05 normalized mean error for 5-point facial landmark alignment).
+    Single-pass FPN anchors (P2-P6) natively cover face scales from 16px to full frame.
   architecture_type: MobileNetV3-Small Backbone
   kwargs:
     backbone: mobilenet_v3_small
     supported_backbones:
-    - mobilenet_v3_small
-    - mobilenet_v2
+      - mobilenet_v3_small
+      - mobilenet_v2
   kaggle_accelerator: gpu-t4x2
   canonical_format: webdataset
   kaggle_metadata:
     slug: retinaface
     title: LemGendary RetinaFace Detection
-    subtitle: Single-stage multi-scale feature pyramid network performing dense facial
-      bounding and landmark alignment
+    subtitle: Single-stage multi-scale feature pyramid network performing dense facial bounding and landmark
+      alignment
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - computer-vision
-    - face-detection
-    - landmark-localization
-    - retinaface
+      - computer-vision
+      - face-detection
+      - landmark-localization
+      - retinaface
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: 'RetinaFace: Single-Shot Multi-Level Face Localisation in the Wild'
     authors: Jiankang Deng, Jia Guo, Evangelos Ververas, Irene Kotsia, Stefanos Zafeiriou
     year: 2020
     venue: IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
     link: https://arxiv.org/abs/1905.00641
-    bibtex: "@inproceedings{deng2020retinaface,\n  title={Retinaface: Single-shot\
-      \ multi-level face localisation in the wild},\n  author={Deng, Jiankang and\
-      \ Guo, Jia and Ververas, Evangelos and Kotsia, Irene and Zafeiriou, Stefanos},\n\
-      \  booktitle={CVPR},\n  pages={5203--5212},\n  year={2020}\n}"
+    bibtex: "@inproceedings{deng2020retinaface,\n  title={Retinaface: Single-shot multi-level face localisation\
+      \ in the wild},\n  author={Deng, Jiankang and Guo, Jia and Ververas, Evangelos and Kotsia, Irene\
+      \ and Zafeiriou, Stefanos},\n  booktitle={CVPR},\n  pages={5203--5212},\n  year={2020}\n}"
   batch_size: auto
   optimizer:
     type: adamw
     lr: 0.0005
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -2401,15 +2369,15 @@ retinaface:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - box_iou
-    - ap50
-    - ap50_95
-    - landmark_nme
+      - box_iou
+      - ap50
+      - ap50_95
+      - landmark_nme
     primary_metric: box_iou
   seed: 42
 ai_helper_lemgend:
@@ -2419,7 +2387,7 @@ ai_helper_lemgend:
   category: llm
   filename: AIHelperLemGend
   checkpoint: AIHelperLemGend_best.pth
-  input_size: 512
+  input_size: 2048
   batch_size: 1
   learning_rate: 0.0002
   loss_fn: cross_entropy
@@ -2429,16 +2397,16 @@ ai_helper_lemgend:
   optimal_key: ai_helper_lemgend
   architecture_type: Causal Decoder Transformer (QLoRA Fine-Tuned)
   base_foundation_model: Qwen/Qwen2.5-Coder-1.5B-Instruct
-  description: Official instruction-tuned assistant LLM for LemGendary AI Studio.
-    Possesses expert domain knowledge of the 22 neural architectures, Dataset Compiler,
-    Training Suite, Sawtooth Governor, REST APIs, and multi-tier diagnostic workflows.
+  description: Official instruction-tuned assistant LLM for LemGendary AI Studio. Possesses expert domain
+    knowledge of the 22 neural architectures, Dataset Compiler, Training Suite, Sawtooth Governor, REST
+    APIs, and multi-tier diagnostic workflows.
   datasets:
-  - LemGendizedAIHelperLemGend
+    - LemGendizedAIHelperLemGend
   curriculum:
     data_fraction: 1.0
     target_effective_batch: 16
     accumulation_steps: 16
-    max_seq_length: 512
+    max_seq_length: 2048
     pack_sequences: true
     use_rslora: true
     neftune_noise_alpha: 5.0
@@ -2448,17 +2416,17 @@ ai_helper_lemgend:
     lora_alpha: 32
     lora_dropout: 0.05
     target_modules:
-    - q_proj
-    - k_proj
-    - v_proj
-    - o_proj
-    - gate_proj
-    - up_proj
-    - down_proj
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
   cloud:
     batch_size: 4
     accumulation_steps: 2
-    max_seq_length: 512
+    max_seq_length: 2048
     pack_sequences: true
     load_in_4bit: false
     lora_r: 32
@@ -2470,11 +2438,11 @@ ai_helper_lemgend:
   local:
     batch_size: 1
     accumulation_steps: 16
-    max_seq_length: 512
+    max_seq_length: 1536
     pack_sequences: true
     load_in_4bit: true
-    lora_r: 8
-    lora_alpha: 16
+    lora_r: 16
+    lora_alpha: 32
     use_rslora: true
     neftune_noise_alpha: 5.0
     chunked_cross_entropy: true
@@ -2486,34 +2454,33 @@ ai_helper_lemgend:
   kaggle_metadata:
     slug: ai-helper-lemgend
     title: LemGendary AI Studio Assistant (Causal LLM)
-    subtitle: Domain-specific Causal LLM instruction-tuned on authoritative LemGendary
-      AI specifications
+    subtitle: Domain-specific Causal LLM instruction-tuned on authoritative LemGendary AI specifications
     is_private: false
     license: CC BY-NC 4.0
     tags:
-    - nlp
-    - text-generation
-    - causal-lm
-    - instruction-tuning
-    - pytorch
+      - nlp
+      - text-generation
+      - causal-lm
+      - instruction-tuning
+      - pytorch
     provenance_sources:
-    - https://github.com/lemgendary/model-training
-    - https://lemgenda.hr
+      - https://github.com/lemgendary/model-training
+      - https://lemgenda.hr
   academic_reference:
     title: Qwen2.5 Technical Report
     authors: Qwen Team
     year: 2024
     venue: arXiv preprint
     link: https://arxiv.org/abs/2412.15115
-    bibtex: "@article{qwen2024,\n  title={Qwen2.5 Technical Report},\n  author={Qwen\
-      \ Team},\n  journal={arXiv preprint arXiv:2412.15115},\n  year={2024}\n}"
+    bibtex: "@article{qwen2024,\n  title={Qwen2.5 Technical Report},\n  author={Qwen Team},\n  journal={arXiv\
+      \ preprint arXiv:2412.15115},\n  year={2024}\n}"
   optimizer:
     type: adamw
     lr: 0.0002
     weight_decay: 0.01
     betas:
-    - 0.9
-    - 0.999
+      - 0.9
+      - 0.999
     eps: 1.0e-08
   lr_schedule:
     type: cosine
@@ -2526,13 +2493,13 @@ ai_helper_lemgend:
     metric: val_loss
     mode: min
   export_targets:
-  - pytorch_fp32
-  - onnx_fp32
-  - onnx_fp16
+    - pytorch_fp32
+    - onnx_fp32
+    - onnx_fp16
   validation_suite:
     metrics:
-    - eval_loss
-    - perplexity
-    - token_accuracy
+      - eval_loss
+      - perplexity
+      - token_accuracy
     primary_metric: eval_loss
   seed: 42

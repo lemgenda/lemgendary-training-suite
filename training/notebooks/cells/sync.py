@@ -216,7 +216,8 @@ def build_training_cell(
         "use_ddp = (\n",
         "    num_gpus > 1\n",
         "    and (preferred_parallel == 'ddp' or (\n",
-        "        preferred_parallel != 'single' and not is_forex and 'yolo' not in model_key.lower()\n",
+        "        preferred_parallel != 'single' and not is_forex\n",
+        "        and 'yolo' not in model_key.lower()\n",
         "    ))\n",
         ")\n",
         "\n",
@@ -231,7 +232,8 @@ def build_training_cell(
         (
             "    cmd = [\n"
             "        sys.executable, '-u', 'training/train.py',\n"
-            f"        '--model', '{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
+            "        '--model', "
+            f"'{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
             "    ]\n"
         ),
         "elif use_ddp and os.path.exists('tools/launch_ddp.py'):\n",
@@ -242,14 +244,16 @@ def build_training_cell(
         (
             "    cmd = [\n"
             "        sys.executable, '-u', 'tools/launch_ddp.py',\n"
-            f"        '--model', '{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
+            "        '--model', "
+            f"'{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
             "    ]\n"
         ),
         "else:\n",
         (
             "    cmd = [\n"
             "        sys.executable, '-u', 'training/train.py',\n"
-            f"        '--model', '{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
+            "        '--model', "
+            f"'{meta.identity.model_key}', '--env', '{env_flag}', '--auto_sync'\n"
             "    ]\n"
         ),
     ]
@@ -278,7 +282,8 @@ def build_training_cell(
             f"suite_candidates = {suite_candidates!r}\n",
             (
                 "active_suite_dir = next(\n"
-                "    (p for p in suite_candidates if os.path.exists(os.path.join(p, 'training', 'train.py'))),\n"
+                "    (p for p in suite_candidates "
+                "if os.path.exists(os.path.join(p, 'training', 'train.py'))),\n"
                 f"    {default_dir!r}\n"
                 ")\n"
             ),
@@ -300,7 +305,9 @@ def build_training_cell(
                 "                print(f'[JANITOR] Killing stale zombie training process (PID "
                 "{pid})...')\n"
             ),
-            "                subprocess.run(['kill', '-9', str(pid)], check=False, capture_output=True)\n",
+            "                subprocess.run(\n",
+            "                    ['kill', '-9', str(pid)], check=False, capture_output=True\n",
+            "                )\n",
             "except (OSError, ValueError, subprocess.SubprocessError) as janitor_err:\n",
             "    print(f'[JANITOR] Stale process scan skipped: {janitor_err}')\n",
             "\n",

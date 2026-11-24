@@ -143,7 +143,7 @@ def _model_state(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _progress(payload: dict[str, Any], iteration: int) -> tuple[str, bool, int, int]:
-    """``(phase, is_intra_epoch, iteration, total_steps)`` from ``progress_metadata`` or top-level keys."""
+    """``(phase, is_intra_epoch, iteration, total_steps)`` from ``progress_metadata``."""
     progress_meta = payload.get("progress_metadata")
     if isinstance(progress_meta, dict):
         step = int(progress_meta.get("step", iteration))

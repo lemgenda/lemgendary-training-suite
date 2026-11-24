@@ -3,13 +3,16 @@
 import json
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch import nn
 
+from training.export.base import ExportError
 from training.export.common import (
+    OnnxGraphSpec,
     extract_input_dimensions,
     resolve_export_paths,
 )
@@ -20,6 +23,7 @@ from training.export.manifest import (
     resolve_family_tolerances,
 )
 from training.export.onnx import export_onnx
+from training.export.onnx_variants import ONNX_FP16_VARIANT, OnnxVariantWriter
 from training.export.torch_standalone import export_torch_standalone
 from training.export.webgpu import export_webgpu_onnx
 from training.utils.lazy_imports import load_onnxruntime
@@ -197,19 +201,23 @@ class TestModelExporters(unittest.TestCase):
         self.assertEqual(llm_tol["fp32"]["atol"], 1e-3)
 
     def test_verify_canary_rejects_non_finite_fp16(self):
-        from training.export.base import ExportError
-        from training.export.common import OnnxGraphSpec
-        from training.export.onnx_variants import ONNX_FP16_VARIANT, OnnxVariantWriter
+        """Verify ONNX canary rejects non-finite FP16 outputs."""
 
         class NanModule(nn.Module):
+            """Module returning NaN tensors."""
+
             def forward(self, x):
+                """Return NaN tensor."""
                 return torch.full_like(x, float("nan"))
 
         mod = NanModule().eval()
         dummy = torch.randn(1, 3, 32, 32)
         writer = OnnxVariantWriter(mod, (dummy,), OnnxGraphSpec())
 
+        @dataclass
         class MockProgram:
+            """Mock ONNX program returning NaN."""
+
             def __call__(self, *args):
                 return (torch.tensor([float("nan")]),)
 

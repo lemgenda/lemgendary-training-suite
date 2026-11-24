@@ -284,54 +284,9 @@ def _stage_and_push(
     return res
 
 
-def _push_fleet(
-    sync_mgr: KaggleModelSyncManager,
-    push_opts: dict,
-    report_path: str | None = None,
-    json_out: bool = False,
+def _emit_fleet_report(
+    fleet_rep: dict[str, Any], report_path: str | None, json_out: bool
 ) -> None:
-    """Push every registered model; exit 1 only when a real run pushed none."""
-    start_time = time.time()
-    push_errors: tuple[type[Exception], ...] = (*kagglehub_errors(), yaml.YAMLError, RuntimeError)
-    models = get_model_registry().list_models()
-    total_models = len(models)
-    typer.echo(
-        f"[START] Commencing fleet Kaggle push for all {total_models} models (variation: "
-        f"{push_opts['variation']}, dry_run: {push_opts['dry_run']})..."
-    )
-    succeeded = 0
-    failed = 0
-    all_reports: dict[str, Any] = {}
-
-    for idx, m_spec in enumerate(models, 1):
-        m_key = m_spec.key
-        typer.echo(f"[{idx}/{total_models}] Processing '{m_key}' ({m_spec.name})...")
-        try:
-            res = _stage_and_push(sync_mgr, m_key, push_opts)
-            all_reports[m_key] = res.to_dict()
-            if res.success:
-                succeeded += 1
-                handles = [v.handle for v in res.variations.values() if v.success]
-                typer.echo(f"  [SUCCESS] Pushed -> {handles}")
-            else:
-                failed += 1
-                typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
-        except push_errors as e:
-            failed += 1
-            logger.exception("Fleet Kaggle push failed for model '%s'", m_key)
-            typer.echo(f"  [ERROR] Exception for '{m_key}': {e}")
-            all_reports[m_key] = {"model_key": m_key, "success": False, "error": str(e)}
-
-    elapsed = time.time() - start_time
-    fleet_rep = {
-        "action": "fleet_push",
-        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "elapsed_seconds": round(elapsed, 3),
-        "total_models": total_models,
-        "succeeded": succeeded,
-        "failed": failed,
-        "models": all_reports,
-    }
     if report_path:
         p = Path(report_path)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -340,9 +295,52 @@ def _push_fleet(
     if json_out:
         typer.echo(json.dumps(fleet_rep, indent=2, sort_keys=True))
 
+
+def _push_fleet(
+    sync_mgr: KaggleModelSyncManager,
+    push_opts: dict,
+    report_path: str | None = None,
+    json_out: bool = False,
+) -> None:
+    """Push every registered model; exit 1 only when a real run pushed none."""
+    start_time = time.time()
+    models = get_model_registry().list_models()
+    typer.echo(
+        f"[START] Commencing fleet Kaggle push for all {len(models)} models (variation: "
+        f"{push_opts['variation']}, dry_run: {push_opts['dry_run']})..."
+    )
+    succeeded, failed, all_reports = 0, 0, {}
+    for idx, m_spec in enumerate(models, 1):
+        typer.echo(f"[{idx}/{len(models)}] Processing '{m_spec.key}' ({m_spec.name})...")
+        try:
+            res = _stage_and_push(sync_mgr, m_spec.key, push_opts)
+            all_reports[m_spec.key] = res.to_dict()
+            if res.success:
+                succeeded += 1
+                handles = [v.handle for v in res.variations.values() if v.success]
+                typer.echo(f"  [SUCCESS] Pushed -> {handles}")
+            else:
+                failed += 1
+                typer.echo(f"  [WARN] Failed/skipped: {'; '.join(res.errors)}")
+        except (*kagglehub_errors(), yaml.YAMLError, RuntimeError) as e:
+            failed += 1
+            logger.exception("Fleet Kaggle push failed for model '%s'", m_spec.key)
+            typer.echo(f"  [ERROR] Exception for '{m_spec.key}': {e}")
+            all_reports[m_spec.key] = {"model_key": m_spec.key, "success": False, "error": str(e)}
+
+    fleet_rep = {
+        "action": "fleet_push",
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "elapsed_seconds": round(time.time() - start_time, 3),
+        "total_models": len(models),
+        "succeeded": succeeded,
+        "failed": failed,
+        "models": all_reports,
+    }
+    _emit_fleet_report(fleet_rep, report_path, json_out)
     typer.echo(
         f"[COMPLETED] Fleet push finished: {succeeded} succeeded, {failed} failed/skipped out "
-        f"of {total_models} models."
+        f"of {len(models)} models."
     )
     if failed > 0 and not push_opts["dry_run"] and succeeded == 0:
         raise typer.Exit(code=1)
@@ -377,6 +375,35 @@ def _pull_variation(
         )
 
 
+def _pull_selected_variations(
+    sync_mgr: KaggleModelSyncManager,
+    model: str,
+    vars_to_pull: list[str],
+    force_download: bool,
+    pinned_version: int | None,
+) -> tuple[int, dict[str, VariationPullResult]]:
+    succeeded = 0
+    var_results: dict[str, VariationPullResult] = {}
+    for idx, var_key in enumerate(vars_to_pull, 1):
+        handle = sync_mgr.get_handle(model, var_key)
+        if pinned_version is not None:
+            handle = f"{handle}/{pinned_version}"
+        typer.echo(f"[{idx}/{len(vars_to_pull)}] Pulling variation [{var_key}] <- {handle}...")
+        res = _pull_variation(
+            sync_mgr, model, var_key, force_download, version=pinned_version
+        )
+        var_results[var_key] = res
+        if res.success:
+            succeeded += 1
+            typer.echo(
+                f"  [SUCCESS] Downloaded to {res.destination} "
+                f"(verified checksums: {res.checksum_verified})"
+            )
+        else:
+            typer.echo(f"  [ERROR] Failed to pull {var_key}: {res.error}")
+    return succeeded, var_results
+
+
 @sync_app.command("pull")
 @option_group("opts", PullOptions)
 def sync_pull(
@@ -389,36 +416,16 @@ def sync_pull(
     pinned_version = _parse_version(opts.version)
     sync_mgr = KaggleModelSyncManager(username=opts.username)
     vars_to_pull = selected_variations(opts.variation)
-    total = len(vars_to_pull)
-
     ver_suffix = f" (version {pinned_version})" if pinned_version is not None else ""
     typer.echo(
-        f"[START] Pulling {total} variation(s) for '{model}'{ver_suffix} from Kaggle Models Hub..."
+        f"[START] Pulling {len(vars_to_pull)} variation(s) for '{model}'{ver_suffix} "
+        "from Kaggle Models Hub..."
     )
-    succeeded = 0
-    failed = 0
-    var_results: dict[str, VariationPullResult] = {}
-
-    for idx, var_key in enumerate(vars_to_pull, 1):
-        handle = sync_mgr.get_handle(model, var_key)
-        if pinned_version is not None:
-            handle = f"{handle}/{pinned_version}"
-        typer.echo(f"[{idx}/{total}] Pulling variation [{var_key}] <- {handle}...")
-        res = _pull_variation(
-            sync_mgr, model, var_key, opts.force_download, version=pinned_version
-        )
-        var_results[var_key] = res
-        if res.success:
-            succeeded += 1
-            typer.echo(
-                f"  [SUCCESS] Downloaded to {res.destination} (verified checksums: {res.checksum_verified})"
-            )
-        else:
-            failed += 1
-            typer.echo(f"  [ERROR] Failed to pull {var_key}: {res.error}")
-
+    succeeded, var_results = _pull_selected_variations(
+        sync_mgr, model, vars_to_pull, opts.force_download, pinned_version
+    )
     elapsed = time.time() - start_time
-    is_success = succeeded == total
+    is_success = succeeded == len(vars_to_pull)
 
     # Build machine-readable pull report
     rep = ModelSyncReport(
@@ -451,8 +458,11 @@ def sync_pull(
 
     if is_success:
         typer.echo(
-            f"[SUCCESS] Model '{model}' pulled successfully from Kaggle ({total} variations)."
+            f"[SUCCESS] Model '{model}' pulled successfully from Kaggle "
+            f"({len(vars_to_pull)} variations)."
         )
     else:
-        typer.echo(f"[ERROR] Pull incomplete for '{model}': {succeeded}/{total} succeeded.")
+        typer.echo(
+            f"[ERROR] Pull incomplete for '{model}': {succeeded}/{len(vars_to_pull)} succeeded."
+        )
         raise typer.Exit(code=1)

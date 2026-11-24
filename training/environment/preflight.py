@@ -100,7 +100,9 @@ class EnvironmentPreflight:
                         f"threshold ({self.min_disk_free_gb:.1f} GB)."
                     ),
                     critical=True,
-                    remediation="Purge temporary files, prune stale checkpoints, or attach storage.",
+                    remediation=(
+                        "Purge temporary files, prune stale checkpoints, or attach storage."
+                    ),
                 )
             )
         return free_gb, issues
@@ -127,11 +129,13 @@ class EnvironmentPreflight:
                     PreflightIssue(
                         category="hardware",
                         message=(
-                            f"Detected GPU with insufficient VRAM: {dev_info.total_vram_gb:.1f} GB. "
-                            "Minimum 2.0 GB required for training."
+                            f"Detected GPU with insufficient VRAM: {dev_info.total_vram_gb:.1f} "
+                            "GB. Minimum 2.0 GB required for training."
                         ),
                         critical=True,
-                        remediation="Use a device with more VRAM or run on CPU with small batch size.",
+                        remediation=(
+                            "Use a device with more VRAM or run on CPU with small batch size."
+                        ),
                     )
                 )
             # Kaggle Dual T4 check on small parameter predictor
@@ -146,7 +150,7 @@ class EnvironmentPreflight:
                         category="hardware",
                         message=(
                             f"Multi-GPU detected ({dev_info.device_count} GPUs) for lightweight "
-                            f"model '{model_key}'. DataParallel overhead causes resource starvation."
+                            f"model '{model_key}'. DataParallel causes resource starvation."
                         ),
                         critical=False,
                         remediation="Set CUDA_VISIBLE_DEVICES=0 or preferred_parallel: single.",

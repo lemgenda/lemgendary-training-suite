@@ -189,6 +189,52 @@ class VaultConsistencyReport:
     issues: list[str]
 
 
+def _audit_checkpoint_file(
+    item: Path,
+    checkpoints_found: list[str],
+    corrupted: list[str],
+    issues: list[str],
+) -> None:
+    checkpoints_found.append(item.name)
+    if item.stat().st_size == 0:
+        corrupted.append(item.name)
+        issues.append(f"Checkpoint {item.name} is 0 bytes (truncated/empty).")
+        return
+    try:
+        payload = safe_load_checkpoint(item, map_location="cpu")
+        if not isinstance(payload, dict):
+            corrupted.append(item.name)
+            issues.append(f"Checkpoint {item.name} payload is not a dictionary.")
+            return
+        has_weights = any(
+            k in payload and isinstance(payload[k], dict)
+            for k in ("model_state", "model_state_dict", "state_dict", "model")
+        )
+        if not has_weights:
+            corrupted.append(item.name)
+            issues.append(f"Checkpoint {item.name} lacks model weight state dictionary.")
+    except CHECKPOINT_LOAD_ERRORS as exc:
+        corrupted.append(item.name)
+        issues.append(f"Failed loading checkpoint {item.name}: {exc}")
+
+
+def _check_stale_progress(ckpt_path: Path, stale: list[str], issues: list[str]) -> None:
+    latest_p = ckpt_path / "latest.pth"
+    progress_p = ckpt_path / "progress.pth"
+    if latest_p.exists() and progress_p.exists():
+        try:
+            l_data = safe_load_checkpoint(latest_p, map_location="cpu")
+            p_data = safe_load_checkpoint(progress_p, map_location="cpu")
+            if int(l_data.get("epoch", 0)) >= int(p_data.get("epoch", 0)):
+                stale.append(progress_p.name)
+                issues.append(
+                    f"Stale progress checkpoint {progress_p.name} persists while "
+                    "latest.pth is at equal or newer epoch."
+                )
+        except CHECKPOINT_LOAD_ERRORS as e:
+            logger.debug("Notice inspecting latest vs progress: %s", e)
+
+
 def validate_vault_consistency(
     model_name: str,
     checkpoints_dir: Path | str,
@@ -202,6 +248,7 @@ def validate_vault_consistency(
     3. Consistency with sota_targets (checks for missing or unachieved targets).
     4. Detection of corrupt, truncated, or stale artifacts.
     """
+    del model_name
     ckpt_path = Path(checkpoints_dir).resolve()
     if not ckpt_path.exists():
         return VaultConsistencyReport(
@@ -219,55 +266,16 @@ def validate_vault_consistency(
     issues: list[str] = []
 
     for item in ckpt_path.glob("*.pth"):
-        if not item.is_file():
-            continue
-        checkpoints_found.append(item.name)
-        if item.stat().st_size == 0:
-            corrupted.append(item.name)
-            issues.append(f"Checkpoint {item.name} is 0 bytes (truncated/empty).")
-            continue
+        if item.is_file():
+            _audit_checkpoint_file(item, checkpoints_found, corrupted, issues)
 
-        try:
-            payload = safe_load_checkpoint(item, map_location="cpu")
-            if not isinstance(payload, dict):
-                corrupted.append(item.name)
-                issues.append(f"Checkpoint {item.name} payload is not a dictionary.")
-                continue
+    _check_stale_progress(ckpt_path, stale, issues)
 
-            has_weights = any(
-                k in payload and isinstance(payload[k], dict)
-                for k in ("model_state", "model_state_dict", "state_dict", "model")
-            )
-            if not has_weights:
-                corrupted.append(item.name)
-                issues.append(f"Checkpoint {item.name} lacks model weight state dictionary.")
-        except CHECKPOINT_LOAD_ERRORS as exc:
-            corrupted.append(item.name)
-            issues.append(f"Failed loading checkpoint {item.name}: {exc}")
-
-    # Check for stale progress.pth when latest.pth has higher epoch
-    latest_p = ckpt_path / "latest.pth"
-    progress_p = ckpt_path / "progress.pth"
-    if latest_p.exists() and progress_p.exists():
-        try:
-            l_data = safe_load_checkpoint(latest_p, map_location="cpu")
-            p_data = safe_load_checkpoint(progress_p, map_location="cpu")
-            if int(l_data.get("epoch", 0)) >= int(p_data.get("epoch", 0)):
-                stale.append(progress_p.name)
-                issues.append(
-                    f"Stale progress checkpoint {progress_p.name} persists while "
-                    f"latest.pth is at equal or newer epoch."
-                )
-        except CHECKPOINT_LOAD_ERRORS as e:
-            logger.debug("Notice inspecting latest vs progress: %s", e)
-
-    missing_targets: list[str] = []
-    if sota_targets:
-        for target in sota_targets:
-            target_clean = target.lower().strip().replace("-", "_")
-            expected_name = f"vault_{target_clean}.pth"
-            if expected_name not in checkpoints_found:
-                missing_targets.append(target)
+    missing_targets = [
+        target
+        for target in (sota_targets or {})
+        if f"vault_{target.lower().strip().replace('-', '_')}.pth" not in checkpoints_found
+    ]
 
     is_valid = len(corrupted) == 0 and len(stale) == 0
     return VaultConsistencyReport(

@@ -88,7 +88,7 @@ class SyncManifest:
         version: int | None = None,
         hashes: dict[str, str] | None = None,
     ) -> None:
-        """Remember that Hub ``version``/``hashes`` of ``variation`` was merged (call :meth:`save`)."""
+        """Record Hub ``version``/``hashes`` of ``variation`` (call :meth:`save`)."""
         entry = self._entry(variation)
         if version is not None:
             entry["pulled_version"] = version

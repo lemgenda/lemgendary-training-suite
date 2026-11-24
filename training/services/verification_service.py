@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import torch
-from torch import nn
+from typing import Any
 
 from training.utils.paths import get_project_root
 from training.verification.contracts import ModelVerificationReport
 from training.verification.engine import ModelVerificationEngine
+from training.verification.registry import get_verification_contract
 
 
 class VerificationService:
@@ -23,22 +22,24 @@ class VerificationService:
         self.project_root = project_root or get_project_root()
         self.engine = ModelVerificationEngine(self.project_root)
 
+    def get_contract(self, model_key: str) -> Any:
+        """Return the verification contract for ``model_key``."""
+        return get_verification_contract(model_key)
+
     def verify_model(
         self,
         model_key: str,
         checkpoint_path: Path | str | None = None,
         output_report_path: Path | str | None = None,
-        model: nn.Module | None = None,
-        dummy_input: torch.Tensor | None = None,
-        metrics: dict[str, float] | None = None,
+        **kwargs: Any,
     ) -> ModelVerificationReport:
         """Run complete verification contract on model and optionally emit JSON report."""
         report = self.engine.run_full_verification(
             model_key=model_key,
             checkpoint_path=checkpoint_path,
-            model=model,
-            dummy_input=dummy_input,
-            metrics=metrics,
+            model=kwargs.get("model"),
+            dummy_input=kwargs.get("dummy_input"),
+            metrics=kwargs.get("metrics"),
         )
 
         if output_report_path is not None:

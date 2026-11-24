@@ -124,29 +124,27 @@ FAMILY_CONTRACTS: dict[TaskFamily, ModelFamilyContract] = {
 }
 
 
+def _family_from_text(text: str) -> TaskFamily | None:
+    for keywords, family in (
+        (("forex",), TaskFamily.FOREX),
+        (("yolo", "detection"), TaskFamily.YOLO),
+        (("retinaface", "face"), TaskFamily.FACE_DETECTION),
+        (("llm", "ai_helper", "nlp", "causal"), TaskFamily.LLM),
+    ):
+        if any(kw in text for kw in keywords):
+            return family
+    return None
+
+
 def resolve_model_family(model_key: str, spec: ModelSpecification | None = None) -> TaskFamily:
     """Resolve the canonical TaskFamily for a given model key and optional spec."""
-    key_lower = model_key.lower()
-    if "forex" in key_lower:
-        return TaskFamily.FOREX
-    if "yolo" in key_lower:
-        return TaskFamily.YOLO
-    if "retinaface" in key_lower or "face" in key_lower:
-        return TaskFamily.FACE_DETECTION
-    if "llm" in key_lower or "ai_helper" in key_lower:
-        return TaskFamily.LLM
-
+    family = _family_from_text(model_key.lower())
+    if family is not None:
+        return family
     if spec:
-        cat = (spec.category or "").lower()
-        if "forex" in cat:
-            return TaskFamily.FOREX
-        if "yolo" in cat or "detection" in cat:
-            return TaskFamily.YOLO
-        if "face" in cat:
-            return TaskFamily.FACE_DETECTION
-        if "llm" in cat or "nlp" in cat or "causal" in cat:
-            return TaskFamily.LLM
-
+        family = _family_from_text((spec.category or "").lower())
+        if family is not None:
+            return family
     return TaskFamily.VISION
 
 

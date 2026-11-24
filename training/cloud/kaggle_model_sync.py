@@ -27,8 +27,7 @@ from training.cloud.kaggle_client import KaggleAuthError
 from training.cloud.metadata_generator import KaggleMetadataService
 from training.cloud.model_metadata import METADATA_FILENAME, ModelMetadata
 from training.cloud.model_pull import merge_downloaded_payload
-from training.cloud.push_observer import PushObserver
-from training.cloud.retry import retry_with_backoff
+from training.cloud.retry import BackoffPolicy, retry_with_backoff
 from training.cloud.sync_manifest import SyncManifest, payload_hashes
 from training.cloud.variations import (
     ALL_VARIATIONS,
@@ -286,8 +285,7 @@ class KaggleModelSyncManager:
         variation: str,
         version_notes: str | None = None,
         dry_run: bool = False,
-        facts: ReleaseFacts | None = None,
-        force: bool = False,
+        **options: Any,
     ) -> VariationPushResult:
         """Validate and upload a single isolated model variation to Kaggle Models Hub.
 
@@ -300,6 +298,8 @@ class KaggleModelSyncManager:
         ``version_notes`` the notes come from :func:`build_version_notes` (``facts`` when the
         caller already read them). Passing ``force=True`` bypasses the hash check and re-uploads.
         """
+        facts: ReleaseFacts | None = options.get("facts")
+        force: bool = bool(options.get("force", False))
         if variation not in VARIATION_BY_KEY:
             return VariationPushResult(
                 variation=variation,
@@ -418,11 +418,10 @@ class KaggleModelSyncManager:
         try:
             retry_with_backoff(
                 _do_upload,
-                retries=3,
-                initial_delay=1.0,
-                backoff_factor=2.0,
-                max_delay=15.0,
                 retryable_exceptions=kagglehub_errors(),
+                policy=BackoffPolicy(
+                    retries=3, initial_delay=1.0, backoff_factor=2.0, max_delay=15.0
+                ),
                 on_retry=_on_retry,
             )
             return None, retries_count
@@ -471,8 +470,7 @@ class KaggleModelSyncManager:
         variation: str = ALL_VARIATIONS,
         version_notes: str | None = None,
         dry_run: bool = False,
-        observer: PushObserver | None = None,
-        force: bool = False,
+        **options: Any,
     ) -> ModelPushResult:
         """Publish ``variation`` (one key or ``"all"``) of a model: the one push policy.
 
@@ -492,8 +490,10 @@ class KaggleModelSyncManager:
             staged = self.staging_service.stage_variations(
                 model_key, base_dir=self.get_model_dir(model_key)
             )
-            if observer is not None:
-                observer.staged(model_key, [f.name for f in staged.staged_files.values()])
+            if options.get("observer") is not None:
+                options["observer"].staged(
+                    model_key, [f.name for f in staged.staged_files.values()]
+                )
         result = ModelPushResult(
             model_key=model_key,
             success=True,
@@ -505,22 +505,24 @@ class KaggleModelSyncManager:
         facts = release_facts(self.get_model_dir(model_key))
         total = len(variations)
         for index, var in enumerate(variations, 1):
-            if observer is not None:
-                observer.variation_started(index, total, var, self.get_handle(model_key, var))
+            if options.get("observer") is not None:
+                options["observer"].variation_started(
+                    index, total, var, self.get_handle(model_key, var)
+                )
             var_res = self.push_variation(
                 model_key,
                 var,
                 version_notes=version_notes,
                 dry_run=dry_run,
                 facts=facts,
-                force=force,
+                force=bool(options.get("force", False)),
             )
             result.variations[var] = var_res
             if not var_res.success:
                 result.success = False
                 result.errors.append(f"[{var}] {var_res.error}")
-            if observer is not None:
-                observer.variation_done(index, total, var_res)
+            if options.get("observer") is not None:
+                options["observer"].variation_done(index, total, var_res)
 
         self._finish_metadata(model_key, result, dry_run)
         return result
@@ -596,6 +598,30 @@ class KaggleModelSyncManager:
         )
         return res.success
 
+    def _download_with_retries(self, handle: str, tmp_path: Path) -> tuple[str, int]:
+        try:
+            kagglehub = importlib.import_module("kagglehub")
+        except ImportError as exc:
+            raise RuntimeError("kagglehub SDK is not installed in runtime environment.") from exc
+        retries_count = 0
+
+        def _on_retry(attempt: int, exc: Exception, _sleep: float) -> None:
+            nonlocal retries_count
+            retries_count = attempt
+            logger.warning("Download retry %d for %s after error: %s", attempt, handle, exc)
+
+        downloaded = retry_with_backoff(
+            lambda: kagglehub.model_download(
+                handle=handle, output_dir=str(tmp_path / "download")
+            ),
+            retryable_exceptions=kagglehub_errors(),
+            policy=BackoffPolicy(
+                retries=3, initial_delay=1.0, backoff_factor=2.0, max_delay=15.0
+            ),
+            on_retry=_on_retry,
+        )
+        return downloaded, retries_count
+
     def pull_variation_detailed(
         self,
         model_key: str,
@@ -615,38 +641,15 @@ class KaggleModelSyncManager:
             handle = f"{handle}/{version}"
         dest_dir = self.pull_destination(model_key, variation)
 
-        try:
-            kagglehub = importlib.import_module("kagglehub")
-        except ImportError as exc:
-            raise RuntimeError("kagglehub SDK is not installed in runtime environment.") from exc
-
         self.hub_root.mkdir(parents=True, exist_ok=True)
         logger.info("Pulling Kaggle variation %s -> %s", handle, dest_dir)
-
-        retries_count = 0
-
-        def _do_download(target_path: Path) -> str:
-            return kagglehub.model_download(handle=handle, output_dir=str(target_path / "download"))
-
-        def _on_retry(attempt: int, exc: Exception, _sleep: float) -> None:
-            nonlocal retries_count
-            retries_count = attempt
-            logger.warning("Download retry %d for %s after error: %s", attempt, handle, exc)
 
         with tempfile.TemporaryDirectory(
             prefix=f".kaggle-pull-{model_key}-", dir=self.hub_root
         ) as tmp:
-            tmp_path = Path(tmp)
+            retries_count = 0
             try:
-                downloaded = retry_with_backoff(
-                    lambda: _do_download(tmp_path),
-                    retries=3,
-                    initial_delay=1.0,
-                    backoff_factor=2.0,
-                    max_delay=15.0,
-                    retryable_exceptions=kagglehub_errors(),
-                    on_retry=_on_retry,
-                )
+                downloaded, retries_count = self._download_with_retries(handle, Path(tmp))
             except (*kagglehub_errors(), RuntimeError) as exc:
                 logger.error("Failed pulling %s: %s", handle, exc)
                 return VariationPullResult(

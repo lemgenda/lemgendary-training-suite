@@ -64,8 +64,15 @@ def resolve_checkpoint_file(
             return cand
 
     hub_ckpt_dir = production_dir / "checkpoints"
-    for suffix in ("_best.pth", "_latest.pth", "_progress.pth"):
-        cand = hub_ckpt_dir / f"{model_key}{suffix}"
+    for ckpt_name in (
+        f"{model_key}_best.pth",
+        "best.pth",
+        f"{model_key}_latest.pth",
+        "latest.pth",
+        f"{model_key}_progress.pth",
+        "progress.pth",
+    ):
+        cand = hub_ckpt_dir / ckpt_name
         if cand.exists() and cand.is_file():
             return cand
 

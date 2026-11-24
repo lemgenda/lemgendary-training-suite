@@ -213,11 +213,42 @@ def instruction_all_jsonl_paths(spec: RunSpec) -> tuple[Path, Path, Path | None]
     return train_jsonl, val_jsonl, (test_jsonl if test_jsonl.exists() else None)
 
 
+def apply_llm_env_profile(model_info: dict[str, Any], env: str | None) -> dict[str, Any]:
+    """Apply ``local`` or ``cloud`` LLM profile overrides onto ``model_info``."""
+    if model_info.get("category") != "llm" and model_info.get("dataset_type") not in LLM_TASKS:
+        return model_info
+    env_norm = (env or "local").lower()
+    profile_key = "cloud" if env_norm in ("kaggle", "colab", "cloud") else "local"
+    resolved = dict(model_info)
+    resolved["_active_env"] = env_norm
+    profile_cfg = resolved.get(profile_key)
+    if isinstance(profile_cfg, dict):
+        for key in ("batch_size", "accumulation_steps"):
+            if key in profile_cfg:
+                resolved[key] = profile_cfg[key]
+    return resolved
+
+
+def _resolve_instruction_max_length(spec: RunSpec) -> int:
+    """Resolve effective token window from environment profile, curriculum, or input_size."""
+    env = str(getattr(spec.args, "env", "local") or "local").lower()
+    profile_key = "cloud" if env in ("kaggle", "colab", "cloud") else "local"
+    profile_cfg = spec.model_info.get(profile_key) or {}
+    curriculum_cfg = spec.model_info.get("curriculum") or {}
+    raw = (
+        profile_cfg.get("max_seq_length")
+        or curriculum_cfg.get("max_seq_length")
+        or spec.model_info.get("input_size")
+        or 2048
+    )
+    return int(raw)
+
+
 def _instruction_datasets(spec: RunSpec, raw_model: Any, sample_fraction: float):
     """Instruction-tuning JSONL datasets tokenized with the model's tokenizer."""
     train_jsonl, val_jsonl, test_jsonl = instruction_all_jsonl_paths(spec)
     tokenizer = getattr(raw_model, "tokenizer", None)
-    max_length = int(spec.model_info.get("input_size", 2048))
+    max_length = _resolve_instruction_max_length(spec)
     train_ds = InstructionDataset(
         train_jsonl,
         tokenizer=tokenizer,

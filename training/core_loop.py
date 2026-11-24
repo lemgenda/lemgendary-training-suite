@@ -35,6 +35,7 @@ from training.config.secrets import load_secrets
 from training.context_data import (
     DATASET_BUILD_ERRORS,
     RunSpec,
+    apply_llm_env_profile,
     build_datasets,
     build_initial_train_loader,
     build_val_loader_for,
@@ -372,6 +373,7 @@ def resolve_run(args: argparse.Namespace) -> tuple[RunSpec, RunSetup]:
     config = load_workspace_config(project_root)
     model_key = args.model
     model_info = load_model_info(project_root, config, model_key)
+    model_info = apply_llm_env_profile(model_info, getattr(args, "env", None))
 
     paths = build_training_paths(project_root, model_key)
     if args.clean:
@@ -548,7 +550,7 @@ def build_training_context(args: argparse.Namespace) -> TrainingContext:
         data=DataComponents(
             train_loader=data.train_loader,
             val_loader=val_loader,
-            accumulation_steps=max(1, int(getattr(train.governor, "current_acc", 1))),
+            accumulation_steps=max(1, getattr(train.governor, "current_acc", 1)),
             test_loader=test_loader,
         ),
         hardware=HardwareComponents(

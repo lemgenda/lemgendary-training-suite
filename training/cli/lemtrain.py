@@ -127,7 +127,7 @@ def soup(
 
 
 @app.command("version")
-def version() -> None:
+def show_version() -> None:
     """Show LemGendary Training Suite version."""
     typer.echo(f"LemGendary Model Training Suite v{__version__} (Refactored & Hardened)")
 

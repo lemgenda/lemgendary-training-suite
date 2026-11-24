@@ -133,52 +133,61 @@ class TestServerSubsystem(unittest.TestCase):
             self.assertEqual(orphaned_job["status"], "failed")
             self.assertIn("Interrupted", orphaned_job["error_message"])
 
+    def _assert_training_dispatch_endpoints(self, client: TestClient) -> None:
+        for path, payload in (
+            ("/api/training/evaluate", {"model": "test_model"}),
+            ("/api/training/export", {"model": "test_model"}),
+            ("/api/training/llm/train", {"model": "test_model"}),
+            ("/api/training/llm/export", {"model": "test_model"}),
+            ("/api/training/unit-test-all", {"epochs": 1}),
+        ):
+            resp = client.post(path, json=payload)
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["status"], "pending")
+
+    def _assert_read_endpoints(self, client: TestClient) -> None:
+        resp = client.get("/api/health")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["service"], "lemgendary-training-suite")
+        self.assertEqual(data["port"], service_port(TRAINING_SERVICE))
+
+        resp = client.get("/api/presets")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("test-sota", resp.json())
+
+        resp = client.get("/api/presets/test-sota")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["epochs"], 5)
+
+        resp = client.get("/api/models")
+        self.assertEqual(resp.status_code, 200)
+        models = resp.json()
+        self.assertEqual(len(models), 1)
+        self.assertEqual(models[0]["model_key"], "test_model")
+
+        resp = client.get("/api/models/test_model")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["category"], "vision")
+
+        resp = client.get("/api/env/telemetry")
+        self.assertEqual(resp.status_code, 200)
+        env_data = resp.json()
+        self.assertIn("platform", env_data)
+        self.assertIn("python_version", env_data)
+
+        resp = client.get("/api/gui/state")
+        self.assertEqual(resp.status_code, 200)
+        gui_state = resp.json()
+        self.assertEqual(gui_state["status"], "online")
+        self.assertEqual(gui_state["models_count"], 1)
+
     def test_rest_api_endpoints(self) -> None:
         """Verify FastAPI REST endpoints for health, presets, models, jobs, and GUI state."""
         app = create_app(project_root=self.root, enforce_auth=False)
         with TestClient(app) as client:
-            # 1. Health
-            resp = client.get("/api/health")
-            self.assertEqual(resp.status_code, 200)
-            data = resp.json()
-            self.assertEqual(data["status"], "ok")
-            self.assertEqual(data["service"], "lemgendary-training-suite")
-            self.assertEqual(data["port"], service_port(TRAINING_SERVICE))
-
-            # 2. Presets
-            resp = client.get("/api/presets")
-            self.assertEqual(resp.status_code, 200)
-            presets = resp.json()
-            self.assertIn("test-sota", presets)
-
-            resp = client.get("/api/presets/test-sota")
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["epochs"], 5)
-
-            # 3. Models
-            resp = client.get("/api/models")
-            self.assertEqual(resp.status_code, 200)
-            models = resp.json()
-            self.assertEqual(len(models), 1)
-            self.assertEqual(models[0]["model_key"], "test_model")
-
-            resp = client.get("/api/models/test_model")
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["category"], "vision")
-
-            # 4. Env telemetry
-            resp = client.get("/api/env/telemetry")
-            self.assertEqual(resp.status_code, 200)
-            env_data = resp.json()
-            self.assertIn("platform", env_data)
-            self.assertIn("python_version", env_data)
-
-            # 5. GUI state
-            resp = client.get("/api/gui/state")
-            self.assertEqual(resp.status_code, 200)
-            gui_state = resp.json()
-            self.assertEqual(gui_state["status"], "online")
-            self.assertEqual(gui_state["models_count"], 1)
+            self._assert_read_endpoints(client)
 
             # 6. Job submission & cancellation
             # Stub the background worker so submitted jobs never start a real training run.
@@ -202,25 +211,7 @@ class TestServerSubsystem(unittest.TestCase):
             self.assertIn("lines", resp.json())
 
             # 7. Additional training dispatch endpoints
-            resp = client.post("/api/training/evaluate", json={"model": "test_model"})
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["status"], "pending")
-
-            resp = client.post("/api/training/export", json={"model": "test_model"})
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["status"], "pending")
-
-            resp = client.post("/api/training/llm/train", json={"model": "test_model"})
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["status"], "pending")
-
-            resp = client.post("/api/training/llm/export", json={"model": "test_model"})
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["status"], "pending")
-
-            resp = client.post("/api/training/unit-test-all", json={"epochs": 1})
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json()["status"], "pending")
+            self._assert_training_dispatch_endpoints(client)
 
             # 8. Datasets and Kaggle endpoints
             resp = client.get("/api/datasets")

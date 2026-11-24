@@ -64,10 +64,18 @@ def test_push_idempotent_and_force(hub_env: Path, monkeypatch: pytest.MonkeyPatc
     upload_calls: list[str] = []
 
     class FakeKaggleHub:
+        """Fake KaggleHub client recording uploads."""
+
         def model_upload(
             self, handle: str, local_model_dir: str, license_name: str, version_notes: str
         ) -> None:
+            """Record upload handle."""
+            del local_model_dir, license_name, version_notes
             upload_calls.append(handle)
+
+        def ping(self) -> bool:
+            """Stub health check."""
+            return True
 
     monkeypatch.setitem(sys.modules, "kagglehub", FakeKaggleHub())
 
@@ -97,15 +105,23 @@ def test_push_retry_on_transient_error(hub_env: Path, monkeypatch: pytest.Monkey
     attempts = 0
 
     class FailingThenSucceedingHub:
+        """Fake KaggleHub failing twice before succeeding."""
+
         def model_upload(
             self, handle: str, local_model_dir: str, license_name: str, version_notes: str
         ) -> None:
+            """Simulate transient upload failure."""
+            del handle, local_model_dir, license_name, version_notes
             nonlocal attempts
             attempts += 1
             if attempts < 3:
                 # Raise an error matching kagglehub_errors
                 err_cls = kagglehub_errors()[0]
                 raise err_cls(f"Simulated network glitch attempt {attempts}")
+
+        def ping(self) -> bool:
+            """Stub health check."""
+            return True
 
     monkeypatch.setitem(sys.modules, "kagglehub", FailingThenSucceedingHub())
     monkeypatch.setattr("time.sleep", lambda _s: None)  # fast tests
@@ -123,13 +139,21 @@ def test_push_exhausted_retries_failure(hub_env: Path, monkeypatch: pytest.Monke
     attempts = 0
 
     class AlwaysFailingHub:
+        """Fake KaggleHub that always raises."""
+
         def model_upload(
             self, handle: str, local_model_dir: str, license_name: str, version_notes: str
         ) -> None:
+            """Simulate persistent upload failure."""
+            del handle, local_model_dir, license_name, version_notes
             nonlocal attempts
             attempts += 1
             err_cls = kagglehub_errors()[0]
             raise err_cls("Persistent network outage")
+
+        def ping(self) -> bool:
+            """Stub health check."""
+            return False
 
     monkeypatch.setitem(sys.modules, "kagglehub", AlwaysFailingHub())
     monkeypatch.setattr("time.sleep", lambda _s: None)
@@ -148,7 +172,11 @@ def test_pull_checksum_verification_and_corruption_detection(
 ) -> None:
     """Verify pull validates checksums and raises ValueError on corrupted downloaded files."""
     class FakeDownloadHub:
+        """Fake KaggleHub for download checksum tests."""
+
         def model_download(self, handle: str, output_dir: str) -> str:
+            """Write sample downloaded artifacts."""
+            del handle
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
             (out / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -156,6 +184,10 @@ def test_pull_checksum_verification_and_corruption_detection(
             (out / "README.md").write_text("Downloaded Readme\n", encoding="utf-8")
             (out / "metrics.csv").write_text("epoch,loss\n10,0.05\n", encoding="utf-8")
             return output_dir
+
+        def ping(self) -> bool:
+            """Stub health check."""
+            return True
 
     monkeypatch.setitem(sys.modules, "kagglehub", FakeDownloadHub())
 
@@ -184,12 +216,19 @@ def test_pull_version_pinning(hub_env: Path, monkeypatch: pytest.MonkeyPatch) ->
     handles: list[str] = []
 
     class FakeDownloadHub:
+        """Fake KaggleHub recording requested handles."""
+
         def model_download(self, handle: str, output_dir: str) -> str:
+            """Record handle and write README."""
             handles.append(handle)
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
             (out / "README.md").write_text("Readme v2\n", encoding="utf-8")
             return output_dir
+
+        def ping(self) -> bool:
+            """Stub health check."""
+            return True
 
     monkeypatch.setitem(sys.modules, "kagglehub", FakeDownloadHub())
 
@@ -208,12 +247,17 @@ def test_cli_sync_push_and_pull_reports(
 ) -> None:
     """Verify CLI sync push and sync pull emit reports via --report and --json."""
     class FakeKaggleHub:
+        """Fake KaggleHub for CLI sync push/pull tests."""
+
         def model_upload(
             self, handle: str, local_model_dir: str, license_name: str, version_notes: str
         ) -> None:
-            pass
+            """No-op upload."""
+            del handle, local_model_dir, license_name, version_notes
 
         def model_download(self, handle: str, output_dir: str) -> str:
+            """Write sample CLI pulled artifacts."""
+            del handle
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
             (out / "checkpoints").mkdir(parents=True, exist_ok=True)
@@ -273,7 +317,9 @@ def test_cli_sync_push_and_pull_reports(
         )
         or setattr(self, "username", "lemgenda")
         or setattr(self, "registry", MagicMock(get_model=lambda _k: None))
-        or setattr(self, "validator", MagicMock(validate_all=lambda *a, **k: MagicMock(is_valid=True)))
+        or setattr(
+            self, "validator", MagicMock(validate_all=lambda *a, **k: MagicMock(is_valid=True))
+        )
         or setattr(self, "metadata_service", MagicMock()),
     )
 

@@ -23,7 +23,9 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
+from training.cloud.sync_manifest import payload_hashes
 from training.cloud.variations import CHECKPOINT_SUFFIX
 
 logger = logging.getLogger("lemtrain.cloud.model_pull")
@@ -84,6 +86,18 @@ def _newest(epochs: list[int | None]) -> int | None:
     return max(known) if known else None
 
 
+def _verify_expected_checksums(
+    actual_hashes: dict[str, str], expected_checksums: dict[str, str]
+) -> None:
+    for rel_posix, exp_hash in expected_checksums.items():
+        got_hash = actual_hashes.get(rel_posix)
+        if got_hash != exp_hash:
+            raise ValueError(
+                f"Integrity check failed for pulled file '{rel_posix}': "
+                f"expected sha256 {exp_hash}, got {got_hash}"
+            )
+
+
 def _is_newer(remote: int | None, local: int | None) -> bool:
     return remote is not None and (local is None or remote > local)
 
@@ -94,11 +108,10 @@ def merge_downloaded_payload(
     *,
     force: bool,
     keep: PathFilter | None = None,
-    epoch_of: EpochReader = _read_checkpoint_epoch,
-    expected_checksums: dict[str, str] | None = None,
+    **options: Any,
 ) -> MergeReport:
     """Merge the files of ``download_dir`` that ``keep`` accepts (default all) into ``dest_dir``."""
-    epochs = _memoized(epoch_of)
+    epochs = _memoized(options.get("epoch_of", _read_checkpoint_epoch))
     files = _relative_files(download_dir, keep or _accept_all)
     checkpoints = [rel for rel in files if rel.suffix == CHECKPOINT_SUFFIX]
     payload_newer = _is_newer(
@@ -106,27 +119,19 @@ def merge_downloaded_payload(
         _newest([epochs(dest_dir / rel) for rel in checkpoints if (dest_dir / rel).is_file()]),
     )
 
-    from training.cloud.sync_manifest import payload_hashes
-
     actual_hashes = payload_hashes(download_dir)
-    checksum_verified = True
-    if expected_checksums:
-        for rel_posix, exp_hash in expected_checksums.items():
-            got_hash = actual_hashes.get(rel_posix)
-            if got_hash != exp_hash:
-                raise ValueError(
-                    f"Integrity check failed for pulled file '{rel_posix}': "
-                    f"expected sha256 {exp_hash}, got {got_hash}"
-                )
+    if options.get("expected_checksums"):
+        _verify_expected_checksums(actual_hashes, options["expected_checksums"])
 
-    report = MergeReport(checksums=actual_hashes, checksum_verified=checksum_verified)
+    report = MergeReport(checksums=actual_hashes, checksum_verified=True)
     for rel in files:
         src, dst = download_dir / rel, dest_dir / rel
         if dst.exists() and not force:
-            if rel.suffix == CHECKPOINT_SUFFIX:
-                wins = _is_newer(epochs(src), epochs(dst))
-            else:
-                wins = payload_newer
+            wins = (
+                _is_newer(epochs(src), epochs(dst))
+                if rel.suffix == CHECKPOINT_SUFFIX
+                else payload_newer
+            )
             if not wins:
                 report.kept.append(rel.as_posix())
                 continue

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,9 +10,17 @@ from types import SimpleNamespace
 
 import onnx
 import torch
+import yaml
 from onnx import TensorProto, helper
 
-from training.export.llm_exporter import _export_fp16_integrated, _kv_cache_disabled
+from models.factory import _merge_llm_entry_kwargs
+from training.context_data import RunSpec, _resolve_instruction_max_length, apply_llm_env_profile
+from training.export.common import resolve_checkpoint_file
+from training.export.llm_exporter import (
+    DEFAULT_MAX_SEQ_LENGTH,
+    _export_fp16_integrated,
+    _kv_cache_disabled,
+)
 from training.governance.governor_setup import build_curriculum, configured_data_fraction
 from training.training.val_accumulators import ValAccumulators
 from training.training.val_metrics import ValBatch, update_llm_tokens
@@ -149,6 +158,64 @@ class TestLlmExportHelpers(unittest.TestCase):
             self.assertIn("onnx_fp16", res)
             self.assertEqual(res["onnx_fp16"], fp16)
             self.assertTrue(fp16.exists())
+
+    def test_copilot_sequence_window_and_profile_resolution(self) -> None:
+        """Verify local (1536, r=16) and cloud (2048) LLM sequence configs."""
+        self.assertEqual(DEFAULT_MAX_SEQ_LENGTH, 2048)
+        models_yaml = Path(__file__).resolve().parents[2] / "unified_models_v2.yaml"
+        spec_info = yaml.safe_load(models_yaml.read_text(encoding="utf-8"))["ai_helper_lemgend"]
+        self.assertEqual(spec_info["input_size"], 2048)
+        self.assertEqual(spec_info["local"]["max_seq_length"], 1536)
+        self.assertEqual(spec_info["local"]["lora_r"], 16)
+        self.assertEqual(spec_info["local"]["lora_alpha"], 32)
+        self.assertEqual(spec_info["cloud"]["max_seq_length"], 2048)
+
+        local_spec = RunSpec(
+            args=argparse.Namespace(env="local"),
+            config={},
+            model_info=spec_info,
+            model_key="ai_helper_lemgend",
+            project_root=Path("."),
+            task_type="text_instruction",
+            device="cpu",
+        )
+        cloud_spec = RunSpec(
+            args=argparse.Namespace(env="kaggle"),
+            config={},
+            model_info=spec_info,
+            model_key="ai_helper_lemgend",
+            project_root=Path("."),
+            task_type="text_instruction",
+            device="cpu",
+        )
+        self.assertEqual(_resolve_instruction_max_length(local_spec), 1536)
+        self.assertEqual(_resolve_instruction_max_length(cloud_spec), 2048)
+
+        local_info = apply_llm_env_profile(spec_info, "local")
+        local_kw = _merge_llm_entry_kwargs(local_info, {})
+        self.assertEqual(local_info["batch_size"], 1)
+        self.assertEqual(local_info["accumulation_steps"], 16)
+        self.assertEqual(local_kw["lora_r"], 16)
+        self.assertEqual(local_kw["lora_alpha"], 32)
+        self.assertTrue(local_kw["load_in_4bit"])
+        self.assertTrue(local_kw["use_rslora"])
+        self.assertEqual(local_kw["ce_chunk_size"], 256)
+
+        cloud_info = apply_llm_env_profile(spec_info, "kaggle")
+        cloud_kw = _merge_llm_entry_kwargs(cloud_info, {})
+        self.assertEqual(cloud_info["batch_size"], 4)
+        self.assertEqual(cloud_info["accumulation_steps"], 2)
+        self.assertEqual(cloud_kw["lora_r"], 32)
+        self.assertEqual(cloud_kw["lora_alpha"], 64)
+        self.assertFalse(cloud_kw["load_in_4bit"])
+        self.assertTrue(cloud_kw["use_rslora"])
+        self.assertEqual(cloud_kw["ce_chunk_size"], 1024)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ckpt = Path(tmp_dir) / "checkpoints" / "best.pth"
+            ckpt.parent.mkdir(parents=True, exist_ok=True)
+            ckpt.write_bytes(b"ckpt")
+            self.assertEqual(resolve_checkpoint_file("ai_helper_lemgend", Path(tmp_dir)), ckpt)
 
 
 if __name__ == "__main__":

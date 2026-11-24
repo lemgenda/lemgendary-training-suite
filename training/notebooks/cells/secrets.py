@@ -96,7 +96,8 @@ def build_secrets_cell(target: str = "kaggle") -> dict[str, Any]:
         f"if not any(secrets[name] for name in {PAT_SECRETS!r}):\n",
         (
             f"    print('[REMEDY] Add SUITE_PAT in {client.ui_hint}; private '\n"
-            "          'repositories cannot be cloned without it (legacy GITHUB_PAT is unsupported).')\n"
+            "          'repositories cannot be cloned without it '\n"
+            "          '(legacy GITHUB_PAT is unsupported).')\n"
         ),
     ]
     return make_code_cell(source)

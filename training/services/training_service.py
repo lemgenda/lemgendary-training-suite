@@ -142,6 +142,22 @@ class TrainingService:
                     lr = preset_cfg.get("learning_rate")
         return epochs, batch_size, lr
 
+    def _run_preflight(self, env: str, model_key: str) -> None:
+        report = EnvironmentPreflight(env=env).run_preflight(
+            working_dir=self.project_root,
+            model_key=model_key,
+            strict=False,
+        )
+        if report.has_critical_failures:
+            for issue in report.issues:
+                if issue.critical:
+                    logger.error(
+                        "Preflight failure [%s]: %s (%s)",
+                        issue.category,
+                        issue.message,
+                        issue.remediation,
+                    )
+
     def train(
         self,
         request: TrainRequest,
@@ -160,17 +176,7 @@ class TrainingService:
             TrainingSummary: Completed run metrics and summary.
         """
         model_key, hyper = request.model_key, request.hyper
-        # 0. Execute fail-fast environment preflight check
-        preflight = EnvironmentPreflight(env=request.env)
-        report = preflight.run_preflight(
-            working_dir=self.project_root,
-            model_key=model_key,
-            strict=False,
-        )
-        if report.has_critical_failures:
-            for issue in report.issues:
-                if issue.critical:
-                    logger.error("Preflight failure [%s]: %s (%s)", issue.category, issue.message, issue.remediation)
+        self._run_preflight(request.env, model_key)
         # 0.1 Regenerate and sync fresh notebooks for this model across LemGendaryModels, manifolds,
         # and training dirs
         self._sync_notebooks(model_key)

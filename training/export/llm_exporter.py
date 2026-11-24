@@ -19,7 +19,7 @@ import contextlib
 import logging
 from collections.abc import Callable, Generator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import onnx
 import torch
@@ -52,7 +52,7 @@ _LLM_STEMS = {
 
 # Upper bound of the dynamic batch dimension of the exported graph.
 _MAX_EXPORT_BATCH = 32
-DEFAULT_MAX_SEQ_LENGTH = 512
+DEFAULT_MAX_SEQ_LENGTH = 2048
 
 
 def _hf_config(model: nn.Module) -> Any:
@@ -97,6 +97,12 @@ def _rebuild_unquantized(raw: nn.Module) -> nn.Module | None:
             low_cpu_mem_usage=True,
         )
         # Find LoRA state dict from raw
+        lora_sd = {k.replace("model.", ""): v for k, v in raw.state_dict().items() if "lora_" in k}
+        inferred_r = next(
+            (int(v.shape[0]) for k, v in lora_sd.items() if "lora_A" in k and v.ndim == 2),
+            16,
+        )
+        lora_settings = getattr(raw, "lora_settings", None)
         target_modules = [
             "q_proj",
             "k_proj",
@@ -107,15 +113,15 @@ def _rebuild_unquantized(raw: nn.Module) -> nn.Module | None:
             "down_proj",
         ]
         peft_cfg = peft.LoraConfig(
-            r=16,
-            lora_alpha=32,
-            lora_dropout=0.05,
+            r=int(getattr(lora_settings, "lora_r", inferred_r)),
+            lora_alpha=int(getattr(lora_settings, "lora_alpha", inferred_r * 2)),
+            lora_dropout=float(getattr(lora_settings, "lora_dropout", 0.05)),
+            use_rslora=bool(getattr(lora_settings, "use_rslora", False)),
             target_modules=target_modules,
             bias="none",
             task_type="CAUSAL_LM",
         )
         peft_m = peft.get_peft_model(base_model, peft_cfg)
-        lora_sd = {k.replace("model.", ""): v for k, v in raw.state_dict().items() if "lora_" in k}
         if lora_sd:
             peft_m.load_state_dict(lora_sd, strict=False)
         merged = peft_m.merge_and_unload()
@@ -132,10 +138,10 @@ def _prepare_unquantized_llm(model: nn.Module) -> nn.Module:
     """Unwrap or merge quantized LoRA backbones into clean float32 modules for export."""
     raw = unwrap_export_model(model)
     inner_model = getattr(raw, "model", None)
-    target = inner_model if inner_model is not None else raw
+    target = inner_model if isinstance(inner_model, nn.Module) else raw
 
     # If it is a PeftModel, merge and unload LoRA adapters into clean base model
-    merge_fn: Callable[[], nn.Module] | None = getattr(target, "merge_and_unload", None)
+    merge_fn: Callable[[], nn.Module] | None = getattr(cast(Any, target), "merge_and_unload", None)
     if callable(merge_fn):
         try:
             logger.info(

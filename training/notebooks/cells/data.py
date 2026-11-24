@@ -17,7 +17,9 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             meta.identity.model_key.lower(),
             meta.identity.model_key.replace("_", "-"),
             meta.identity.model_key.replace("_", ""),
-        ] + [d.lower() for d in meta.dataset.ds_list] + (["forex"] if meta.identity.is_forex else [])
+        ] + [d.lower() for d in meta.dataset.ds_list] + (
+            ["forex"] if meta.identity.is_forex else []
+        )
         formatted_keys = "[\n" + "".join(f"    {k!r},\n" for k in key_list) + "]"
         source = [
             "import os\n",
@@ -75,8 +77,9 @@ def build_symlink_cell(meta: ModelNotebookMeta, target: str = "kaggle") -> dict[
             "                                            break\n",
             (
                 "                            forex_markers = [\n"
-                "                                'EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD', 'XAUUSD',\n"
-                "                                'category.txt', 'dataset_info.yaml', 'classes.txt'\n"
+                "                                'EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD',\n"
+                "                                'XAUUSD', 'category.txt', 'dataset_info.yaml',\n"
+                "                                'classes.txt'\n"
                 "                            ]\n"
             ),
             "                            if any(p in subs for p in forex_markers):\n",

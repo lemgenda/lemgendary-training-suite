@@ -226,6 +226,22 @@ def reevaluated_fid_by_epoch(hub_dir: Path) -> dict[str, float]:
     return out
 
 
+def _collect_reeval_fids(rows: list[LedgerRow]) -> dict[str, float]:
+    reeval: dict[str, float] = {}
+    for r in rows:
+        if r.get("status") != STATUS_REEVALUATED:
+            continue
+        row_ep = (r.get("epoch") or "").strip()
+        val_str = (r.get("value") or "").strip()
+        if not row_ep or not val_str:
+            continue
+        try:
+            reeval[row_ep] = float(val_str)
+        except ValueError as exc:
+            logger.debug("Failed parsing FID float %s for %s: %s", val_str, row_ep, exc)
+    return reeval
+
+
 def filter_metrics_row_for_fid_provenance(
     row: Mapping[str, Any],
     hub_dir: Path,
@@ -250,18 +266,7 @@ def filter_metrics_row_for_fid_provenance(
     was_unverified = any(
         (r.get("epoch") or "").strip() == ep and r.get("status") == STATUS_UNVERIFIED for r in rows
     )
-    reeval: dict[str, float] = {}
-    for r in rows:
-        if r.get("status") != STATUS_REEVALUATED:
-            continue
-        row_ep = (r.get("epoch") or "").strip()
-        val_str = (r.get("value") or "").strip()
-        if not row_ep or not val_str:
-            continue
-        try:
-            reeval[row_ep] = float(val_str)
-        except ValueError as exc:
-            logger.debug("Failed parsing FID float %s for %s: %s", val_str, row_ep, exc)
+    reeval = _collect_reeval_fids(rows)
     if ep in reeval:
         if "FID" in filtered:
             filtered["FID"] = f"{reeval[ep]:.4f}"
