@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tqdm import tqdm
 
 from training.cloud.credentials import resolve_kaggle_credentials
 from training.cloud.errors import KAGGLE_API_ERRORS, kagglehub_errors
@@ -49,6 +50,21 @@ from training.utils.lazy_imports import load_variation_staging
 from training.utils.paths import get_models_hub_root
 
 logger = logging.getLogger("lemtrain.cloud.kaggle_model_sync")
+
+
+
+class _QuietTqdm(tqdm):
+    """Quiet tqdm progress bar subclass that suppresses terminal output."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs["disable"] = True
+        super().__init__(*args, **kwargs)
+
+    def close(self) -> None:
+        """No-op close for quiet execution."""
+
+    def clear(self, nolock: bool = False) -> None:
+        """No-op clear for quiet execution."""
 
 
 # Upload sub-folder of each dist/kaggle variation other than the default PyTorch payload.
@@ -403,12 +419,28 @@ class KaggleModelSyncManager:
 
         def _do_upload() -> None:
             logger.info("Uploading %s to Kaggle Models Hub: %s ...", upload.variation, handle)
-            kagglehub.model_upload(
-                handle=handle,
-                local_model_dir=str(upload.payload_dir),
-                license_name=license_name,
-                version_notes=upload.notes,
+            # Suppress noisy multi-line tqdm progress bars from concurrent file uploads
+            try:
+                gcs_upload_mod: Any = importlib.import_module("kagglehub.gcs_upload")
+            except ImportError:
+                gcs_upload_mod = None
+
+            orig_tqdm = (
+                getattr(gcs_upload_mod, "tqdm", None) if gcs_upload_mod is not None else None
             )
+            if gcs_upload_mod is not None:
+                gcs_upload_mod.tqdm = _QuietTqdm
+
+            try:
+                kagglehub.model_upload(
+                    handle=handle,
+                    local_model_dir=str(upload.payload_dir),
+                    license_name=license_name,
+                    version_notes=upload.notes,
+                )
+            finally:
+                if gcs_upload_mod is not None and orig_tqdm is not None:
+                    gcs_upload_mod.tqdm = orig_tqdm
 
         def _on_retry(attempt: int, exc: Exception, _sleep: float) -> None:
             nonlocal retries_count
@@ -611,13 +643,9 @@ class KaggleModelSyncManager:
             logger.warning("Download retry %d for %s after error: %s", attempt, handle, exc)
 
         downloaded = retry_with_backoff(
-            lambda: kagglehub.model_download(
-                handle=handle, output_dir=str(tmp_path / "download")
-            ),
+            lambda: kagglehub.model_download(handle=handle, output_dir=str(tmp_path / "download")),
             retryable_exceptions=kagglehub_errors(),
-            policy=BackoffPolicy(
-                retries=3, initial_delay=1.0, backoff_factor=2.0, max_delay=15.0
-            ),
+            policy=BackoffPolicy(retries=3, initial_delay=1.0, backoff_factor=2.0, max_delay=15.0),
             on_retry=_on_retry,
         )
         return downloaded, retries_count

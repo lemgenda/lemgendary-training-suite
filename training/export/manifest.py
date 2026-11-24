@@ -150,6 +150,7 @@ def build_export_manifest(
     opset: int = 18,
     input_signature: dict[str, Any] | None = None,
     output_signature: dict[str, Any] | None = None,
+    base_dir: Path | str | None = None,
 ) -> ExportManifest:
     """Construct an authoritative ExportManifest from exported artifacts and spec."""
     reg = get_model_registry()
@@ -192,10 +193,17 @@ def build_export_manifest(
         elif path.suffix in (".pt", ".pth"):
             dtype = "float32"
 
+        rel_path = path.name
+        if base_dir is not None:
+            try:
+                rel_path = path.relative_to(Path(base_dir).resolve()).as_posix()
+            except ValueError:
+                rel_path = path.name
+
         rec = ExportArtifactRecord(
             key=key,
             file_name=path.name,
-            file_path=path.as_posix(),
+            file_path=rel_path,
             size_bytes=path.stat().st_size,
             sha256=compute_file_sha256(path),
             dtype=dtype,

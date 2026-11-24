@@ -166,6 +166,7 @@ def export_universal_model(
         model_key=model_key,
         exported_files=exported,
         spec=spec,
+        base_dir=target_dir,
     )
     manifest.save(target_dir)
 

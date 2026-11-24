@@ -26,7 +26,7 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
-### v16.9.246 - DDP Progress Cadence, ONNX Canary CPU Session & History Sync
+### v16.9.246 - Cloud Sync Hardening, ONNX Canary & Relative Manifest
 
 - **DDP Intra-Epoch Progress Cadence
   (`training/checkpoint/lifecycle_manager.py`)**: Updated
@@ -42,6 +42,15 @@
   Appended `"history.csv"` to `DEFAULT_PAYLOAD_ROOT_FILES` so all Kaggle
   model training runs systematically export and publish `history.csv`
   alongside `metrics.csv` to the `pytorch/default` model variant.
+- **Relative Export Manifest Path Resolution (`training/export/manifest.py`,
+  `training/export/universal_exporter.py`)**: Parameterized
+  `build_export_manifest(..., base_dir=...)` to compute relative POSIX paths
+  for all exported artifacts in `export_manifest.json`, eliminating absolute
+  path lint violations across repositories.
+- **Quiet Cloud Model Sync (`training/cloud/kaggle_model_sync.py`)**:
+  Suppressed noisy multi-threaded `tqdm` progress bars during `kagglehub`
+  model uploads by setting `disable=True` on the upload progress bar,
+  ensuring clean non-TTY stdout/stderr logging.
 
 ### v16.9.245 - LLM Export Routing, Kaggle Root & Optimizer Merging
 
