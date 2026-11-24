@@ -28,6 +28,11 @@
 
 ### v16.9.246 - Cloud Sync Hardening, ONNX Canary & Relative Manifest
 
+- **Quiet Tqdm & Cloud Sync Type Cleanliness (`training/cloud/kaggle_model_sync.py`)**:
+  Refactored `_QuietTqdm.refresh` with exact parameter typing matching the
+  `tqdm.refresh` specification and switched module monkeypatching of `kagglehub`
+  to direct dictionary assignment on `__dict__`, eliminating all Pyrefly and
+  Ruff B010 static diagnostics.
 - **DDP Intra-Epoch Progress Cadence
   (`training/checkpoint/lifecycle_manager.py`)**: Updated
   `last_progress_save_time` unconditionally across all distributed ranks in

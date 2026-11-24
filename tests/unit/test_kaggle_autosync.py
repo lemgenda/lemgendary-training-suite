@@ -101,7 +101,13 @@ def test_auto_sync_uploads_only_isolated_payload(
 
     handle, files, notes = recorder.uploads[0]
     assert handle == f"owner/{_SLUG}/pytorch/default"
-    assert files == ["README.md", "checkpoints/best.pth", "checkpoints/latest.pth", "metrics.csv"]
+    assert files == [
+        "README.md",
+        "checkpoints/best.pth",
+        "checkpoints/latest.pth",
+        "history.csv",
+        "metrics.csv",
+    ]
     assert "epoch 6" in notes
     assert (model_dir / "notebooks" / "train.ipynb").is_file()
     assert not [p for p in model_dir.parent.iterdir() if p.name.startswith(".kaggle-push-")]

@@ -66,6 +66,13 @@ class _QuietTqdm(tqdm):
     def clear(self, nolock: bool = False) -> None:
         """No-op clear for quiet execution."""
 
+    def refresh(
+        self,
+        nolock: bool = False,
+        lock_args: tuple[bool | None] | tuple[bool | None, float | int | None] | None = None,
+    ) -> None:
+        """No-op refresh conforming to tqdm.refresh signature."""
+
 
 # Upload sub-folder of each dist/kaggle variation other than the default PyTorch payload.
 _UPLOAD_SUBDIRS = {
@@ -421,15 +428,15 @@ class KaggleModelSyncManager:
             logger.info("Uploading %s to Kaggle Models Hub: %s ...", upload.variation, handle)
             # Suppress noisy multi-line tqdm progress bars from concurrent file uploads
             try:
-                gcs_upload_mod: Any = importlib.import_module("kagglehub.gcs_upload")
+                gcs_upload_mod = importlib.import_module("kagglehub.gcs_upload")
             except ImportError:
                 gcs_upload_mod = None
 
             orig_tqdm = (
-                getattr(gcs_upload_mod, "tqdm", None) if gcs_upload_mod is not None else None
+                gcs_upload_mod.__dict__.get("tqdm") if gcs_upload_mod is not None else None
             )
-            if gcs_upload_mod is not None:
-                gcs_upload_mod.tqdm = _QuietTqdm
+            if gcs_upload_mod is not None and "tqdm" in gcs_upload_mod.__dict__:
+                gcs_upload_mod.__dict__["tqdm"] = _QuietTqdm
 
             try:
                 kagglehub.model_upload(
@@ -440,7 +447,7 @@ class KaggleModelSyncManager:
                 )
             finally:
                 if gcs_upload_mod is not None and orig_tqdm is not None:
-                    gcs_upload_mod.tqdm = orig_tqdm
+                    gcs_upload_mod.__dict__["tqdm"] = orig_tqdm
 
         def _on_retry(attempt: int, exc: Exception, _sleep: float) -> None:
             nonlocal retries_count
