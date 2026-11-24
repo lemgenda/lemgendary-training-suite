@@ -29,6 +29,7 @@ from training.export.base import EXPORT_ERRORS
 from training.export.common import ExportError, OnnxGraphSpec
 from training.export.dynamo_onnx import (
     VerifiedProgram,
+    _cpu_session,
     build_verified_program,
     capture_program,
     flatten_outputs,
@@ -146,6 +147,8 @@ class OnnxVariantWriter:
             return
         test_inputs = cast_inputs(self.inputs, torch.float32 if self.fp32_io else torch.float16)
         try:
+            if hasattr(program, "initialize_inference_session"):
+                program.initialize_inference_session(_cpu_session)
             outputs = list(program(*test_inputs))
             for i, out in enumerate(outputs):
                 if isinstance(out, torch.Tensor):

@@ -26,6 +26,23 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.246 - DDP Progress Cadence, ONNX Canary CPU Session & History Sync
+
+- **DDP Intra-Epoch Progress Cadence
+  (`training/checkpoint/lifecycle_manager.py`)**: Updated
+  `last_progress_save_time` unconditionally across all distributed ranks in
+  `save_progress_now` so non-zero DDP ranks do not remain stale and trigger
+  spurious intra-epoch saves every 25 decision steps.
+- **ONNX Canary CPU Session Binding (`training/export/onnx_variants.py`)**:
+  Bound `program.initialize_inference_session(_cpu_session)` in
+  `verify_canary` to ensure lightweight FP16 sanity probes run strictly on
+  CPU and avoid falling into missing `libcublasLt.so.13` CUDAExecutionProvider
+  failures in Linux/Kaggle environments.
+- **Kaggle Default Model Payload Whitelist (`training/cloud/variations.py`)**:
+  Appended `"history.csv"` to `DEFAULT_PAYLOAD_ROOT_FILES` so all Kaggle
+  model training runs systematically export and publish `history.csv`
+  alongside `metrics.csv` to the `pytorch/default` model variant.
+
 ### v16.9.245 - LLM Export Routing, Kaggle Root & Optimizer Merging
 
 - Upgraded package(s) for the lemgendary-training-suite.

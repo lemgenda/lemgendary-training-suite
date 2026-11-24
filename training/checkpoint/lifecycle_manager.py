@@ -432,6 +432,9 @@ class CheckpointLifecycleManager:
         now = time.time()
 
         payload = payload_builder()
+        # Always update tracking on all ranks so non-zero DDP ranks do not falsely
+        # report elapsed >= min_progress_interval_sec on subsequent decision steps.
+        self.tracking.last_progress_save_time = now
         if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
             return False
         payload["progress_metadata"] = {
@@ -445,7 +448,6 @@ class CheckpointLifecycleManager:
 
         success = safe_atomic_save(payload, self.paths.progress_path)
         if success:
-            self.tracking.last_progress_save_time = now
             logger.info(
                 "Saved intra-epoch progress checkpoint to %s (Epoch %d, %s phase, step %d/%d = "
                 "%.1f%%)",

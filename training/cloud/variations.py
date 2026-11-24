@@ -85,7 +85,7 @@ CHECKPOINTS_DIR = "checkpoints"
 """Folder of a model hub dir (and of the ``pytorch/default`` payload) holding checkpoints."""
 CHECKPOINT_SUFFIX = ".pth"
 """Suffix of the training checkpoints published in ``pytorch/default``."""
-DEFAULT_PAYLOAD_ROOT_FILES: tuple[str, ...] = ("README.md", "metrics.csv")
+DEFAULT_PAYLOAD_ROOT_FILES: tuple[str, ...] = ("README.md", "metrics.csv", "history.csv")
 """Root files published in ``pytorch/default`` next to ``checkpoints/*.pth``."""
 
 
