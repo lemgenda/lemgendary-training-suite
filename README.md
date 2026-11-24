@@ -28,6 +28,11 @@
 
 ### v16.9.246 - Cloud Sync Hardening, ONNX Canary & Relative Manifest
 
+- **Cloud CUDA 13.4 Torch Build & Notebook Synthesis (`training/notebooks/torch_build.py`)**:
+  Updated the authoritative cloud CUDA accelerator build to `torch==2.15.0+cu134`,
+  `torchvision==0.29.2+cu134`, and `torchaudio==2.11.1+cu134` hosted on the
+  `https://download.pytorch.org/whl/cu134` index. Regenerated all 138 training,
+  inference, and usage notebooks across 23 models.
 - **Quiet Tqdm & Cloud Sync Type Cleanliness (`training/cloud/kaggle_model_sync.py`)**:
   Refactored `_QuietTqdm.refresh` with exact parameter typing matching the
   `tqdm.refresh` specification and switched module monkeypatching of `kagglehub`

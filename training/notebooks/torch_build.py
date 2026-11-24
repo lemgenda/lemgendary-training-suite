@@ -34,9 +34,9 @@ class TorchBuild:
 
 
 CLOUD_CUDA_BUILD = TorchBuild(
-    accelerator="cuda_cu126",
-    index_url="https://download.pytorch.org/whl/cu126",
-    pins=("torch==2.14.1+cu126", "torchvision==0.29.1+cu126", "torchaudio==2.11.0+cu126"),
+    accelerator="cuda_cu134",
+    index_url="https://download.pytorch.org/whl/cu134",
+    pins=("torch==2.15.0+cu134", "torchvision==0.29.2+cu134", "torchaudio==2.11.1+cu134"),
 )
-"""CUDA 12.6 build for the Tesla T4 (sm_75) of Kaggle GPU T4 x2 and Colab. ``2.14.1`` is
-the newest torch on the ``cu126`` index (``torchvision 0.29.1``, ``torchaudio 2.11.0``)."""
+"""CUDA 13.4 build for cloud GPU accelerators (Kaggle and Colab). ``2.15.0`` is
+the newest torch on the ``cu134`` index (``torchvision 0.29.2``, ``torchaudio 2.11.1``)."""
