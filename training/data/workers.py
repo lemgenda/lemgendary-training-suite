@@ -242,13 +242,20 @@ def dispose_loader(loader: Any) -> None:
 
 
 def dataloader_worker_init_fn(worker_id: int) -> None:
-    """Worker initialization to prevent DataLoader child processes from intercepting SIGINT.
+    """Worker initialization to prevent DataLoader child processes from intercepting SIGINT/SIGTERM.
 
-    By ignoring SIGINT in workers, the main process handles the user interruption
-    signal cleanly, preventing 'RuntimeError: DataLoader worker exited unexpectedly
-    with exit code 130' and BrokenPipeError during shutdown.
+    In Python 3.14 on Linux/POSIX, multiprocessing defaults to 'forkserver' where child
+    workers start fresh without inheriting parent signal handlers. Explicitly ignoring
+    SIGINT and resetting SIGTERM ensures that the main process controls graceful shutdown,
+    preventing 'RuntimeError: DataLoader worker exited unexpectedly' and broken pipes.
     """
     try:
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     except (ValueError, OSError) as exc:
         logger.debug("DataLoader worker %d could not ignore SIGINT: %s", worker_id, exc)
+
+    try:
+        if hasattr(signal, "SIGTERM"):
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    except (ValueError, OSError) as exc:
+        logger.debug("DataLoader worker %d could not reset SIGTERM: %s", worker_id, exc)

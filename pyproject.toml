@@ -7,7 +7,7 @@ name = "lemgendary-training-suite"
 version = "16.9.244"
 description = "Industrial-grade Deep Learning Training Suite for Vision, Restoration, and Financial Time-Series"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
@@ -25,7 +25,7 @@ dependencies = [
     "einops>=0.7.0",
     "timm>=0.9.0",
     "requests>=2.31.0",
-    "albumentations>=1.3.0",
+    "kornia>=0.8.2",
     "onnx>=1.15.0",
     "websockets>=12.0",
     "typer>=0.9.0",
@@ -34,7 +34,6 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
     "pydantic>=2.0.0",
-    "httpx>=0.25.0",
     "webdataset>=0.2.0",
     "litdata>=0.2.0",
     "zstandard>=0.21.0",
@@ -54,9 +53,9 @@ include = ["training", "models", "data", "export"]
 exclude = ["**/__pycache__", ".venv", "tmp", "checkpoints"]
 venvPath = "."
 venv = ".venv"
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 typeCheckingMode = "basic"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py314"
