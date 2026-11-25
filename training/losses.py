@@ -463,6 +463,13 @@ def _face_detection_loss(pred: Any, target: torch.Tensor) -> torch.Tensor:
         present = t_landm > LANDMARK_ABSENT / 2.0
         if present.any():
             loss_landm = F.smooth_l1_loss(p_landm[pos][present], t_landm[present])
+        else:
+            # Keep gradient graph connected in multi-process DDP when landmarks are absent
+            loss_landm = 0.0 * p_landm.sum()
+    else:
+        # Keep gradient graph connected in multi-process DDP on all-negative batches
+        loss_bbox = 0.0 * p_bbox.sum()
+        loss_landm = 0.0 * p_landm.sum()
 
     return loss_conf + loss_bbox * 2.0 + loss_landm * 1.0
 

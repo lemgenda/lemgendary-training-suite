@@ -52,7 +52,7 @@ def init_distributed_process_group(local_rank: int, rank: int, world_size: int) 
     }
     if backend == "nccl":
         # Binding a device is an NCCL feature; Gloo rejects or ignores it.
-        init_kwargs["device_id"] = torch.device(f"cuda:{local_rank}")
+        init_kwargs["device_id"] = local_rank
     dist.init_process_group(**init_kwargs)
     logger.info(
         "Distributed process group initialized: backend=%s rank=%d/%d (local_rank=%d)",
@@ -84,11 +84,24 @@ class DistributedDataParallelStrategy(ParallelStrategy):
         self._world_size = int(os.environ.get("WORLD_SIZE", "1"))
         self._initialized = False
 
+    def _should_find_unused_parameters(self) -> bool:
+        """True when explicit in config or model_key is known to have conditional heads."""
+        if (
+            hasattr(self, "config")
+            and isinstance(self.config, dict)
+            and self.config.get("find_unused_parameters") is not None
+        ):
+            return bool(self.config.get("find_unused_parameters"))
+        # Retinaface and multi-task models have conditional branch/landmark heads
+        key_lower = getattr(self, "model_key", "").lower()
+        return any(k in key_lower for k in ("retinaface", "detection", "multitask"))
+
     def setup(self) -> nn.Module:
         """Initialise the process group (if needed) and wrap the model in DDP."""
         self._initialized = init_distributed_process_group(
             self._local_rank, self._rank, self._world_size
         )
+        find_unused = self._should_find_unused_parameters()
 
         # Move model to the correct GPU for this rank before wrapping.
         if torch.cuda.is_available():
@@ -99,18 +112,14 @@ class DistributedDataParallelStrategy(ParallelStrategy):
                 self.raw_model,
                 device_ids=[self._local_rank],
                 output_device=self._local_rank,
-                find_unused_parameters=bool(self.config.get("find_unused_parameters", False))
-                if hasattr(self, "config") and isinstance(self.config, dict)
-                else False,
+                find_unused_parameters=find_unused,
             )
         else:
             # CPU fallback (Gloo backend).
             self.raw_model.to(self.device)
             self._wrapped = nn.parallel.DistributedDataParallel(
                 self.raw_model,
-                find_unused_parameters=bool(self.config.get("find_unused_parameters", False))
-                if hasattr(self, "config") and isinstance(self.config, dict)
-                else False,
+                find_unused_parameters=find_unused,
             )
         logger.info(
             "DDP model wrapped: rank=%d local_rank=%d world_size=%d",

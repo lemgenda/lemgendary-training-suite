@@ -16,7 +16,7 @@
 
 ## Current Status
 
-- **Version**: `v16.9.244-STABLE`
+- **Version**: `v16.9.248-STABLE`
 - **Phase**: Senior Developer Audit Hardening & Zero-Diagnostic Verification
   Complete
 - **Next**: Production Modernization & S.O.L.I.D. Architecture Complete —
@@ -25,6 +25,26 @@
   (Local, Kaggle accelerators from `ecosystem.json`, Google Colab)
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
+
+### v16.9.248 - Multi-Process DDP Graph Continuity & Head Parameter Synchronization
+
+- **DDP Gradient Graph Continuity (`training/losses.py`)**:
+  Ensured multi-head detection architectures (such as `RetinaFaceMobileNet`)
+  preserve a continuous autograd graph across all ranks even on batches
+  lacking positive face instances or landmark annotations (`LANDMARK_ABSENT`),
+  by anchoring `0.0 * p_landm.sum()` and `0.0 * p_bbox.sum()` instead of
+  detached tensors.
+- **Dynamic DDP Unused Parameters Detection (`training/parallel/ddp.py`)**:
+  Implemented automatic `find_unused_parameters=True` activation for detection,
+  retinaface, and multi-task models, preventing NCCL collective reduction
+  deadlocks and timeout failures.
+- **Toolchain Typing & Lint Diagnostics Alignment
+  (`training/parallel/ddp.py`)**:
+  Resolved Pyrefly `device_id` integer assignment and Ruff SIM102/SIM103
+  conditional constructs.
+- **Safe Permissive Dependency Synchronization (`requirements.txt`)**:
+  Aligned `kornia==0.9.2` and `transformers==5.24.1` with centralized ecosystem
+  manifests.
 
 ### v16.9.247 - Python 3.14.10 & Permissive Ecosystem Modernization
 
