@@ -52,7 +52,7 @@ def init_distributed_process_group(local_rank: int, rank: int, world_size: int) 
     }
     if backend == "nccl":
         # Binding a device is an NCCL feature; Gloo rejects or ignores it.
-        init_kwargs["device_id"] = torch.device(f"cuda:{local_rank}")
+        init_kwargs["device_id"] = local_rank
     dist.init_process_group(**init_kwargs)
     logger.info(
         "Distributed process group initialized: backend=%s rank=%d/%d (local_rank=%d)",

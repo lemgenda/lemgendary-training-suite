@@ -113,13 +113,14 @@ def test_onnx_export_and_runtime_parity(tmp_path) -> None:
     dummy_input = torch.randn(1, 3, 16, 16)
 
     onnx_path = str(tmp_path / "model.onnx")
+    batch_dim = torch.export.Dim("batch")
     torch.onnx.export(
         model,
         (dummy_input,),
         onnx_path,
         input_names=["input"],
         output_names=["output"],
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
+        dynamic_shapes={"input": {0: batch_dim}},
     )
 
     assert os.path.exists(onnx_path)

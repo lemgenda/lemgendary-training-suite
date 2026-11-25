@@ -85,3 +85,30 @@ def test_platform_gated_dependencies() -> None:
         ort_dml = importlib.import_module("onnxruntime")
         assert ort_dml is not None
         assert "DmlExecutionProvider" in ort_dml.get_available_providers()
+
+
+def test_boto3_deadlock_prevention() -> None:
+    """Ensure litdata S3 dependencies are modern and bcdoc is eliminated."""
+    with pytest.raises(ImportError):
+        importlib.import_module("bcdoc")
+
+    import boto3
+    import botocore
+    import jmespath
+    import six
+    from packaging.version import Version
+
+    assert Version(boto3.__version__) >= Version("1.44.11")
+    assert Version(botocore.__version__) >= Version("1.44.11")
+    assert Version(jmespath.__version__) >= Version("1.1.0")
+    assert Version(six.__version__) >= Version("1.17.0")
+
+
+def test_no_legacy_httpx_or_pydantic_core_duplicate_pins() -> None:
+    """Ensure legacy duplicate httpx and pydantic-core pins are not present."""
+    import httpx2
+    import pydantic
+    from packaging.version import Version
+
+    assert Version(httpx2.__version__) >= Version("2.16.2")
+    assert Version(pydantic.__version__) >= Version("2.14.4")

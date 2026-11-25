@@ -26,6 +26,20 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.251 - S3 AWS SDK Pinning & Regression Guard
+
+- **Modern AWS SDK Dependency Pins (`requirements.txt`)**: Explicitly pinned
+  `boto3==1.44.11`, `botocore==1.44.11`, `jmespath==1.1.0`, and `six==1.17.0`
+  to eliminate `litdata==0.2.76` resolution deadlocks and backtracking to
+  ancient 2014 `boto3==0.0.3` / `bcdoc`.
+- **Environment & ABI Regression Suite
+  (`tests/regression/test_env_and_abi_compatibility.py`)**: Added explicit
+  regression tests verifying modern AWS SDK versions, absence of `bcdoc`, and
+  absence of duplicate legacy `httpx` and `pydantic-core` pins.
+- **ONNX Export Dynamic Shapes Alignment
+  (`tests/regression/test_training_and_export_regression.py`)**: Upgraded ONNX
+  export to `dynamic_shapes` syntax, eliminating PyTorch 2.15 dynamo warnings.
+
 ### v16.9.250 - Declarative DDP find_unused_parameters Configuration
 
 - **Declarative DDP Reduction Configuration (`unified_models_v2.yaml`)**:
