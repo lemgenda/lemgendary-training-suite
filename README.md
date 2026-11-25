@@ -33,11 +33,13 @@
   2030, incorporating stable generational GC). Updated
   `requires-python = ">=3.14,<3.15"`, `.python-version`, and toolchain
   configurations (`ruff`, `pyright`).
-- **DataLoader Multiprocessing & Forkserver Hardening**:
+- **DataLoader Multiprocessing & Context Hardening**:
   Hardened `training/data/workers.py` and `training/data/loaders.py` for
-  deterministic multiprocessing topology. Explicitly configured
-  `multiprocessing_context="forkserver"` on POSIX environments and `"spawn"` on
-  Windows. Initialized `SIGINT` (ignore) and `SIGTERM` handlers within worker
+  deterministic multiprocessing topology across platforms and DDP.
+  Configured `_resolve_mp_context()` to use `"spawn"` on Windows/macOS and
+  the active process context on Linux/POSIX, eliminating cross-context
+  `SemLock` pickling failures during multi-GPU DDP training runs.
+  Initialized `SIGINT` (ignore) and `SIGTERM` handlers within worker
   processes to eliminate shutdown crashes.
 - **Strict Permissive Licensing (Zero AGPL Copyleft Exposure)**:
   Completely removed archived `albumentations==2.0.8` (and guarded against AGPL

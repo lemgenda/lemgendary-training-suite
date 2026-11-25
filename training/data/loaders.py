@@ -72,7 +72,7 @@ def _positive_batch_size(batch_size: Any, fallback: int) -> int:
             batch_size = int(batch_size)
             if batch_size <= 0:
                 raise ValueError
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             batch_size = fallback
     return batch_size
 
@@ -102,6 +102,31 @@ def _shard_window(
 
 def _placement_device(placement: LoaderPlacement) -> torch.device:
     return placement.device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _resolve_mp_context() -> Any:
+    """Resolve the multiprocessing context safely across platforms and DDP.
+
+    On Windows and macOS, 'spawn' is mandatory.
+    On Linux/POSIX, return the active multiprocessing context if set (or None)
+    rather than forcing 'forkserver', which causes cross-context SemLock pickling
+    failures under DDP / torchrun where the parent process uses fork.
+    """
+    if sys.platform in ("win32", "darwin"):
+        try:
+            return torch.multiprocessing.get_context("spawn")
+        except (ValueError, RuntimeError) as exc:
+            logger.debug("Failed getting spawn multiprocessing context: %s", exc)
+            return None
+
+    try:
+        active_method = torch.multiprocessing.get_start_method(allow_none=True)
+        if active_method:
+            return torch.multiprocessing.get_context(active_method)
+    except (ValueError, RuntimeError) as exc:
+        logger.debug("Failed getting active multiprocessing context: %s", exc)
+
+    return None
 
 
 def build_train_loader(
@@ -145,13 +170,9 @@ def build_train_loader(
 
     if workers > 0:
         kwargs["worker_init_fn"] = dataloader_worker_init_fn
-        # Deterministic multiprocessing context for Python 3.14+ forkserver
-        # on POSIX and spawn on Windows
-        mp_context_name = "spawn" if sys.platform in ("win32", "darwin") else "forkserver"
-        try:
-            kwargs["multiprocessing_context"] = torch.multiprocessing.get_context(mp_context_name)
-        except (ValueError, RuntimeError) as exc:
-            logger.debug("Failed getting multiprocessing context %s: %s", mp_context_name, exc)
+        mp_context = _resolve_mp_context()
+        if mp_context is not None:
+            kwargs["multiprocessing_context"] = mp_context
 
     if opts.collate_fn is not None:
         kwargs["collate_fn"] = opts.collate_fn
@@ -224,13 +245,9 @@ def build_val_loader(
 
     if workers > 0:
         kwargs["worker_init_fn"] = dataloader_worker_init_fn
-        # Deterministic multiprocessing context for Python 3.14+ forkserver
-        # on POSIX and spawn on Windows
-        mp_context_name = "spawn" if sys.platform in ("win32", "darwin") else "forkserver"
-        try:
-            kwargs["multiprocessing_context"] = torch.multiprocessing.get_context(mp_context_name)
-        except (ValueError, RuntimeError) as exc:
-            logger.debug("Failed getting multiprocessing context %s: %s", mp_context_name, exc)
+        mp_context = _resolve_mp_context()
+        if mp_context is not None:
+            kwargs["multiprocessing_context"] = mp_context
         kwargs["prefetch_factor"] = _val_prefetch_factor(dataset, opts)
     if opts.collate_fn is not None:
         kwargs["collate_fn"] = opts.collate_fn
