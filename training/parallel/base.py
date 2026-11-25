@@ -16,11 +16,12 @@ class ParallelStrategy(ABC):
 
     name = "base"
 
-    def __init__(self, model, device, *, model_key="", config=None):
+    def __init__(self, model, device, *, model_key="", config=None, model_info=None):
         self.raw_model = model
         self.device = device
         self.model_key = model_key
         self.config = config or {}
+        self.model_info = model_info or {}
         self._wrapped = None
 
     @abstractmethod

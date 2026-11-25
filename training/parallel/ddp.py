@@ -77,17 +77,22 @@ class DistributedDataParallelStrategy(ParallelStrategy):
 
     name = "ddp"
 
-    def __init__(self, model, device, *, model_key="", config=None):
-        super().__init__(model, device, model_key=model_key, config=config)
+    def __init__(self, model, device, *, model_key="", config=None, model_info=None):
+        super().__init__(
+            model, device, model_key=model_key, config=config, model_info=model_info
+        )
         self._rank = int(os.environ.get("RANK", "0"))
         self._local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         self._world_size = int(os.environ.get("WORLD_SIZE", "1"))
         self._initialized = False
 
     def _should_find_unused_parameters(self) -> bool:
-        """True when explicit in config or model_key is known to have conditional heads."""
+        """True when explicit in config, model_info, or model_key has conditional heads."""
         cfg = getattr(self, "config", None)
         if isinstance(cfg, dict) and (val := cfg.get("find_unused_parameters")) is not None:
+            return bool(val)
+        info = getattr(self, "model_info", None)
+        if isinstance(info, dict) and (val := info.get("find_unused_parameters")) is not None:
             return bool(val)
         # Retinaface and multi-task models have conditional branch/landmark heads
         key_lower = getattr(self, "model_key", "").lower()

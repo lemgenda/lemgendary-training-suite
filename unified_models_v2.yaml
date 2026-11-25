@@ -20,6 +20,7 @@ forex_predictor:
   loss_fn: forex_dual
   dataset_type: forex
   preferred_parallel: single
+  find_unused_parameters: false
   optimal_key: forex_predictor
   architecture_type: Multi-Scale CNN-Transformer (Causal TCN + Cross-Timeframe Attention)
   description: 'Multi-pair, multi-timeframe Forex trading model trained on MetaTrader 5 OHLCV data. Predicts
@@ -191,6 +192,7 @@ nima_aesthetic_mobile:
   loss_fn: emd
   dataset_type: quality
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: nima_aesthetic_mobile
   architecture_type: MobileNetV3-Small (Global Composition)
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized
@@ -310,6 +312,7 @@ nima_aesthetic_efficientnet:
   loss_fn: emd
   dataset_type: quality
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: nima_aesthetic_efficientnet
   architecture_type: EfficientNetV2-S (Global Composition)
   description: Aesthetic quality scorer trained on custom standardized LemGendizedQualityDataset, optimized
@@ -427,6 +430,7 @@ nima_aesthetic_pro:
   loss_fn: emd
   dataset_type: quality
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: nima_aesthetic_pro
   architecture_type: Swin-v2-T (Global Multi-Scale Attention)
   description: High-end aesthetic quality scorer using Swin Transformer V2, optimized for high-res global
@@ -547,6 +551,7 @@ nima_technical:
   loss_fn: emd
   dataset_type: quality
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: nima_technical
   architecture_type: EfficientNetV2-S (Spatial Integrity)
   description: Technical quality scorer trained on custom standardized LemGendizedQualityDataset, optimized
@@ -668,6 +673,7 @@ nima_authenticity:
   loss_fn: emd
   dataset_type: quality
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: nima_authenticity
   architecture_type: EfficientNetV2-S (Distribution Scorer)
   description: DeepFake and AI-generated image detection model built on EfficientNetV2.
@@ -767,6 +773,7 @@ upn_v2:
   loss_fn: smooth_l1
   dataset_type: parameter_prediction
   preferred_parallel: single
+  find_unused_parameters: false
   loader:
     num_workers: 4
     persistent_workers: true
@@ -874,6 +881,7 @@ film_restorer:
   loss_fn: l1_lpips
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   needs_synthesis: true
   optimal_key: film_restorer
   description: Universal image restoration autoencoder
@@ -974,6 +982,7 @@ codeformer:
   loss_fn: mse
   dataset_type: face
   preferred_parallel: ddp
+  find_unused_parameters: false
   needs_synthesis: true
   optimal_key: codeformer
   description: Face restoration model
@@ -1074,6 +1083,7 @@ parsenet:
   loss_fn: cross_entropy
   dataset_type: segmentation
   preferred_parallel: ddp
+  find_unused_parameters: false
   num_classes: 19
   optimal_key: parsenet
   description: Face parsing model for segmentation
@@ -1165,6 +1175,7 @@ ffanet_indoor:
   loss_fn: l1
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: ffanet_indoor
   description: FFANet indoor dehazing restoration
   datasets:
@@ -1266,6 +1277,7 @@ ffanet_outdoor:
   loss_fn: l1
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: ffanet_outdoor
   description: FFANet outdoor dehazing restoration
   datasets:
@@ -1366,6 +1378,7 @@ mirnet_lowlight:
   loss_fn: l1_lpips
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: mirnet_lowlight
   description: MIRNet v2 low-light image enhancement
   datasets:
@@ -1469,6 +1482,7 @@ mirnet_exposure:
   loss_fn: l1_lpips
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: mirnet_exposure
   description: MIRNet v2 for overexposure correction and dynamic range adjustment
   datasets:
@@ -1572,6 +1586,7 @@ mprnet_deraining:
   loss_fn: l1
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: mprnet_deraining
   description: MPRNet image deraining
   datasets:
@@ -1675,6 +1690,7 @@ nafnet_debluring:
   loss_fn: l1
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: nafnet_debluring
   description: NAFNet image debluring
   optimization:
@@ -1776,6 +1792,7 @@ nafnet_denoising:
   loss_fn: l1
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: nafnet_denoising
   description: NAFNet image denoising
   optimization:
@@ -1880,6 +1897,7 @@ yolov8n:
     - classification
     - pose
   preferred_parallel: single
+  find_unused_parameters: true
   optimal_key: yolov8n
   description: Unified YOLOv8n for classification, detection, and pose
   optimization:
@@ -1993,6 +2011,7 @@ professional_multitask_restoration:
   loss_fn: hybrid_restoration
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: true
   needs_synthesis: true
   optimal_key: professional_multitask_restoration
   description: Shared Encoder Multi-Task model for Denoise, Deblur, Derain, Dehaze, and Low-Light
@@ -2092,6 +2111,7 @@ ultrazoom:
   loss_fn: mse
   dataset_type: restoration
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: ultrazoom
   description: Dynamic scale super-resolution model
   datasets:
@@ -2191,6 +2211,7 @@ universal_nsfw_classification:
   loss_fn: cross_entropy
   dataset_type: classification
   preferred_parallel: ddp
+  find_unused_parameters: false
   optimal_key: universal_nsfw_classification
   architecture_type: EfficientNetV2-S (Multi-Class Categorical Head)
   description: Universal safety filter and NSFW classifier for realistic and anime content.
@@ -2289,6 +2310,7 @@ retinaface:
   loss_fn: retinaface
   dataset_type: face_detection
   preferred_parallel: ddp
+  find_unused_parameters: true
   output_names:
     - output
     - output2
@@ -2393,6 +2415,7 @@ ai_helper_lemgend:
   loss_fn: cross_entropy
   dataset_type: text_instruction
   preferred_parallel: single
+  find_unused_parameters: false
   kaggle_accelerator: tpu-v5e8
   optimal_key: ai_helper_lemgend
   architecture_type: Causal Decoder Transformer (QLoRA Fine-Tuned)

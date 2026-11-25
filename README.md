@@ -26,6 +26,20 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.250 - Declarative DDP find_unused_parameters Configuration
+
+- **Declarative DDP Reduction Configuration (`unified_models_v2.yaml`)**:
+  Configured explicit `find_unused_parameters` on all 23 production models:
+  `true` for multi-head conditional detection and multi-task models
+  (`retinaface`, `yolov8n`, `professional_multitask_restoration`) to avoid
+  NCCL deadlocks on batches without targets, and `false` for deterministic
+  feed-forward CNNs and restorers to silence DDP autograd graph warnings.
+- **Model Schema Specification (`training/config/model_schema.json`)**:
+  Added `find_unused_parameters` boolean property to canonical model schema.
+- **Strategy Propagation (`training/parallel/base.py`, `ddp.py`)**:
+  Passed `model_info` into parallel strategies and resolved configuration
+  precedence (`config` -> `model_info` -> model key heuristic).
+
 ### v16.9.249 - DDP Typing and Linter Alignment
 
 - **Toolchain Typing and Lint Diagnostics Alignment
