@@ -26,6 +26,12 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.249 - DDP Typing and Linter Alignment
+
+- **Toolchain Typing and Lint Diagnostics Alignment
+  (`training/parallel/ddp.py`)**:
+  Resolved Pyrefly device_id assignment and Ruff SIM102/SIM103 constructs.
+
 ### v16.9.248 - Multi-Process DDP Graph Continuity & Head Parameter Synchronization
 
 - **DDP Gradient Graph Continuity (`training/losses.py`)**:

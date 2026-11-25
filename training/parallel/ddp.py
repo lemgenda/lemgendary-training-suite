@@ -44,7 +44,7 @@ def init_distributed_process_group(local_rank: int, rank: int, world_size: int) 
     if torch.cuda.is_available():
         torch.cuda.set_device(local_rank)
 
-    init_kwargs = {
+    init_kwargs: dict[str, Any] = {
         "backend": backend,
         "rank": rank,
         "world_size": world_size,
@@ -52,7 +52,7 @@ def init_distributed_process_group(local_rank: int, rank: int, world_size: int) 
     }
     if backend == "nccl":
         # Binding a device is an NCCL feature; Gloo rejects or ignores it.
-        init_kwargs["device_id"] = local_rank
+        init_kwargs["device_id"] = torch.device(f"cuda:{local_rank}")
     dist.init_process_group(**init_kwargs)
     logger.info(
         "Distributed process group initialized: backend=%s rank=%d/%d (local_rank=%d)",
@@ -86,12 +86,9 @@ class DistributedDataParallelStrategy(ParallelStrategy):
 
     def _should_find_unused_parameters(self) -> bool:
         """True when explicit in config or model_key is known to have conditional heads."""
-        if (
-            hasattr(self, "config")
-            and isinstance(self.config, dict)
-            and self.config.get("find_unused_parameters") is not None
-        ):
-            return bool(self.config.get("find_unused_parameters"))
+        cfg = getattr(self, "config", None)
+        if isinstance(cfg, dict) and (val := cfg.get("find_unused_parameters")) is not None:
+            return bool(val)
         # Retinaface and multi-task models have conditional branch/landmark heads
         key_lower = getattr(self, "model_key", "").lower()
         return any(k in key_lower for k in ("retinaface", "detection", "multitask"))
