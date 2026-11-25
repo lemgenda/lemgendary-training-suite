@@ -72,7 +72,7 @@ def _positive_batch_size(batch_size: Any, fallback: int) -> int:
             batch_size = int(batch_size)
             if batch_size <= 0:
                 raise ValueError
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             batch_size = fallback
     return batch_size
 

@@ -39,6 +39,7 @@
   Configured `_resolve_mp_context()` to use `"spawn"` on Windows/macOS and
   the active process context on Linux/POSIX, eliminating cross-context
   `SemLock` pickling failures during multi-GPU DDP training runs.
+  Parenthesized exception tuple in `_positive_batch_size`.
   Initialized `SIGINT` (ignore) and `SIGTERM` handlers within worker
   processes to eliminate shutdown crashes.
 - **Strict Permissive Licensing (Zero AGPL Copyleft Exposure)**:
