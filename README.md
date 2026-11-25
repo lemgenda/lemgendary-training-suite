@@ -26,6 +26,11 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.252 - Dataset Compiler Port Migration Alignment
+
+- **Ecosystem Port Alignment (`training/ecosystem.json`)**: Synchronized
+  dataset compiler service definition port from 8100 to 8150.
+
 ### v16.9.251 - S3 AWS SDK Pinning & Regression Guard
 
 - **Modern AWS SDK Dependency Pins (`requirements.txt`)**: Explicitly pinned
@@ -6235,7 +6240,7 @@ LemGendaryModels/<model_key>/
 1. **LemGendary Environment Manager** (`.\lemgendary-env-manager\`): Ecosystem
    CLI (`lem-env`), virtual environment lifecycle, multi-gate validation
 2. **LemGendary Dataset Compiler Suite** (`.\lemgendary-datasets\`): Manifold
-   compiler, container format transcoders, dataset sidecar daemon on port 8100
+   compiler, container format transcoders, dataset sidecar daemon on port 8150
 3. **LemGendary Model Training Suite** (`.\lemgendary-training-suite\`):
    Universal model training, SOTA governance, Typer CLI (`lemtrain`), sidecar
    daemon on port 8200
