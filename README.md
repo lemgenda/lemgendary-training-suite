@@ -49,6 +49,7 @@
   Established automated test suite under
   `tests/regression/test_env_and_abi_compatibility.py` and
   `tests/regression/test_training_and_export_regression.py`.
+  Configured `pyrefly.toml` search paths for IDE static analysis parity.
 
 ### v16.9.246 - Cloud Sync Hardening, ONNX Canary & Relative Manifest
 
