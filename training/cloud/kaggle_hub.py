@@ -59,11 +59,22 @@ class KaggleHubManager:
             # model page first, so a new model never starts with Kaggle's defaults.
             page = publisher.sync_model_page(model_name)
             if page.get("model") is None:
-                raise CloudSyncError(
-                    code="KAGGLE_METADATA_FAILED",
-                    message=f"Model page sync failed for {model_name}: {page.get('errors')}",
-                    retryable=True,
-                )
+                errors_str = "; ".join(str(e) for e in (page.get("errors") or []))
+                # If page sync failed because of 403 / permission on an existing model or token,
+                # log a warning and proceed with variation upload instead of failing completely.
+                perm_markers = ("403", "forbidden", "permission", "models.create")
+                if any(phrase in errors_str.lower() for phrase in perm_markers):
+                    logger.warning(
+                        "Kaggle model page sync skipped for %s (continuing upload): %s",
+                        model_name,
+                        errors_str,
+                    )
+                else:
+                    raise CloudSyncError(
+                        code="KAGGLE_METADATA_FAILED",
+                        message=f"Model page sync failed for {model_name}: {page.get('errors')}",
+                        retryable=True,
+                    )
 
         dist_dir = src_dir / "dist" / "kaggle"
         if is_best and dist_dir.exists() and any(dist_dir.iterdir()):

@@ -2310,7 +2310,7 @@ retinaface:
   loss_fn: retinaface
   dataset_type: face_detection
   preferred_parallel: ddp
-  find_unused_parameters: true
+  find_unused_parameters: false
   output_names:
     - output
     - output2
