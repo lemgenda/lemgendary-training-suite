@@ -28,6 +28,10 @@
 
 ### v16.9.255 - Ecosystem Snapshot & Documentation Alignment
 
+- **Server State Isolation (`training/server/state.py`, `tests/conftest.py`)**:
+  Added `LEMGENDARY_TRAIN_STATE_DIR` support in `ServerState` and isolated
+  pytest sessions to a temporary state directory so test runs never touch the
+  live `.lemtrain_server/jobs.db` or mark active training jobs as interrupted.
 - **Pre-Commit Hook Sync (`.githooks/pre-commit`)**: Updated line-length guard
   hook path to `lemgendary-env-manager/tools/check_line_lengths.py`.
 

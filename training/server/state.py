@@ -20,6 +20,7 @@ from typing import Any
 from training.utils.paths import get_project_root
 
 logger = logging.getLogger("lemtrain.server.state")
+STATE_DIR_ENV = "LEMGENDARY_TRAIN_STATE_DIR"
 
 
 class ServerState:
@@ -27,7 +28,10 @@ class ServerState:
 
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = project_root or get_project_root()
-        self.state_dir = self.project_root / ".lemtrain_server"
+        env_state_dir = os.environ.get(STATE_DIR_ENV) if project_root is None else None
+        self.state_dir = (
+            Path(env_state_dir) if env_state_dir else (self.project_root / ".lemtrain_server")
+        )
         self.logs_dir = self.state_dir / "logs"
         self.db_path = self.state_dir / "jobs.db"
         self.token_path = self.state_dir / "token"
@@ -41,7 +45,7 @@ class ServerState:
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
-    def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
+    def _get_connection(self) -> Generator[sqlite3.Connection]:
         """Establish SQLite connection configured for WAL mode with deterministic closure."""
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row

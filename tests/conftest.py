@@ -16,6 +16,9 @@ patch it with fixture records). The GitHub and Google Drive token variables are 
 index locks never land in the checkout's ``.cache``.
 """
 
+import os
+import shutil
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -29,8 +32,15 @@ from training.data.containers.shard_tables import SHARD_CACHE_DIR_ENV
 from training.ecosystem import ECOSYSTEM_FILE_ENV
 from training.utils.paths import WORKSPACE_ROOT_ENV
 
+_STATE_DIR = tempfile.mkdtemp(prefix="lemtrain_state_")
+os.environ["LEMGENDARY_TRAIN_STATE_DIR"] = _STATE_DIR
 _ORIG_IMAGE_OPEN = Image.open
 ECOSYSTEM_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "ecosystem.json"
+
+
+def pytest_unconfigure() -> None:
+    """Remove the temporary server state directory after the pytest session."""
+    shutil.rmtree(_STATE_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
