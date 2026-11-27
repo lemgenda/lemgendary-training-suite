@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from training.export.common import ExportError
 from training.export.onnx_variants import ONNX_FP16_VARIANT, OnnxVariantWriter
 
 
@@ -54,8 +55,6 @@ class TestFP16Verification(unittest.TestCase):
             graph=MagicMock(),
         )
         fake_prog = MagicMock(return_value=[torch.tensor([float("nan"), 1.0], dtype=torch.float16)])
-        from training.export.common import ExportError
-
         with (
             self.assertLogs("lemtrain.export.onnx_variants", level="WARNING") as cm,
             self.assertRaises(ExportError),

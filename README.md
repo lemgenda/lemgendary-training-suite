@@ -90,6 +90,12 @@
 
 ### v16.9.248 - Multi-Process DDP Graph Continuity & Head Parameter Synchronization
 
+- **Version, OpenAPI & Unit Test Alignment (`pyproject.toml`, `openapi.json`,
+  `tests/`)**: Synchronized `pyproject.toml` and regenerated `openapi.json` to
+  `v16.9.248`, added a `PIL.Image.open` autouse restore fixture in
+  `tests/conftest.py` to prevent `ultralytics` `pi_heif` import leakage, and
+  aligned export manifest path resolution, FP16 canary `ExportError` checks,
+  and 4-tuple `_progress()` unpacking in unit tests.
 - **DDP Gradient Graph Continuity (`training/losses.py`)**:
   Ensured multi-head detection architectures (such as `RetinaFaceMobileNet`)
   preserve a continuous autograd graph across all ranks even on batches
