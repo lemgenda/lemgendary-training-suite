@@ -157,7 +157,7 @@ class TestModelExporters(unittest.TestCase):
 
             # Verify checksums match reality
             for artifact in content["artifacts"].values():
-                real_hash = compute_file_sha256(artifact["file_path"])
+                real_hash = compute_file_sha256(Path(tmp) / artifact["file_path"])
                 self.assertEqual(artifact["sha256"], real_hash)
 
     def test_numerical_equivalence_fp32_onnx_vs_pytorch(self) -> None:

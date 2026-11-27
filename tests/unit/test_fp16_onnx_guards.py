@@ -54,7 +54,12 @@ class TestFP16Verification(unittest.TestCase):
             graph=MagicMock(),
         )
         fake_prog = MagicMock(return_value=[torch.tensor([float("nan"), 1.0], dtype=torch.float16)])
-        with self.assertLogs("lemtrain.export.onnx_variants", level="WARNING") as cm:
+        from training.export.common import ExportError
+
+        with (
+            self.assertLogs("lemtrain.export.onnx_variants", level="WARNING") as cm,
+            self.assertRaises(ExportError),
+        ):
             writer.verify_canary(fake_prog, ONNX_FP16_VARIANT)
         self.assertTrue(any("Non-finite output" in log for log in cm.output))
 

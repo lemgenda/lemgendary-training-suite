@@ -20,6 +20,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from training import ecosystem
 from training.config import secrets as secrets_vault
@@ -28,7 +29,14 @@ from training.data.containers.shard_tables import SHARD_CACHE_DIR_ENV
 from training.ecosystem import ECOSYSTEM_FILE_ENV
 from training.utils.paths import WORKSPACE_ROOT_ENV
 
+_ORIG_IMAGE_OPEN = Image.open
 ECOSYSTEM_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "ecosystem.json"
+
+
+@pytest.fixture(autouse=True)
+def _restore_pil_image_open() -> None:
+    """Prevent ultralytics from replacing PIL.Image.open with a pi_heif auto-installer."""
+    Image.open = _ORIG_IMAGE_OPEN
 
 TOKEN_SECRET_VARS = ("SUITE_PAT", "GOOGLE_DRIVE", "GOOGLE_DRIVE_JSON")
 """Environment variables ``get_secret`` serves for the GitHub and Google Drive credentials."""

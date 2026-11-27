@@ -62,7 +62,7 @@ def test_polarity_inversion_shield():
     )
 
     audit_res = governor.audit_epoch(signals_inverted, epochs_no_improve=0)
-    status_msg = str(audit_res[7])
+    status_msg = audit_res[7]
     assert "NPP FAILURE" in status_msg or "RECOIL" in status_msg
 
 
@@ -77,7 +77,7 @@ def test_terminal_progress_guard_advances_epoch():
             "total_steps": 10000,
         },
     }
-    phase, is_intra, step = _progress(payload_completed, 0)
+    phase, is_intra, step, *_ = _progress(payload_completed, 0)
     assert phase == "train"
     assert is_intra is False
     assert step == 9995
@@ -94,7 +94,7 @@ def test_terminal_progress_guard_advances_epoch():
             "total_steps": 10000,
         },
     }
-    _phase_mid, is_intra_mid, step_mid = _progress(payload_mid_epoch, 0)
+    _phase_mid, is_intra_mid, step_mid, *_ = _progress(payload_mid_epoch, 0)
     assert is_intra_mid is True
     assert step_mid == 5000
 
@@ -137,7 +137,7 @@ def test_rank_margin_tightening_in_targeted_optimization():
         metrics_dict={"srcc": 0.75, "plcc": 0.92},
     )
     audit_res = governor.audit_epoch(signals, epochs_no_improve=6)
-    msg = str(audit_res[7])
+    msg = audit_res[7]
 
     assert governor.current_rank_margin < initial_margin
     assert "Margin:" in msg
