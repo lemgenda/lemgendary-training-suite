@@ -26,6 +26,13 @@
 - **Roadmap**:
   [training_suite_refactoring_roadmap.md](../lemgendary-docs/roadmaps/training_suite_refactoring_roadmap.md)
 
+### v16.9.255 - Ecosystem Snapshot & Documentation Alignment
+
+- **Ecosystem Snapshot Sync (`training/ecosystem.json`)**: Synchronized
+  bundled ecosystem snapshot with
+  `lemgendary-env-manager/ecosystem/ecosystem.json`
+  (`8000`/`8150`/`8200` ports and canonical project metadata).
+
 ### v16.9.254 - Package Version Synchronization
 
 - Upgraded package(s) for the lemgendary-training-suite.
