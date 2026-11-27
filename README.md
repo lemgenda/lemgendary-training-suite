@@ -28,6 +28,9 @@
 
 ### v16.9.255 - Ecosystem Snapshot & Documentation Alignment
 
+- **Pre-Commit Hook Sync (`.githooks/pre-commit`)**: Updated line-length guard
+  hook path to `lemgendary-env-manager/tools/check_line_lengths.py`.
+
 - **Ecosystem Snapshot Sync (`training/ecosystem.json`)**: Synchronized
   bundled ecosystem snapshot with
   `lemgendary-env-manager/ecosystem/ecosystem.json`
